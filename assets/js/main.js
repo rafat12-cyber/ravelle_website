@@ -30,10 +30,10 @@
       '<a class="card" data-line="' + esc(p.line) + '" href="#p-' + p.slug + '" style="--tone:' + p.hex + '">' +
         '<img class="card__img" src="' + p.img[0] + '" alt="' + esc(p.name + " in " + p.color) + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' +
         '<span class="card__type" aria-hidden="true">' + esc(p.label || p.line) + "<small>" + esc(p.color) + "</small></span>" +
-        '<span class="card__top"><span class="chip">−' + p.off + "%</span>" +
+        '<span class="card__top">' + (p.off ? '<span class="chip">−' + p.off + "%</span>" : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
         '<span class="card__bar"><span class="card__name"><b>' + esc(p.name) + "</b>" +
-          '<span class="card__price">' + esc(p.color) + " · " + taka(p.price) + "<s>" + taka(p.was) + "</s></span></span>" +
+          '<span class="card__price">' + esc(p.color) + " · " + taka(p.price) + (p.off ? "<s>" + taka(p.was) + "</s>" : "") + "</span></span>" +
           '<span class="card__go" aria-hidden="true">›</span></span>' +
       "</a>"
     );
@@ -160,12 +160,11 @@
   // Scroll: drifting marquees and the lookbook stack
   var lookbook = document.getElementById("lookbook");
   var lookImgs = lookbook ? $$(".look__img", lookbook) : [];
-  var LOOKS = [
-    ["Fearless tee<br>Black wash", "● Oversized tee<br>Wide trouser"],
-    ["Fearless tee<br>Ocean blue", "● Oversized tee<br>Black trouser"],
-    ["Fearless tee<br>Yellow wash", "● Oversized tee<br>Black trouser"],
-    ["RVCHL tee<br>Yellow", "● Oversized tee<br>Star wide-leg"]
-  ];
+  var LOOKS = function (i) {
+    var l = ((DATA.home || {}).lookbook || {}).looks || [];
+    var br = function (t) { return esc(t || "").replace(/\n/g, "<br>"); };
+    return l[i] ? [br(l[i].name), "● " + br(l[i].items)] : ["", ""];
+  };
   var current = 0;
   function onScroll() {
     var vh = window.innerHeight;
@@ -182,8 +181,8 @@
       if (idx !== current) {
         lookImgs[current].classList.remove("is-on");
         lookImgs[idx].classList.add("is-on");
-        $("#lookName").innerHTML = LOOKS[idx][0];
-        $("#lookItems").innerHTML = LOOKS[idx][1];
+        $("#lookName").innerHTML = LOOKS(idx)[0];
+        $("#lookItems").innerHTML = LOOKS(idx)[1];
         $("#lookCount").textContent = "0" + (idx + 1) + " / 0" + lookImgs.length;
         current = idx;
       }
@@ -202,6 +201,10 @@
   var homeGrid = $("#grid");
   var homeList = PRODUCTS.filter(function (p) { return p.local; }).concat(PRODUCTS.filter(function (p) { return !p.local; })).slice(0, 12);
   homeGrid.innerHTML = grid(homeList);
+  $(".filters").innerHTML = ["all"].concat(DATA.lineOrder).map(function (l, i) {
+    return '<button class="filter' + (i ? "" : " is-on") + '" data-filter="' + esc(l) + '" role="tab" aria-selected="' + !i + '">' +
+      esc(l === "all" ? "All" : l === "574" ? "574 Acid Wash" : l) + "</button>";
+  }).join("");
   $$(".filters .filter").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var f = btn.dataset.filter;
@@ -253,7 +256,7 @@
     var cfg = SHOPS[key];
     var base = cfg.list();
     head(cfg.crumb, cfg.title, cfg.sub || base.length + " pieces. Prices in BDT, sizes M to 2XL.");
-    var lines = ["All"].concat(Object.keys(DATA.lines));
+    var lines = ["All"].concat(DATA.lineOrder);
     var colors = [];
     base.forEach(function (p) { if (!colors.some(function (c) { return c.name === p.color; })) colors.push({ name: p.color, hex: p.hex }); });
     page.innerHTML =
@@ -329,7 +332,7 @@
           '<div class="pd__main slat" data-fallback style="--tone:' + p.hex + '">' +
             '<img id="pdMain" data-guard src="' + p.img[0] + '" alt="' + esc(p.name + " in " + p.color) + '">' +
             '<span class="card__type" aria-hidden="true">' + esc(p.label || p.line) + "<small>" + esc(p.color) + "</small></span>" +
-            '<span class="pd__tag mono">−' + p.off + "% · Summer offer</span>" +
+            (p.off ? '<span class="pd__tag mono">−' + p.off + "% · Summer offer</span>" : "") +
           "</div>" +
           '<div class="pd__thumbs" role="group" aria-label="Photos">' +
             p.img.map(function (src, i) {
@@ -341,7 +344,7 @@
         '<div class="pd__info">' +
           '<p class="eyebrow"><a href="#shop">Shop</a> / <a href="#t-shirt">T-shirt</a> / ' + esc(p.line) + "</p>" +
           '<h1 class="pd__name">' + esc(p.label || p.line) + ' <em class="alt" data-scramble>oversized</em> T-shirt <span class="pd__color">' + esc(p.color) + "</span></h1>" +
-          '<p class="pd__price"><b>' + taka(p.price) + "</b><s>" + taka(p.was) + '</s><span class="chip chip--sale">Save ' + taka(p.was - p.price) + "</span></p>" +
+          '<p class="pd__price"><b>' + taka(p.price) + "</b>" + (p.off ? "<s>" + taka(p.was) + '</s><span class="chip chip--sale">Save ' + taka(p.was - p.price) + "</span>" : "") + "</p>" +
           '<p class="pd__about">' + esc(p.about) + "</p>" +
           '<div class="pd__block"><p class="pd__label mono">Size · <span id="sizeLabel">Choose one</span></p>' +
             '<div class="sizes" role="radiogroup" aria-label="Size">' + p.sizes.map(function (s) {

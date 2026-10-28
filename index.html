@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ravelle Home Demo</title>
+<title>Ravelle</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Ravelle – A Life Style Brand. Designed for presence, not attention.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,200..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets/css/style.css">
-<script>try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.classList.add("js-intro")}catch(e){}</script>
+<script>try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches&&!/[?&]preview\b/.test(location.search))document.documentElement.classList.add("js-intro")}catch(e){}</script>
 </head>
 <body>
 
@@ -46,12 +46,12 @@
 
     <div class="hero__copy">
       <h1 class="display">
-        <span class="line"><span>Designed for presence,</span></span>
-        <span class="line"><span>not <em class="alt" data-scramble>attention!</em></span></span>
+        <span class="line"><span data-c="hero.line1">Designed for presence,</span></span>
+        <span class="line"><span><span data-c="hero.lead">not</span> <em class="alt" data-scramble data-c="hero.accent">attention!</em></span></span>
       </h1>
       <div class="hero__ctas">
-        <a class="pill pill--dark" href="#shop">Shop now</a>
-        <a class="pill pill--light" href="#the-house">Explore the House</a>
+        <a class="pill pill--dark" href="#shop" data-c="hero.cta1">Shop now</a>
+        <a class="pill pill--light" href="#the-house" data-c="hero.cta2">Explore the House</a>
       </div>
     </div>
 
@@ -64,21 +64,21 @@
     </svg>
 
     <figure class="hero__model">
-      <img src="assets/img/c-yellow.webp" alt="Model in the Fearless oversized T-shirt in yellow" width="935" height="1400">
+      <img src="assets/img/c-yellow.webp" alt="Model in the Fearless oversized T-shirt in yellow" width="935" height="1400" data-ci="hero.image" data-calt="hero.imageAlt">
     </figure>
 
     <aside class="hero__side">
       <div class="avatars" aria-hidden="true">
-        <img src="assets/img/a-black.jpg" alt=""><img src="assets/img/a-blue.jpg" alt=""><img src="assets/img/a-rvchl.jpg" alt="">
+        <img src="assets/img/a-black.jpg" alt="" data-ci="hero.avatars.0"><img src="assets/img/a-blue.jpg" alt="" data-ci="hero.avatars.1"><img src="assets/img/a-rvchl.jpg" alt="" data-ci="hero.avatars.2">
       </div>
-      <p>Heavyweight oversized tees, acid washes and baggy fits. Made to be worn hard through a Dhaka summer.</p>
-      <a class="hero__link mono" href="#arrivals">New arrivals <span aria-hidden="true">↓</span></a>
+      <p data-c="hero.text">Heavyweight oversized tees, acid washes and baggy fits. Made to be worn hard through a Dhaka summer.</p>
+      <a class="hero__link mono" href="#arrivals"><span data-c="hero.link">New arrivals</span> <span aria-hidden="true">↓</span></a>
     </aside>
 
     <a class="hero__reel" href="#lookbook">
-      <img src="assets/img/d-black.jpg" alt="">
+      <img src="assets/img/d-black.jpg" alt="" data-ci="hero.reelImage">
       <span class="hero__play" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></span>
-      <span class="hero__reel-label">Watch the lookbook</span>
+      <span class="hero__reel-label" data-c="hero.reelLabel">Watch the lookbook</span>
     </a>
   </div>
 </header>
@@ -87,34 +87,34 @@
 
 <!-- 2. PRESENCE COLLAGE ------------------------------------------------- -->
 <section class="collage" aria-label="Fearless collection">
-  <p class="collage__word" aria-hidden="true">FEARLESS</p>
-  <figure class="collage__img collage__img--a reveal slat"><img src="assets/img/d-blue.jpg" alt="Fearless T-shirt in ocean blue, chest print detail" loading="lazy"></figure>
-  <figure class="collage__img collage__img--b reveal slat dark"><img class="cutout" src="assets/img/c-black.webp" alt="Model wearing the Fearless oversized T-shirt in black" loading="lazy"></figure>
-  <figure class="collage__img collage__img--c reveal slat"><img src="assets/img/d-yellow.jpg" alt="Fearless T-shirt in yellow, chest print detail" loading="lazy"></figure>
-  <p class="collage__note collage__note--a"><span class="mono">01 — Wash</span>Sun-faded dye and a cracked chest print. The Fearless tee comes in four washes.</p>
-  <p class="collage__note collage__note--b"><span class="mono">02 — Fit</span>Dropped shoulder, boxy body. Our model is 6'2" and wears size L.</p>
+  <p class="collage__word" aria-hidden="true" data-c="collage.word">FEARLESS</p>
+  <figure class="collage__img collage__img--a reveal slat"><img src="assets/img/d-blue.jpg" alt="Fearless T-shirt in ocean blue, chest print detail" loading="lazy" data-ci="collage.imageA"></figure>
+  <figure class="collage__img collage__img--b reveal slat dark"><img class="cutout" src="assets/img/c-black.webp" alt="Model wearing the Fearless oversized T-shirt in black" loading="lazy" data-ci="collage.imageB"></figure>
+  <figure class="collage__img collage__img--c reveal slat"><img src="assets/img/d-yellow.jpg" alt="Fearless T-shirt in yellow, chest print detail" loading="lazy" data-ci="collage.imageC"></figure>
+  <p class="collage__note collage__note--a"><span class="mono" data-c="collage.note1Title">01 — Wash</span><span data-c="collage.note1Text">Sun-faded dye and a cracked chest print. The Fearless tee comes in four washes.</span></p>
+  <p class="collage__note collage__note--b"><span class="mono" data-c="collage.note2Title">02 — Fit</span><span data-c="collage.note2Text">Dropped shoulder, boxy body. Our model is 6'2" and wears size L.</span></p>
 </section>
 
 <!-- 3. THE HOUSE / TOP PICKS --------------------------------------------- -->
 <section class="house" id="house">
   <div class="section-head">
-    <p class="eyebrow">The House</p>
-    <h2 class="h2">Signature drops <em class="alt" data-scramble>built</em> to be <br>worn, not shown.</h2>
-    <p class="section-head__aside">Five collections, each with its own mood. Start with the two that sell out first.</p>
+    <p class="eyebrow" data-c="house.eyebrow">The House</p>
+    <h2 class="h2"><span data-c="house.titleStart">Signature drops</span> <em class="alt" data-scramble data-c="house.accent">built</em> <span data-c="house.titleEnd">to be <br>worn, not shown.</span></h2>
+    <p class="section-head__aside" data-c="house.aside">Five collections, each with its own mood. Start with the two that sell out first.</p>
   </div>
 
   <div class="house__cards">
-    <a class="drop reveal slat dark" href="#c-nior-division">
-      <img class="cutout" src="assets/img/c-black.webp" alt="" loading="lazy">
-      <span class="drop__meta mono">01 / Nior Division<br>Autumn 2026</span>
-      <span class="drop__title"><span data-scramble>Dark</span><span data-scramble>washes for</span><span class="fade" data-scramble>the after</span><span class="fade fade--2" data-scramble>hours.</span></span>
-      <span class="chip chip--ghost">● Top selling</span>
+    <a class="drop reveal slat dark" href="#c-nior-division" data-chref="house.card1.link">
+      <img class="cutout" src="assets/img/c-black.webp" alt="" loading="lazy" data-ci="house.card1.image">
+      <span class="drop__meta mono" data-c="house.card1.meta">01 / Nior Division<br>Autumn 2026</span>
+      <span class="drop__title" data-lines="house.card1.title"><span data-scramble>Dark</span><span data-scramble>washes for</span><span class="fade" data-scramble>the after</span><span class="fade fade--2" data-scramble>hours.</span></span>
+      <span class="chip chip--ghost">●&nbsp;<span data-c="house.card1.chip">Top selling</span></span>
     </a>
-    <a class="drop reveal slat dark" href="#c-saint-sinners">
-      <img class="cutout" src="assets/img/c-blue.webp" alt="" loading="lazy">
-      <span class="drop__meta mono">02 / Saint &amp; Sinners Hype<br>Autumn 2026</span>
-      <span class="drop__title"><span class="fade fade--2" data-scramble>Loud</span><span class="fade" data-scramble>graphics,</span><span data-scramble>quiet</span><span data-scramble>confidence.</span></span>
-      <span class="chip chip--ghost">● New drop</span>
+    <a class="drop reveal slat dark" href="#c-saint-sinners" data-chref="house.card2.link">
+      <img class="cutout" src="assets/img/c-blue.webp" alt="" loading="lazy" data-ci="house.card2.image">
+      <span class="drop__meta mono" data-c="house.card2.meta">02 / Saint &amp; Sinners Hype<br>Autumn 2026</span>
+      <span class="drop__title" data-lines="house.card2.title"><span class="fade fade--2" data-scramble>Loud</span><span class="fade" data-scramble>graphics,</span><span data-scramble>quiet</span><span data-scramble>confidence.</span></span>
+      <span class="chip chip--ghost">●&nbsp;<span data-c="house.card2.chip">New drop</span></span>
     </a>
   </div>
 
@@ -128,34 +128,27 @@
 <!-- 4. OFFER POSTER ------------------------------------------------------ -->
 <section class="poster" aria-label="Summer offer">
   <div class="poster__stage">
-    <p class="marquee marquee--a" data-drift="-1" aria-hidden="true">RAINING OFFERS FOR HOT SUMMER ✕ RAINING OFFERS FOR HOT SUMMER ✕</p>
+    <p class="marquee marquee--a" data-drift="-1" aria-hidden="true" data-marquee="poster.marqueeTop">RAINING OFFERS FOR HOT SUMMER ✕ RAINING OFFERS FOR HOT SUMMER ✕</p>
     <div class="poster__card reveal slat dark">
       <img class="poster__logo" src="assets/img/logo.png" alt="">
-      <p class="mono poster__kicker">Up to 31% off</p>
-      <h2 class="poster__title">Raining offers<br>for hot summer</h2>
-      <img class="cutout poster__img" src="assets/img/c-rvchl.webp" alt="Model in the RVCHL oversized T-shirt in yellow with wide black trousers" loading="lazy">
-      <a class="pill pill--light pill--sm poster__cta" href="#on-sale">Shop the sale</a>
+      <p class="mono poster__kicker" data-c="poster.kicker">Up to 31% off</p>
+      <h2 class="poster__title" data-c="poster.title">Raining offers<br>for hot summer</h2>
+      <img class="cutout poster__img" src="assets/img/c-rvchl.webp" alt="Model in the RVCHL oversized T-shirt in yellow with wide black trousers" loading="lazy" data-ci="poster.image" data-calt="poster.imageAlt">
+      <a class="pill pill--light pill--sm poster__cta" href="#on-sale" data-c="poster.cta">Shop the sale</a>
     </div>
-    <p class="marquee marquee--b" data-drift="1" aria-hidden="true">OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕</p>
+    <p class="marquee marquee--b" data-drift="1" aria-hidden="true" data-marquee="poster.marqueeBottom">OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕</p>
   </div>
 </section>
 
 <!-- 5. NEW ARRIVALS ------------------------------------------------------ -->
 <section class="arrivals" id="arrivals">
   <div class="arrivals__head">
-    <p class="eyebrow">New arrival</p>
-    <h2 class="h2 h2--center">Fresh fits for your <em class="alt" data-scramble>next</em> move!</h2>
+    <p class="eyebrow" data-c="arrivals.eyebrow">New arrival</p>
+    <h2 class="h2 h2--center"><span data-c="arrivals.titleStart">Fresh fits for your</span> <em class="alt" data-scramble data-c="arrivals.accent">next</em> <span data-c="arrivals.titleEnd">move!</span></h2>
     <a class="eyebrow eyebrow--link" href="#shop">All products</a>
   </div>
 
-  <div class="filters" role="tablist" aria-label="Filter by line">
-    <button class="filter is-on" data-filter="all" role="tab" aria-selected="true">All</button>
-    <button class="filter" data-filter="Fearless" role="tab" aria-selected="false">Fearless</button>
-    <button class="filter" data-filter="RVCHL" role="tab" aria-selected="false">RVCHL</button>
-    <button class="filter" data-filter="Stride Out" role="tab" aria-selected="false">Stride Out</button>
-    <button class="filter" data-filter="Paradox" role="tab" aria-selected="false">Paradox</button>
-    <button class="filter" data-filter="574" role="tab" aria-selected="false">574 Acid Wash</button>
-  </div>
+  <div class="filters" role="tablist" aria-label="Filter by line"><!-- filled by main.js --></div>
 
   <div class="grid" id="grid"><!-- filled by main.js --></div>
 
@@ -167,19 +160,19 @@
 <!-- 6. LOOKBOOK ----------------------------------------------------------- -->
 <section class="lookbook" id="lookbook" aria-label="Lookbook">
   <div class="lookbook__sticky">
-    <p class="marquee marquee--back" data-drift="-1.4" aria-hidden="true">FRESH FITS FOR YOUR NEXT MOVE · FRESH FITS FOR YOUR NEXT MOVE ·</p>
+    <p class="marquee marquee--back" data-drift="-1.4" aria-hidden="true" data-marquee="lookbook.marqueeBack" data-sep="·">FRESH FITS FOR YOUR NEXT MOVE · FRESH FITS FOR YOUR NEXT MOVE ·</p>
     <div class="look" id="look">
-      <img class="look__img is-on" src="assets/img/c-black.webp" alt="Look 1: Fearless tee in black">
-      <img class="look__img" src="assets/img/c-blue.webp" alt="Look 2: Fearless tee in ocean blue">
-      <img class="look__img" src="assets/img/c-yellow.webp" alt="Look 3: Fearless tee in yellow">
-      <img class="look__img" src="assets/img/c-rvchl.webp" alt="Look 4: RVCHL tee with wide trousers">
+      <img class="look__img is-on" data-ci="lookbook.looks.0.image" src="assets/img/c-black.webp" alt="Look 1: Fearless tee in black">
+      <img class="look__img" data-ci="lookbook.looks.1.image" src="assets/img/c-blue.webp" alt="Look 2: Fearless tee in ocean blue">
+      <img class="look__img" data-ci="lookbook.looks.2.image" src="assets/img/c-yellow.webp" alt="Look 3: Fearless tee in yellow">
+      <img class="look__img" data-ci="lookbook.looks.3.image" src="assets/img/c-rvchl.webp" alt="Look 4: RVCHL tee with wide trousers">
       <span class="look__tl mono" id="lookName">Fearless tee<br>Black wash</span>
       <span class="look__tr mono">Autumn 2026<br>Drop</span>
       <span class="look__bl mono">Model 6'2"<br>Wears L</span>
       <span class="look__br mono" id="lookItems">● Oversized tee<br>Wide trouser</span>
       <span class="look__count mono" id="lookCount">01 / 04</span>
     </div>
-    <p class="marquee marquee--front" data-drift="1.4" aria-hidden="true">YOUR NEXT MOVE · YOUR NEXT MOVE · YOUR NEXT MOVE · YOUR NEXT MOVE ·</p>
+    <p class="marquee marquee--front" data-drift="1.4" aria-hidden="true" data-marquee="lookbook.marqueeFront" data-sep="·">YOUR NEXT MOVE · YOUR NEXT MOVE · YOUR NEXT MOVE · YOUR NEXT MOVE ·</p>
   </div>
 </section>
 
@@ -209,7 +202,7 @@
 <footer class="footer">
   <div class="footer__top">
     <div>
-      <p class="footer__tag">Designed for presence,<br>not attention.</p>
+      <p class="footer__tag" data-c="footer.tagline">Designed for presence,<br>not attention.</p>
       <form class="footer__form" id="news">
         <label class="sr" for="email">Email</label>
         <input id="email" type="email" placeholder="Your email for drop alerts" required>
@@ -239,7 +232,9 @@
 </aside>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="assets/js/content.js"></script>
 <script src="assets/js/data.js"></script>
+<script src="assets/js/home.js"></script>
 <script src="assets/js/main.js"></script>
 </body>
 </html>

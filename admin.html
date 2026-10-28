@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Ravelle Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,200..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/admin/admin.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="bar__brand" href="admin.html" aria-label="Ravelle admin">
+    <img src="assets/img/logo.png" alt="Ravelle" width="64" height="35">
+    <span class="mono">Admin</span>
+  </a>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab is-on" role="tab" aria-selected="true" data-tab="home">Home page</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="products">Products</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="publish">Publish</button>
+  </nav>
+  <div class="bar__end">
+    <span class="status mono" id="status"></span>
+    <a class="btn btn--ghost" href="index.html?preview" target="_blank" rel="noopener">Open preview</a>
+    <button class="btn btn--dark" type="button" data-tab="publish">Publish</button>
+  </div>
+</header>
+
+<!-- HOME PAGE ------------------------------------------------------------ -->
+<section class="view view--home" data-view="home">
+  <div class="editor" id="homeForm" aria-label="Home page content"></div>
+  <div class="preview">
+    <div class="preview__bar">
+      <span class="mono">Live preview · unpublished draft</span>
+      <div class="seg" role="group" aria-label="Preview size">
+        <button type="button" class="is-on" data-size="desktop">Desktop</button>
+        <button type="button" data-size="mobile">Phone</button>
+      </div>
+    </div>
+    <div class="preview__stage" id="stage">
+      <iframe id="frame" title="Home page preview" src="index.html?preview#home"></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- PRODUCTS --------------------------------------------------------------- -->
+<section class="view view--products" data-view="products" hidden>
+  <div class="plist">
+    <div class="plist__head">
+      <div>
+        <h1 class="h1">Products</h1>
+        <p class="muted" id="pcount"></p>
+      </div>
+      <div class="plist__tools">
+        <input class="input" type="search" id="psearch" placeholder="Search products" aria-label="Search products">
+        <button class="btn btn--dark" type="button" id="padd">Add product</button>
+      </div>
+    </div>
+    <ul class="prows" id="prows"></ul>
+  </div>
+  <div class="pedit" id="pedit" aria-label="Edit product"></div>
+</section>
+
+<!-- PUBLISH ---------------------------------------------------------------- -->
+<section class="view view--publish" data-view="publish" hidden>
+  <div class="pub">
+    <h1 class="h1">Publish</h1>
+    <p class="muted">Your edits are saved as a draft in this browser and shown in the preview. Publishing saves them to the website's GitHub repository, so everyone sees them once the site redeploys.</p>
+
+    <div class="card" id="changes"></div>
+
+    <form class="card" id="ghForm" autocomplete="off">
+      <h2 class="h2">GitHub connection</h2>
+      <div class="row3">
+        <label class="field"><span>Owner</span><input class="input" name="owner" required></label>
+        <label class="field"><span>Repository</span><input class="input" name="repo" required></label>
+        <label class="field"><span>Branch</span><input class="input" name="branch" required></label>
+      </div>
+      <label class="field"><span>Access token</span>
+        <input class="input" name="token" type="password" placeholder="github_pat_…" required>
+      </label>
+      <p class="hint">Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> for this repository only, with <b>Contents: Read and write</b>. Anyone without a token can open this page but can't change the website.</p>
+      <label class="check"><input type="checkbox" name="remember"> Remember the token on this device</label>
+      <div class="actions">
+        <button class="btn btn--dark" type="submit" id="pubBtn">Publish to website</button>
+        <button class="btn btn--ghost" type="button" id="download">Download content.js</button>
+      </div>
+      <ol class="log mono" id="log" hidden></ol>
+    </form>
+
+    <div class="card card--quiet">
+      <h2 class="h2">Start over</h2>
+      <p class="muted">Throw away the draft in this browser and go back to what is live on the website.</p>
+      <button class="btn btn--danger" type="button" id="discard">Discard draft</button>
+    </div>
+  </div>
+</section>
+
+<!-- Image library ------------------------------------------------------------ -->
+<dialog class="lib" id="lib">
+  <form method="dialog" class="lib__head">
+    <h2 class="h2">Choose an image</h2>
+    <button class="icon" value="cancel" aria-label="Close">✕</button>
+  </form>
+  <div class="lib__grid" id="libGrid"></div>
+  <div class="lib__foot">
+    <label class="field field--grow"><span>Or paste an image link</span><input class="input" id="libUrl" placeholder="https://…"></label>
+    <button class="btn btn--dark" type="button" id="libUse">Use link</button>
+  </div>
+</dialog>
+
+<input type="file" id="file" accept="image/*" hidden>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/js/content.js"></script>
+<script src="assets/admin/admin.js"></script>
+</body>
+</html>

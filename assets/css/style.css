@@ -619,3 +619,7 @@ body.is-locked { overflow: hidden; }
   .panel { padding: 20px; }
 }
 .pd__color { display: block; margin-top: 10px; font-size: .42em; font-weight: 500; letter-spacing: .08em; font-stretch: 100%; color: var(--ink-2); }
+
+/* Admin preview: briefly outline the element being edited */
+.is-flash { animation: editFlash 1.2s ease; }
+@keyframes editFlash { 0%, 60% { outline: 2px solid #e2ff3d; outline-offset: 4px; } 100% { outline: 2px solid transparent; outline-offset: 4px; } }
