@@ -1,5 +1,5 @@
-// Starting data for a new store: settings, categories, variations, the 15
-// products from ravellebd.com (October 2026), page content and menus.
+// Starting data for a new store: settings, categories, variations, the 41
+// products from the October 2026 shoot, page content and menus.
 // The server copies this into data/db.json on first run; the demo copies it
 // into the browser. Edit the live data from the admin panel, not here.
 (function (root, factory) {
@@ -40,21 +40,40 @@
     { id: "att_size", name: "Size", type: "button", values: ["S", "M", "L", "XL", "2XL", "3XL"].map(function (v) { return { label: v }; }), createdAt: T0 },
     { id: "att_color", name: "Color", type: "color", values: [
       { label: "Black", hex: "#1f2022" }, { label: "Ocean Blue", hex: "#3e6577" }, { label: "Yellow", hex: "#b4a679" },
-      { label: "Brick Red", hex: "#8e3b2c" }, { label: "Blue", hex: "#3b5677" }, { label: "Cream", hex: "#c9bda3" }, { label: "Coffee", hex: "#5b4335" }
+      { label: "Brick Red", hex: "#8e3b2c" }, { label: "Blue", hex: "#3b5677" }, { label: "Cream", hex: "#c9bda3" }, { label: "Coffee", hex: "#5b4335" },
+      { label: "Green", hex: "#2f8f6b" }, { label: "Red", hex: "#b52a45" }, { label: "Pink", hex: "#c93f5f" }, { label: "Charcoal", hex: "#45474b" }
     ], createdAt: T0 }
   ];
 
   // ---------------------------------------------------------------------------
-  // Products. One colour is one product; sizes are its variations.
+  // Products. One colour is one product; sizes are its variations. A line's
+  // type sets how its products are named and which category they sit in.
   // ---------------------------------------------------------------------------
+  var TYPE = {
+    tee: { name: function (line, color) { return line + " Oversized T-shirt – " + color; }, cat: "cat_t_shirt" },
+    shirt: { name: function (line, color) { return "Boxy Fitted Shirt – " + color; }, cat: "cat_half_shirt" },
+    trouser: { name: function (line, color) { return "Baggy Trouser – " + color; }, cat: "cat_trouser" }
+  };
   var LINE = {
     "Fearless": { code: "FRL", about: "Cracked Fearless chest print on a dip-dyed, sun-faded body. Oversized fit with a dropped shoulder." },
     "RVCHL": { code: "RVC", about: "A small RVCHL wordmark on a boxy oversized blank. Easy to wear with anything." },
     "Stride Out": { code: "STO", about: "Stride Out graphic on an oversized, dropped-shoulder body." },
     "Paradox": { code: "PDX", about: "Paradox graphic on an oversized, dropped-shoulder body." },
-    "574 Acid Washed": { code: "574", about: "Acid-washed oversized tee with the 574 graphic." }
+    "574 Acid Washed": { code: "574", about: "Acid-washed oversized tee with the 574 graphic." },
+    "Brand New Day": { code: "BND", about: "Brand New Day spider graphic on an acid-washed, oversized body." },
+    "After Hours": { code: "AFH", about: "After Hours city-at-night print on a sun-faded, dip-dyed oversized body." },
+    "Trust Broken": { code: "TRB", about: "Small chest mark up front, Trust Broken chain print across the back. Faded, dip-dyed oversized body." },
+    "Starlight": { code: "STL", about: "Small chest logo up front, a big star-burst script print across the back. Faded oversized body." },
+    "Santa Rosa": { code: "SRS", about: "Small chest patch up front, a Santa Rosa newspaper-and-roses collage across the back." },
+    "Talking Rubbish": { code: "TRS", about: "\"Why do you think you're talking rubbish?\" printed at the chest, photo print on the back." },
+    "Cloud Nine": { code: "CL9", about: "Small chest logo up front, a black-and-white cloud photo collage across the back." },
+    "Halo": { code: "HAL", about: "Round Halo graphic on an acid-washed, oversized body." },
+    "Boxy Fitted Shirt": { code: "BXS", type: "shirt", about: "Short-sleeve shirt with a boxy, relaxed fit, an open collar and an all-over print." },
+    "Baggy Trouser": { code: "BGT", type: "trouser", about: "Wide, baggy-fit trouser with a relaxed, full-length leg." }
   };
-  var COLOR = { "Black": "BLK", "Ocean Blue": "OBL", "Yellow": "YLW", "Brick Red": "BRD", "Blue": "BLU", "Cream": "CRM", "Coffee": "COF" };
+  var COLOR = { "Black": "BLK", "Ocean Blue": "OBL", "Yellow": "YLW", "Brick Red": "BRD", "Blue": "BLU", "Cream": "CRM", "Coffee": "COF",
+    "Green": "GRN", "Red": "RED", "Pink": "PNK", "Charcoal": "CHR",
+    "Mosaic": "MOS", "Line Art": "LNA", "Coral Wave": "CRW", "Sage Garden": "SGG", "Mono Bloom": "MNB" };
   var FIT = ["Model usually wears size L top and 32 waist bottoms. Model is wearing size L.", "Fits true to size.",
     "Model height: 6 ft 2 in (183 cm). Chest: 38 in (97 cm). Shoulder: 18.5 in (47 cm)."];
   var P = [
@@ -72,18 +91,44 @@
     ["Paradox", "Black", "#1f2022", 890, 1190, "paradox-oversized-t-shirt-black", photos("paradox-black", 4), false, false],
     ["574 Acid Washed", "Coffee", "#5b4335", 680, 990, "574-acid-washed-oversized-t-shirt-coffee", photos("574-coffee", 3), false, false],
     ["574 Acid Washed", "Yellow", "#a3904f", 680, 990, "574-acid-washed-oversized-t-shirt-yellow", photos("574-yellow", 4), false, false],
-    ["574 Acid Washed", "Brick Red", "#8e3b2c", 680, 990, "574-oversized-t-shirt-brick-red", photos("574-brick-red", 4), false, false]
+    ["574 Acid Washed", "Brick Red", "#8e3b2c", 680, 990, "574-oversized-t-shirt-brick-red", photos("574-brick-red", 4), false, false],
+    ["Brand New Day", "Black", "#2e2f31", 680, 990, "brand-new-day-acid-washed-oversized-t-shirt-black", photos("brand-new-day-black", 4), true, false],
+    ["Brand New Day", "Green", "#2f8f6b", 680, 990, "brand-new-day-acid-washed-oversized-t-shirt-green", photos("brand-new-day-green", 2), true, false],
+    ["After Hours", "Black", "#2b2c2e", 890, 1190, "after-hours-oversized-t-shirt-black", photos("after-hours-black", 4), true, false],
+    ["After Hours", "Ocean Blue", "#3e6577", 890, 1190, "after-hours-oversized-t-shirt-ocean-blue", photos("after-hours-blue", 4), true, false],
+    ["Trust Broken", "Ocean Blue", "#3e6577", 890, 1190, "trust-broken-oversized-t-shirt-ocean-blue", photos("trust-broken-blue", 4), true, false],
+    ["Trust Broken", "Black", "#2b2c2e", 890, 1190, "trust-broken-oversized-t-shirt-black", photos("trust-broken-black", 4), true, false],
+    ["Starlight", "Ocean Blue", "#3e6577", 890, 1190, "starlight-oversized-t-shirt-ocean-blue", photos("starlight-blue", 4), true, false],
+    ["Starlight", "Black", "#2b2c2e", 890, 1190, "starlight-oversized-t-shirt-black", photos("starlight-black", 4), true, false],
+    ["Starlight", "Cream", "#c9bda3", 890, 1190, "starlight-oversized-t-shirt-cream", photos("starlight-cream", 4), true, false],
+    ["Santa Rosa", "Ocean Blue", "#3e6577", 890, 1190, "santa-rosa-oversized-t-shirt-ocean-blue", photos("santa-rosa-blue", 4), true, false],
+    ["Santa Rosa", "Red", "#b52a45", 890, 1190, "santa-rosa-oversized-t-shirt-red", photos("santa-rosa-red", 4), true, false],
+    ["Santa Rosa", "Black", "#1f2022", 890, 1190, "santa-rosa-oversized-t-shirt-black", photos("santa-rosa-black", 4), true, false],
+    ["Talking Rubbish", "Black", "#1f2022", 890, 1190, "talking-rubbish-oversized-t-shirt-black", photos("talking-rubbish-black", 4), true, false],
+    ["Cloud Nine", "Brick Red", "#8e4a3c", 680, 990, "cloud-nine-acid-washed-oversized-t-shirt-brick-red", photos("cloud-nine-brick-red", 4), true, false],
+    ["Cloud Nine", "Black", "#1f2022", 890, 1190, "cloud-nine-oversized-t-shirt-black", photos("cloud-nine-black", 4), true, false],
+    ["Cloud Nine", "Charcoal", "#45474b", 680, 990, "cloud-nine-acid-washed-oversized-t-shirt-charcoal", photos("cloud-nine-charcoal", 4), true, false],
+    ["Halo", "Yellow", "#a3904f", 680, 990, "halo-acid-washed-oversized-t-shirt-yellow", photos("halo-yellow", 4), true, false],
+    ["Halo", "Green", "#2f8f6b", 680, 990, "halo-acid-washed-oversized-t-shirt-green", photos("halo-green", 4), true, false],
+    ["Halo", "Pink", "#c93f5f", 680, 990, "halo-acid-washed-oversized-t-shirt-pink", photos("halo-pink", 4), true, false],
+    ["Boxy Fitted Shirt", "Mosaic", "#7a4a36", 850, 1290, "boxy-fitted-shirt-mosaic", photos("shirt-mosaic", 4), true, true],
+    ["Boxy Fitted Shirt", "Line Art", "#d4a184", 850, 1290, "boxy-fitted-shirt-line-art", photos("shirt-line-art", 4), true, false],
+    ["Boxy Fitted Shirt", "Coral Wave", "#c98a7c", 850, 1290, "boxy-fitted-shirt-coral-wave", photos("shirt-coral-wave", 3), true, false],
+    ["Boxy Fitted Shirt", "Sage Garden", "#8d958c", 850, 1290, "boxy-fitted-shirt-sage-garden", photos("shirt-sage-garden", 4), true, true],
+    ["Boxy Fitted Shirt", "Mono Bloom", "#e9e6df", 850, 1290, "boxy-fitted-shirt-mono-bloom", photos("shirt-mono-bloom", 4), true, false],
+    ["Baggy Trouser", "Black", "#1f2022", 990, 1390, "baggy-trouser-black", photos("baggy-trouser-black", 3), true, true],
+    ["Baggy Trouser", "Charcoal", "#45474b", 990, 1390, "baggy-trouser-charcoal", photos("baggy-trouser-charcoal", 4), true, false]
   ];
   var SIZES = ["M", "L", "XL", "2XL"];
   var STOCK = { M: 18, L: 24, XL: 20, "2XL": 12 };
   var products = P.map(function (r, i) {
-    var line = r[0], color = r[1], sku = "RV-" + LINE[line].code + "-" + COLOR[color];
+    var line = r[0], color = r[1], sku = "RV-" + LINE[line].code + "-" + COLOR[color], type = TYPE[LINE[line].type || "tee"];
     return {
       id: "prd_" + r[5].replace(/-/g, "_").slice(0, 40), slug: r[5], sku: sku, status: "published",
-      name: line + " Oversized T-shirt – " + color, line: line, color: color, hex: r[2],
+      name: type.name(line, color), line: line, color: color, hex: r[2],
       price: r[3], comparePrice: r[4], description: LINE[line].about, details: FIT.slice(),
       images: r[6], sizeGuide: "assets/img/size-guide-sample.png",
-      categoryIds: ["cat_men", "cat_t_shirt"], isNew: r[7], featured: r[8], trackStock: true, stock: 0,
+      categoryIds: ["cat_men", type.cat], isNew: r[7], featured: r[8], trackStock: true, stock: 0,
       attributes: [{ name: "Size", values: SIZES.slice() }],
       variants: SIZES.map(function (s) { return { id: "var_" + i + "_" + s.toLowerCase(), sku: sku + "-" + s, options: { Size: s }, price: null, stock: STOCK[s] - (i % 4) * 2 }; }),
       createdAt: T0 - i * 36e5, updatedAt: T0

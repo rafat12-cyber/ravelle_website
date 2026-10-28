@@ -47,7 +47,7 @@ npm start               # http://localhost:3000, admin at /admin
 npm test                # end-to-end API check
 ```
 
-On first start the store is filled with the 15 products and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
+On first start the store is filled with the 41 products from the October 2026 shoot and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
 
 ### `.env`
 
