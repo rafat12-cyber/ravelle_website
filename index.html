@@ -14,30 +14,33 @@
 </head>
 <body>
 
+<div data-view="home">
+
 <!-- 1. HERO ------------------------------------------------------------ -->
 <header class="hero" id="top">
   <div class="hero__panel">
     <nav class="nav" aria-label="Main">
       <ul class="nav__group">
-        <li><a href="https://ravellebd.com/shop/" target="_blank" rel="noopener">Shop</a></li>
-        <li><a href="https://ravellebd.com/product-category/men/" target="_blank" rel="noopener">Men</a></li>
-        <li><a href="https://ravellebd.com/product-category/women/" target="_blank" rel="noopener">Women</a></li>
-        <li><a href="#house">The House</a></li>
+        <li><a href="#shop">Shop</a></li>
+        <li><a href="#men">Men</a></li>
+        <li><a href="#women">Women</a></li>
+        <li><a href="#the-house">The House</a></li>
       </ul>
-      <a class="nav__brand" href="#top" aria-label="Ravelle home">
+      <a class="nav__brand" href="#home" aria-label="Ravelle home">
         <img src="assets/img/logo.png" alt="Ravelle" width="100" height="54">
       </a>
       <div class="nav__group nav__group--end">
         <ul class="nav__group nav__links-end">
-          <li><a href="#arrivals">New in</a></li>
-          <li><a href="https://ravellebd.com/product-category/on-sale/" target="_blank" rel="noopener">On sale</a></li>
+          <li><a href="#new-in">New in</a></li>
+          <li><a href="#on-sale">On sale</a></li>
         </ul>
-        <a class="icon-btn icon-btn--line" href="https://ravellebd.com/my-account/" target="_blank" rel="noopener" aria-label="Account">
+        <a class="icon-btn icon-btn--line" href="#account" aria-label="Account">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </a>
-        <a class="icon-btn" href="https://ravellebd.com/cart-2/" target="_blank" rel="noopener" aria-label="Bag">
+        <button class="icon-btn bag-btn" type="button" data-open-bag aria-label="Open bag">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </a>
+          <span class="bag-count" data-bag-count hidden>0</span>
+        </button>
       </div>
     </nav>
 
@@ -47,8 +50,8 @@
         <span class="line"><span>not <em class="alt" data-scramble>attention!</em></span></span>
       </h1>
       <div class="hero__ctas">
-        <a class="pill pill--dark" href="#arrivals">Shop now</a>
-        <a class="pill pill--light" href="#house">Explore the House</a>
+        <a class="pill pill--dark" href="#shop">Shop now</a>
+        <a class="pill pill--light" href="#the-house">Explore the House</a>
       </div>
     </div>
 
@@ -101,13 +104,13 @@
   </div>
 
   <div class="house__cards">
-    <a class="drop reveal slat dark" href="https://ravellebd.com/product-category/nior-division/" target="_blank" rel="noopener">
+    <a class="drop reveal slat dark" href="#c-nior-division">
       <img class="cutout" src="assets/img/c-black.webp" alt="" loading="lazy">
       <span class="drop__meta mono">01 / Nior Division<br>Autumn 2026</span>
       <span class="drop__title"><span data-scramble>Dark</span><span data-scramble>washes for</span><span class="fade" data-scramble>the after</span><span class="fade fade--2" data-scramble>hours.</span></span>
       <span class="chip chip--ghost">● Top selling</span>
     </a>
-    <a class="drop reveal slat dark" href="https://ravellebd.com/product-category/saint-sinners/" target="_blank" rel="noopener">
+    <a class="drop reveal slat dark" href="#c-saint-sinners">
       <img class="cutout" src="assets/img/c-blue.webp" alt="" loading="lazy">
       <span class="drop__meta mono">02 / Saint &amp; Sinners Hype<br>Autumn 2026</span>
       <span class="drop__title"><span class="fade fade--2" data-scramble>Loud</span><span class="fade" data-scramble>graphics,</span><span data-scramble>quiet</span><span data-scramble>confidence.</span></span>
@@ -116,9 +119,9 @@
   </div>
 
   <ul class="house__more">
-    <li><a href="https://ravellebd.com/product-category/essential/" target="_blank" rel="noopener">Essential Collection <span aria-hidden="true">↗</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/obsedian/" target="_blank" rel="noopener">Obsedian Virtue <span aria-hidden="true">↗</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/monarch-drop/" target="_blank" rel="noopener">Monarch Drop <span aria-hidden="true">↗</span></a></li>
+    <li><a href="#c-essential">Essential Collection <span aria-hidden="true">→</span></a></li>
+    <li><a href="#c-obsedian">Obsedian Virtue <span aria-hidden="true">→</span></a></li>
+    <li><a href="#c-monarch-drop">Monarch Drop <span aria-hidden="true">→</span></a></li>
   </ul>
 </section>
 
@@ -131,7 +134,7 @@
       <p class="mono poster__kicker">Up to 31% off</p>
       <h2 class="poster__title">Raining offers<br>for hot summer</h2>
       <img class="cutout poster__img" src="assets/img/c-rvchl.webp" alt="Model in the RVCHL oversized T-shirt in yellow with wide black trousers" loading="lazy">
-      <a class="pill pill--light pill--sm poster__cta" href="https://ravellebd.com/product-category/on-sale/" target="_blank" rel="noopener">Shop the sale</a>
+      <a class="pill pill--light pill--sm poster__cta" href="#on-sale">Shop the sale</a>
     </div>
     <p class="marquee marquee--b" data-drift="1" aria-hidden="true">OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕</p>
   </div>
@@ -142,7 +145,7 @@
   <div class="arrivals__head">
     <p class="eyebrow">New arrival</p>
     <h2 class="h2 h2--center">Fresh fits for your <em class="alt" data-scramble>next</em> move!</h2>
-    <a class="eyebrow eyebrow--link" href="https://ravellebd.com/product-category/men/" target="_blank" rel="noopener">All categories</a>
+    <a class="eyebrow eyebrow--link" href="#shop">All products</a>
   </div>
 
   <div class="filters" role="tablist" aria-label="Filter by line">
@@ -157,7 +160,7 @@
   <div class="grid" id="grid"><!-- filled by main.js --></div>
 
   <div class="center">
-    <a class="pill pill--dark pill--arrow" href="https://ravellebd.com/shop/" target="_blank" rel="noopener">See all products <span class="pill__arrow" aria-hidden="true">↗</span></a>
+    <a class="pill pill--dark pill--arrow" href="#shop">See all products <span class="pill__arrow" aria-hidden="true">↗</span></a>
   </div>
 </section>
 
@@ -184,16 +187,23 @@
 <section class="cats" aria-label="Shop by category">
   <p class="eyebrow">Shop men</p>
   <ul class="cats__list">
-    <li><a href="https://ravellebd.com/product-category/t-shirt/" target="_blank" rel="noopener"><span>T-shirt</span><span class="mono">15 styles</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/polo/" target="_blank" rel="noopener"><span>Polo</span><span class="mono">Soon</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/half-shirt/" target="_blank" rel="noopener"><span>Half shirt</span><span class="mono">Soon</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/full-shirt/" target="_blank" rel="noopener"><span>Full shirt</span><span class="mono">Soon</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/trouser/" target="_blank" rel="noopener"><span>Trouser</span><span class="mono">Soon</span></a></li>
-    <li><a href="https://ravellebd.com/product-category/denim-pant/" target="_blank" rel="noopener"><span>Denim pant</span><span class="mono">Soon</span></a></li>
+    <li><a href="#t-shirt"><span>T-shirt</span><span class="mono">15 styles</span></a></li>
+    <li><a href="#soon-polo"><span>Polo</span><span class="mono">Soon</span></a></li>
+    <li><a href="#soon-half-shirt"><span>Half shirt</span><span class="mono">Soon</span></a></li>
+    <li><a href="#soon-full-shirt"><span>Full shirt</span><span class="mono">Soon</span></a></li>
+    <li><a href="#soon-trouser"><span>Trouser</span><span class="mono">Soon</span></a></li>
+    <li><a href="#soon-denim-pant"><span>Denim pant</span><span class="mono">Soon</span></a></li>
   </ul>
 </section>
 
 </main>
+</div>
+
+<!-- PAGES (shop, product, collections, checkout...) rendered by main.js -->
+<div data-view="page" hidden>
+  <div class="hero pagehead" id="pagehead"></div>
+  <main id="page" class="page"></main>
+</div>
 
 <!-- 8. FOOTER ------------------------------------------------------------ -->
 <footer class="footer">
@@ -208,15 +218,28 @@
       <p class="footer__ok mono" id="newsOk" hidden>You're on the list. We'll email you before the next drop.</p>
     </div>
     <nav class="footer__cols" aria-label="Footer">
-      <ul><li class="mono">Shop</li><li><a href="https://ravellebd.com/product-category/men/" target="_blank" rel="noopener">Men</a></li><li><a href="https://ravellebd.com/product-category/women/" target="_blank" rel="noopener">Women</a></li><li><a href="https://ravellebd.com/product-category/on-sale/" target="_blank" rel="noopener">On sale</a></li></ul>
-      <ul><li class="mono">The House</li><li><a href="https://ravellebd.com/product-category/nior-division/" target="_blank" rel="noopener">Nior Division</a></li><li><a href="https://ravellebd.com/product-category/saint-sinners/" target="_blank" rel="noopener">Saint &amp; Sinners</a></li><li><a href="https://ravellebd.com/product-category/essential/" target="_blank" rel="noopener">Essential</a></li></ul>
-      <ul><li class="mono">Help</li><li><a href="https://ravellebd.com/my-account/" target="_blank" rel="noopener">Account</a></li><li><a href="https://ravellebd.com/cart-2/" target="_blank" rel="noopener">Cart</a></li><li><a href="https://ravellebd.com/thehouse" target="_blank" rel="noopener">About</a></li></ul>
+      <ul><li class="mono">Shop</li><li><a href="#men">Men</a></li><li><a href="#women">Women</a></li><li><a href="#on-sale">On sale</a></li></ul>
+      <ul><li class="mono">The House</li><li><a href="#c-nior-division">Nior Division</a></li><li><a href="#c-saint-sinners">Saint &amp; Sinners</a></li><li><a href="#c-essential">Essential</a></li></ul>
+      <ul><li class="mono">Help</li><li><a href="#account">Account</a></li><li><a href="#saved">Saved</a></li><li><a href="#checkout">Checkout</a></li><li><a href="#about">About</a></li></ul>
     </nav>
   </div>
   <p class="footer__word" aria-hidden="true">RAVELLE</p>
   <p class="footer__copy mono">© 2026 Ravelle – A Life Style Brand · Prices in BDT (৳)</p>
 </footer>
 
+<!-- BAG DRAWER ------------------------------------------------------------ -->
+<div class="scrim" data-close-bag hidden></div>
+<aside class="drawer" id="bag" aria-label="Your bag" aria-hidden="true">
+  <div class="drawer__head">
+    <p class="drawer__title">Your bag <span class="mono" data-bag-count-text>(0)</span></p>
+    <button class="icon-btn icon-btn--line" type="button" data-close-bag aria-label="Close bag">✕</button>
+  </div>
+  <div class="drawer__body" id="bagItems"></div>
+  <div class="drawer__foot" id="bagFoot"></div>
+</aside>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/js/data.js"></script>
 <script src="assets/js/main.js"></script>
 </body>
 </html>
