@@ -30,30 +30,24 @@
     grid.innerHTML = PRODUCTS.map(function (p, i) {
       var name = (p.label || p.line) + " Oversized T-shirt";
       var off = Math.round((1 - p.price / p.was) * 100);
-      var url = SITE + "/product/" + p.slug + "/";
       return (
-        '<article class="card" data-line="' + p.line + '" style="--tone:' + p.tone + '">' +
-          '<a class="card__media" href="' + url + '" target="_blank" rel="noopener" tabindex="-1">' +
-            '<img class="card__img" src="' + p.img + '" alt="' + name + " in " + p.color + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' +
-            '<span class="card__type" aria-hidden="true">' + (p.label || p.line) + "<small>" + p.color + "</small></span>" +
-            '<span class="card__tag">−' + off + "%</span>" +
-          "</a>" +
-          '<button class="card__fav" type="button" aria-pressed="false" aria-label="Save ' + name + '">' +
-            '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' +
-          "</button>" +
-          '<div class="card__info">' +
-            '<span class="card__line">' + p.color + "</span>" +
-            '<a class="card__name" href="' + url + '" target="_blank" rel="noopener">' + name + "</a>" +
-            '<span class="card__price">' + taka(p.price) + "<s>" + taka(p.was) + "</s></span>" +
-          "</div>" +
-          '<a class="card__btn" href="' + url + '" target="_blank" rel="noopener">Add to bag</a>' +
-        "</article>"
+        '<a class="card" data-line="' + p.line + '" href="' + SITE + "/product/" + p.slug + '/" target="_blank" rel="noopener" style="--tone:' + p.tone + '">' +
+          '<img class="card__img" src="' + p.img + '" alt="' + name + " in " + p.color + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' +
+          '<span class="card__type" aria-hidden="true">' + (p.label || p.line) + "<small>" + p.color + "</small></span>" +
+          '<span class="card__top"><span class="chip">−' + off + "%</span>" +
+            '<button class="card__fav" type="button" aria-pressed="false" aria-label="Save ' + name + '">' +
+              '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>' +
+            "</button></span>" +
+          '<span class="card__bar"><span class="card__name"><b>' + name + "</b>" +
+            '<span class="card__price">' + p.color + " · " + taka(p.price) + "<s>" + taka(p.was) + "</s></span></span>" +
+            '<span class="card__go" aria-hidden="true">›</span></span>' +
+        "</a>"
       );
     }).join("");
 
     // A photo that can't load (offline, blocked host) becomes a type card.
     grid.querySelectorAll(".card__img").forEach(function (img) {
-      var fail = function () { img.closest(".card__media").classList.add("no-img"); img.remove(); };
+      var fail = function () { img.closest(".card").classList.add("no-img"); img.remove(); };
       if (img.complete && img.naturalWidth === 0 && img.currentSrc) fail();
       else img.addEventListener("error", fail, { once: true });
     });
@@ -104,17 +98,71 @@
       entries.forEach(function (en) {
         if (!en.isIntersecting) return;
         var el = en.target;
-        if (el.hasAttribute("data-scramble")) scramble(el);
-        if (el.classList.contains("shutter")) el.classList.add("is-playing");
+        scramble(el);
         io.unobserve(el);
       });
     }, { threshold: 0.4 });
     var heroWord = document.querySelector(".hero [data-scramble]");
     var intro = document.documentElement.classList.contains("js-intro");
     if (heroWord && intro) setTimeout(function () { scramble(heroWord); }, 2350);
-    document.querySelectorAll("[data-scramble], .shutter").forEach(function (el) {
+    document.querySelectorAll("[data-scramble]").forEach(function (el) {
       if (!(intro && el === heroWord)) io.observe(el);
     });
+
+    // Cards rise into place, then the photo builds in horizontal slats.
+    var rio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var el = en.target;
+        rio.unobserve(el);
+        el.classList.add("is-in");
+        if (el.classList.contains("slat")) setTimeout(function () { buildSlats(el); }, 380);
+      });
+    }, { threshold: 0.25 });
+    document.querySelectorAll(".reveal").forEach(function (el) { rio.observe(el); });
+  }
+
+  // Copies the card's photo into strips; each strip opens sideways from a thin
+  // line, then thickens to meet its neighbours, staggered top to bottom.
+  function buildSlats(el) {
+    var img = el.querySelector(":scope > img");
+    if (!img || !img.animate) return;
+    var go = function () {
+      var N = 14, band = 100 / N, strips = [], done = 0;
+      var er = el.getBoundingClientRect(), ir = img.getBoundingClientRect(), cs = getComputedStyle(img);
+      var box = { left: ir.left - er.left, top: ir.top - er.top, width: ir.width, height: ir.height };
+      el.classList.add("is-building");
+      for (var i = 0; i < N; i++) {
+        var strip = document.createElement("div");
+        strip.className = "slat__strip";
+        var copy = img.cloneNode();
+        copy.removeAttribute("loading");
+        copy.removeAttribute("class");
+        copy.alt = "";
+        copy.style.cssText = "position:absolute;max-width:none;margin:0;padding:0;translate:none;transform:none;" +
+          "left:" + box.left + "px;top:" + box.top + "px;width:" + box.width + "px;height:" + box.height + "px;" +
+          "object-fit:" + cs.objectFit + ";object-position:" + cs.objectPosition + ";padding:" + cs.padding + ";box-sizing:" + cs.boxSizing + ";";
+        strip.appendChild(copy);
+        el.insertBefore(strip, img);
+        strips.push(strip);
+        var top = i * band, bot = 100 - (i + 1) * band - 0.3;
+        var thin = band * 0.42;
+        var fromLeft = i % 3 !== 1;
+        var start = "inset(" + (top + thin) + "% " + (fromLeft ? 100 : 0) + "% " + (bot + thin) + "% " + (fromLeft ? 0 : 100) + "%)";
+        var mid = "inset(" + (top + thin) + "% 0% " + (bot + thin) + "% 0%)";
+        var end = "inset(" + top + "% 0% " + Math.max(0, bot) + "% 0%)";
+        strip.animate(
+          [{ clipPath: start }, { clipPath: mid, offset: 0.6 }, { clipPath: end }],
+          { duration: 820, delay: i * 45 + (i % 2) * 70, easing: "cubic-bezier(.7,0,.25,1)", fill: "both" }
+        ).onfinish = function () {
+          if (++done < N) return;
+          el.classList.remove("is-building");
+          strips.forEach(function (s) { s.remove(); });
+        };
+      }
+    };
+    if (img.complete && img.naturalWidth) go();
+    else img.addEventListener("load", go, { once: true });
   }
 
   // Scroll: drifting marquees and the lookbook stack -------------------------
