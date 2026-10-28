@@ -315,8 +315,7 @@
   function viewProduct(slug) {
     var p = PRODUCTS.filter(function (x) { return x.slug === slug; })[0];
     if (!p) return viewMissing();
-    var siblings = PRODUCTS.filter(function (x) { return x.line === p.line; });
-    var related = PRODUCTS.filter(function (x) { return x.line !== p.line; }).sort(function (a, b) { return (b.local ? 1 : 0) - (a.local ? 1 : 0); }).slice(0, 4);
+    var related = PRODUCTS.filter(function (x) { return x !== p; }).sort(function (a, b) { return (b.local ? 1 : 0) - (a.local ? 1 : 0); }).slice(0, 4);
     pagehead.innerHTML = "";
     var mini = document.createElement("div");
     mini.className = "hero__panel pagehead__panel pagehead__panel--mini";
@@ -341,13 +340,9 @@
         "</div>" +
         '<div class="pd__info">' +
           '<p class="eyebrow"><a href="#shop">Shop</a> / <a href="#t-shirt">T-shirt</a> / ' + esc(p.line) + "</p>" +
-          '<h1 class="pd__name">' + esc(p.label || p.line) + ' <em class="alt" data-scramble>oversized</em> T-shirt</h1>' +
+          '<h1 class="pd__name">' + esc(p.label || p.line) + ' <em class="alt" data-scramble>oversized</em> T-shirt <span class="pd__color">' + esc(p.color) + "</span></h1>" +
           '<p class="pd__price"><b>' + taka(p.price) + "</b><s>" + taka(p.was) + '</s><span class="chip chip--sale">Save ' + taka(p.was - p.price) + "</span></p>" +
           '<p class="pd__about">' + esc(p.about) + "</p>" +
-          '<div class="pd__block"><p class="pd__label mono">Colour · <span>' + esc(p.color) + "</span></p>" +
-            '<div class="swatches">' + siblings.map(function (s) {
-              return '<a class="swatch' + (s === p ? " is-on" : "") + '" href="#p-' + s.slug + '" style="--sw:' + s.hex + '" title="' + esc(s.color) + '" aria-current="' + (s === p) + '"><span class="sr">' + esc(s.color) + "</span></a>";
-            }).join("") + "</div></div>" +
           '<div class="pd__block"><p class="pd__label mono">Size · <span id="sizeLabel">Choose one</span></p>' +
             '<div class="sizes" role="radiogroup" aria-label="Size">' + p.sizes.map(function (s) {
               return '<button class="size" type="button" role="radio" aria-checked="false" data-size="' + s + '">' + s + "</button>";
