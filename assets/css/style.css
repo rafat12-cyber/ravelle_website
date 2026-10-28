@@ -96,7 +96,7 @@ button { font: inherit; color: inherit; }
 /* notched tab behind the logo */
 .hero__panel::before {
   content: ""; position: absolute; top: 0; left: 50%; translate: -50% 0;
-  width: min(440px, 46%); height: 46px; background: var(--ground);
+  width: min(300px, 40%); height: 50px; background: var(--ground);
   clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
   border-radius: 0 0 18px 18px; z-index: 1;
 }
@@ -110,26 +110,44 @@ button { font: inherit; color: inherit; }
 .nav__group--end { justify-content: flex-end; gap: 10px; }
 .nav__links-end { margin-right: 14px; }
 .nav__group a:not(.pill):not(.icon-btn):hover { opacity: .6; }
-.nav__brand { display: flex; align-items: center; gap: 10px; margin-top: -8px; }
-.nav__brand img { height: 26px; width: auto; }
-.nav__brand span { font-size: 18px; font-weight: 400; font-stretch: 125%; letter-spacing: .32em; }
+.nav__brand { display: flex; align-items: center; margin-top: -6px; }
+.nav__brand img { height: 36px; width: auto; }
+.icon-btn--line { background: transparent; color: var(--ink); border: 1px solid rgba(17,18,20,.35); transition: background .2s, color .2s; }
+.icon-btn--line:hover { background: var(--ink); color: var(--paper); }
 
 .hero__copy { position: relative; z-index: 2; display: grid; justify-items: center; gap: 20px; padding: 56px 16px 0; }
 .hero__ctas { display: flex; gap: 6px; }
 
 .hero__rays { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .hero__model {
-  position: relative; align-self: end; justify-self: center;
-  width: min(520px, 62%); margin-top: -10px;
+  position: relative; z-index: 1; align-self: end; justify-self: center;
+  width: min(700px, 62%); margin-top: 0; margin-bottom: -4%;
+  transform-origin: 50% 100%;
 }
-/* the studio backdrop is near-white, so multiply melts it into the sky */
-.hero__model img {
-  width: 100%; height: auto; mix-blend-mode: multiply;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10%), linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
-  -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(180deg, transparent 0, #000 10%), linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
-  mask-composite: intersect;
+.hero__model img { width: 100%; height: auto; }
+.display .line { display: block; overflow: hidden; padding-bottom: .06em; }
+.display .line > span { display: inline-block; }
+
+/* Intro, as in the reference: the cut-out builds up in horizontal slats at a
+   large scale, settles into place, then the copy and side pieces arrive. */
+@property --slat { syntax: "<length>"; inherits: false; initial-value: 17px; }
+.js-intro .hero__model {
+  -webkit-mask-image: repeating-linear-gradient(180deg, transparent 0 calc(16px - var(--slat)), #000 calc(16px - var(--slat)) calc(16px + var(--slat)), transparent calc(16px + var(--slat)) 32px);
+  mask-image: repeating-linear-gradient(180deg, transparent 0 calc(16px - var(--slat)), #000 calc(16px - var(--slat)) calc(16px + var(--slat)), transparent calc(16px + var(--slat)) 32px);
+  animation: slats 1s cubic-bezier(.7,0,.3,1) .25s both, settle .8s cubic-bezier(.65,0,.25,1) 1.55s both;
 }
+.js-intro .nav > * { animation: fadeIn .7s ease .1s both; }
+.js-intro .hero__rays { animation: fadeIn 1s ease 2s both; }
+.js-intro .display .line > span { animation: lineUp .8s cubic-bezier(.2,.7,.2,1) both; }
+.js-intro .display .line:nth-child(1) > span { animation-delay: 2.15s; }
+.js-intro .display .line:nth-child(2) > span { animation-delay: 2.3s; }
+.js-intro .hero__ctas { animation: rise .7s ease 2.55s both; }
+.js-intro .hero__side, .js-intro .hero__reel { animation: rise .8s ease 2.1s both; }
+@keyframes slats { from { --slat: 0px; } to { --slat: 17px; } }
+@keyframes settle { from { transform: translateY(-16%) scale(1.32); } to { transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lineUp { from { transform: translateY(110%); } to { transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 .hero__side { position: absolute; left: 28px; bottom: 70px; width: 200px; z-index: 2; display: grid; gap: 22px; }
 .hero__side p { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2); text-indent: 3.2em; }
@@ -243,13 +261,13 @@ button { font: inherit; color: inherit; }
 .filter { height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid #c3c8cd; background: transparent; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; cursor: pointer; }
 .filter.is-on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 40px; }
-.card {
-  position: relative; display: block; overflow: hidden;
-  aspect-ratio: 4 / 5.4; border-radius: var(--r-md);
-  background: linear-gradient(180deg, #d8dadc, #bfc3c7);
-  transition: opacity .3s, transform .3s;
-}
+.card { position: relative; display: grid; gap: 12px; align-content: start; min-width: 0; }
 .card[hidden] { display: none; }
+.card__media {
+  position: relative; display: block; overflow: hidden;
+  aspect-ratio: 4 / 5; border-radius: 4px;
+  background: linear-gradient(180deg, #d8dadc, #bfc3c7);
+}
 .card__img { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; transition: transform .6s; }
 .card:hover .card__img { transform: scale(1.05); }
 /* no photo reachable: a typographic card instead of a broken image */
@@ -260,20 +278,23 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(160deg, var(--tone, #444) 0%, #151618 100%);
 }
 .card__type small { display: block; margin-top: 10px; font-family: var(--f-mono); font-size: 10px; letter-spacing: .08em; opacity: .7; font-stretch: 100%; }
-.card__top { position: absolute; z-index: 2; top: 10px; left: 10px; right: 10px; display: flex; justify-content: flex-end; gap: 4px; }
-.card__fav { width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(255,255,255,.85); display: grid; place-items: center; cursor: pointer; }
+.card__tag { position: absolute; z-index: 2; top: 0; left: 0; padding: 5px 9px; background: var(--ink); color: var(--paper); font-family: var(--f-mono); font-size: 10px; letter-spacing: .06em; }
+.card__fav { position: absolute; z-index: 2; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(255,255,255,.9); display: grid; place-items: center; cursor: pointer; }
 .card__fav[aria-pressed="true"] svg path { fill: var(--sale); stroke: var(--sale); }
-.card__bar {
-  position: absolute; z-index: 2; left: 10px; right: 10px; bottom: 10px;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 8px 8px 12px; border-radius: 12px;
-  background: rgba(240,241,242,.82); backdrop-filter: blur(10px);
+.card__info { display: grid; gap: 4px; text-align: center; padding-inline: 4px; }
+.card__line { font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+.card__name { font-size: 14px; font-weight: 500; line-height: 1.25; text-transform: uppercase; letter-spacing: .02em; }
+.card__name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.card__price { font-size: 13px; font-variant-numeric: tabular-nums; }
+.card__price s { color: var(--ink-2); margin-left: 6px; }
+/* classic, square-edged bag button that fills on hover */
+.card__btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 42px; border: 1px solid var(--ink); background: transparent; color: var(--ink);
+  font-size: 11px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+  transition: background .25s, color .25s;
 }
-.card__name { font-size: 11.5px; line-height: 1.25; min-width: 0; }
-.card__name b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card__price { font-variant-numeric: tabular-nums; color: var(--ink-2); }
-.card__price s { opacity: .6; margin-left: 4px; }
-.card__go { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--paper); display: grid; place-items: center; font-size: 12px; }
+.card__btn:hover { background: var(--ink); color: var(--paper); }
 
 /* 6. Lookbook ------------------------------------------------------------- */
 .lookbook { height: 340vh; position: relative; }
@@ -344,16 +365,14 @@ button { font: inherit; color: inherit; }
 @media (max-width: 560px) {
   .hero__panel::before { width: 62%; }
   .nav { padding-inline: 12px; }
-  .nav__brand span { display: none; }
-  .nav__group--end .pill { display: none; }
   .hero__copy { padding-top: 44px; }
   .hero__ctas .pill { height: 36px; padding: 0 14px; font-size: 10.5px; }
   .hero__reel { display: none; }
   .house__cards { grid-template-columns: 1fr; }
   .arrivals__head { grid-template-columns: 1fr 1fr; }
   .arrivals__head .h2 { grid-column: 1 / -1; grid-row: 2; }
-  .card__bar { padding: 6px 6px 6px 8px; }
-  .card__go { display: none; }
+  .card__btn { height: 38px; letter-spacing: .1em; font-size: 10px; }
+  .card__name { font-size: 12.5px; }
   .footer__cols { grid-template-columns: repeat(2, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
