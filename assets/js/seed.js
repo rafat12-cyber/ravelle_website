@@ -8,8 +8,8 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  var UP = "https://ravellebd.com/wp-content/uploads/2026/10/";
-  var img = function (list) { return list.map(function (f) { return f.indexOf("/") > -1 ? f : UP + f; }); };
+  // Product photos: front, front close-up, side, back (assets/img/products/<name>-1..4.jpg)
+  var photos = function (name, count) { var out = []; for (var i = 1; i <= count; i++) out.push("assets/img/products/" + name + "-" + i + ".jpg"); return out; };
   var T0 = Date.UTC(2026, 9, 20);
 
   // ---------------------------------------------------------------------------
@@ -58,21 +58,21 @@
   var FIT = ["Model usually wears size L top and 32 waist bottoms. Model is wearing size L.", "Fits true to size.",
     "Model height: 6 ft 2 in (183 cm). Chest: 38 in (97 cm). Shoulder: 18.5 in (47 cm)."];
   var P = [
-    ["Fearless", "Black", "#2b2c2e", 890, 1190, "oversized-t-shirt-fearless-black", ["assets/img/p-black.jpg", "assets/img/d-black.jpg", "DSC06876-c.jpg", "DSC06896.jpg", "DSC06885.jpg"], true, true],
-    ["Fearless", "Ocean Blue", "#3e6577", 890, 1190, "fearless-oversized-t-shirt-ocean-blue", ["assets/img/p-blue.jpg", "assets/img/d-blue.jpg", "DSC06927.jpg", "DSC06929.jpg", "DSC06934.jpg", "DSC06945.jpg"], true, true],
-    ["Fearless", "Yellow", "#b4a679", 890, 1190, "fearless-oversized-t-shirt-yellow", ["assets/img/p-yellow.jpg", "assets/img/d-yellow.jpg", "DSC07057-copy.jpg", "DSC07061.jpg", "DSC07059.jpg", "DSC07051.jpg"], true, true],
-    ["Fearless", "Brick Red", "#8e3b2c", 890, 1190, "oversized-t-shirt-fearless-bricks-red", ["DSC06870.jpg", "DSC06875-Recovered.jpg", "DSC06860.jpg", "DSC06862.jpg"], false, false],
-    ["RVCHL", "Yellow", "#b3a578", 890, 1190, "rvchl-oversized-t-shirt-yellow", ["assets/img/p-rvchl.jpg", "assets/img/d-rvchl.jpg", "DSC07102-1.jpg", "DSC07100-1.jpg", "DSC07093-1.jpg"], false, true],
-    ["RVCHL", "Ocean Blue", "#335a6c", 890, 1190, "rvchl-oversized-t-shirt-ocean-blue", ["DSC07019.jpg", "DSC07015.jpg", "DSC07007.jpg"], false, false],
-    ["RVCHL", "Black", "#1f2022", 890, 1190, "rvchl-oversized-t-shirt-black", ["DSC07142.jpg", "DSC07147.jpg", "DSC07137.jpg"], false, false],
-    ["Stride Out", "Brick Red", "#8e3b2c", 890, 1190, "stride-out-oversized-t-shirt-brick-red", ["DSC07039-e1791909755544.jpg", "DSC07028.jpg"], true, false],
-    ["Stride Out", "Black", "#232426", 890, 1190, "stride-out-oversized-t-shirt-black", ["DSC06916-e1791909430135.jpg", "DSC06907.jpg", "DSC06912.jpg", "DSC06914.jpg"], true, false],
-    ["Stride Out", "Blue", "#3b5677", 890, 1190, "stride-out-oversized-t-shirt-blue", ["DSC07320-e1791909216302.jpg", "DSC07313.jpg", "DSC07318.jpg", "DSC07326.jpg"], true, false],
-    ["Paradox", "Cream", "#c9bda3", 890, 1190, "paradox-oversized-t-shirt-cream", ["DSC07500-e1791908150328.jpg", "DSC07506.jpg", "DSC07491.jpg"], false, false],
-    ["Paradox", "Black", "#1f2022", 890, 1190, "paradox-oversized-t-shirt-black", ["DSC07342-1.jpg", "DSC07346-1.jpg", "DSC07350-1.jpg"], false, false],
-    ["574 Acid Washed", "Coffee", "#5b4335", 680, 990, "574-acid-washed-oversized-t-shirt-coffee", ["DSC07487-e1791908605959.jpg", "DSC07490.jpg", "DSC07486.jpg"], false, false],
-    ["574 Acid Washed", "Yellow", "#a3904f", 680, 990, "574-acid-washed-oversized-t-shirt-yellow", ["DSC07374-e1791908428897.jpg", "DSC07368-e1791908334225.jpg", "DSC07353.jpg", "DSC07355.jpg"], false, false],
-    ["574 Acid Washed", "Brick Red", "#8e3b2c", 680, 990, "574-oversized-t-shirt-brick-red", ["DSC07477-e1791908074932.jpg", "DSC07480.jpg", "DSC07469.jpg", "DSC07479.jpg"], false, false]
+    ["Fearless", "Black", "#2b2c2e", 890, 1190, "oversized-t-shirt-fearless-black", photos("fearless-black", 4), true, true],
+    ["Fearless", "Ocean Blue", "#3e6577", 890, 1190, "fearless-oversized-t-shirt-ocean-blue", photos("fearless-ocean-blue", 4), true, true],
+    ["Fearless", "Yellow", "#b4a679", 890, 1190, "fearless-oversized-t-shirt-yellow", photos("fearless-yellow", 4), true, true],
+    ["Fearless", "Brick Red", "#8e3b2c", 890, 1190, "oversized-t-shirt-fearless-bricks-red", photos("fearless-brick-red", 4), false, false],
+    ["RVCHL", "Yellow", "#b3a578", 890, 1190, "rvchl-oversized-t-shirt-yellow", photos("rvchl-yellow", 4), false, true],
+    ["RVCHL", "Ocean Blue", "#335a6c", 890, 1190, "rvchl-oversized-t-shirt-ocean-blue", photos("rvchl-ocean-blue", 4), false, false],
+    ["RVCHL", "Black", "#1f2022", 890, 1190, "rvchl-oversized-t-shirt-black", photos("rvchl-black", 4), false, false],
+    ["Stride Out", "Brick Red", "#8e3b2c", 890, 1190, "stride-out-oversized-t-shirt-brick-red", photos("stride-out-brick-red", 2), true, false],
+    ["Stride Out", "Black", "#232426", 890, 1190, "stride-out-oversized-t-shirt-black", photos("stride-out-black", 4), true, false],
+    ["Stride Out", "Blue", "#3b5677", 890, 1190, "stride-out-oversized-t-shirt-blue", photos("stride-out-blue", 4), true, false],
+    ["Paradox", "Cream", "#c9bda3", 890, 1190, "paradox-oversized-t-shirt-cream", photos("paradox-cream", 4), false, false],
+    ["Paradox", "Black", "#1f2022", 890, 1190, "paradox-oversized-t-shirt-black", photos("paradox-black", 4), false, false],
+    ["574 Acid Washed", "Coffee", "#5b4335", 680, 990, "574-acid-washed-oversized-t-shirt-coffee", photos("574-coffee", 3), false, false],
+    ["574 Acid Washed", "Yellow", "#a3904f", 680, 990, "574-acid-washed-oversized-t-shirt-yellow", photos("574-yellow", 4), false, false],
+    ["574 Acid Washed", "Brick Red", "#8e3b2c", 680, 990, "574-oversized-t-shirt-brick-red", photos("574-brick-red", 4), false, false]
   ];
   var SIZES = ["M", "L", "XL", "2XL"];
   var STOCK = { M: 18, L: 24, XL: 20, "2XL": 12 };
@@ -82,7 +82,7 @@
       id: "prd_" + r[5].replace(/-/g, "_").slice(0, 40), slug: r[5], sku: sku, status: "published",
       name: line + " Oversized T-shirt – " + color, line: line, color: color, hex: r[2],
       price: r[3], comparePrice: r[4], description: LINE[line].about, details: FIT.slice(),
-      images: img(r[6]), sizeGuide: "assets/img/size-guide-sample.png",
+      images: r[6], sizeGuide: "assets/img/size-guide-sample.png",
       categoryIds: ["cat_men", "cat_t_shirt"], isNew: r[7], featured: r[8], trackStock: true, stock: 0,
       attributes: [{ name: "Size", values: SIZES.slice() }],
       variants: SIZES.map(function (s) { return { id: "var_" + i + "_" + s.toLowerCase(), sku: sku + "-" + s, options: { Size: s }, price: null, stock: STOCK[s] - (i % 4) * 2 }; }),

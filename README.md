@@ -104,4 +104,4 @@ Open `index.html` straight from the folder, add `?demo` to the address, or host 
 | `server/test.js` | End-to-end test |
 | `docs/API.md` | API and webhook guide |
 
-Products without a local photo load their image from ravellebd.com. If it can't load, the card shows the product name on a colour panel instead.
+Product photos live in `assets/img/products/` (front, front close-up, side and back for each product). Photos you add in the admin are stored in the data folder. If a photo can't load, the card shows the product name on a colour panel instead.
