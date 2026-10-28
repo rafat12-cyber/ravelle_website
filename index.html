@@ -4,45 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ravelle</title>
+<link rel="icon" href="assets/img/logo.png">
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Ravelle – A Life Style Brand. Designed for presence, not attention.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,200..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets/css/style.css">
-<script>try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches&&!/[?&]preview\b/.test(location.search))document.documentElement.classList.add("js-intro")}catch(e){}</script>
+<script>try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches&&!/[?&](preview|edit)\b/.test(location.search))document.documentElement.classList.add("js-intro")}catch(e){}</script>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
+<p class="announce mono" id="announce" hidden></p>
 
-<div data-view="home">
+<!-- Sticky header: appears once the hero nav scrolls away -->
+<header class="topbar" id="topbar" aria-label="Site header"></header>
+
+<div data-view="home" data-page="home">
 
 <!-- 1. HERO ------------------------------------------------------------ -->
 <header class="hero" id="top">
   <div class="hero__panel">
-    <nav class="nav" aria-label="Main">
-      <ul class="nav__group">
-        <li><a href="#shop">Shop</a></li>
-        <li><a href="#men">Men</a></li>
-        <li><a href="#women">Women</a></li>
-        <li><a href="#the-house">The House</a></li>
-      </ul>
-      <a class="nav__brand" href="#home" aria-label="Ravelle home">
-        <img src="assets/img/logo.png" alt="Ravelle" width="100" height="54">
-      </a>
-      <div class="nav__group nav__group--end">
-        <ul class="nav__group nav__links-end">
-          <li><a href="#new-in">New in</a></li>
-          <li><a href="#on-sale">On sale</a></li>
-        </ul>
-        <a class="icon-btn icon-btn--line" href="#account" aria-label="Account">
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        </a>
-        <button class="icon-btn bag-btn" type="button" data-open-bag aria-label="Open bag">
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-          <span class="bag-count" data-bag-count hidden>0</span>
-        </button>
-      </div>
-    </nav>
+    <nav class="nav" aria-label="Main"><a class="nav__brand" href="#home" aria-label="Ravelle home"><img src="assets/img/logo.png" alt="Ravelle" width="100" height="54"></a></nav>
 
     <div class="hero__copy">
       <h1 class="display">
@@ -50,8 +33,8 @@
         <span class="line"><span><span data-c="hero.lead">not</span> <em class="alt" data-scramble data-c="hero.accent">attention!</em></span></span>
       </h1>
       <div class="hero__ctas">
-        <a class="pill pill--dark" href="#shop" data-c="hero.cta1">Shop now</a>
-        <a class="pill pill--light" href="#the-house" data-c="hero.cta2">Explore the House</a>
+        <a class="pill pill--dark" href="#shop" data-chref="hero.cta1Link" data-c="hero.cta1">Shop now</a>
+        <a class="pill pill--light" href="#category/the-house" data-chref="hero.cta2Link" data-c="hero.cta2">Explore the House</a>
       </div>
     </div>
 
@@ -83,7 +66,7 @@
   </div>
 </header>
 
-<main>
+<main id="main">
 
 <!-- 2. PRESENCE COLLAGE ------------------------------------------------- -->
 <section class="collage" aria-label="Fearless collection">
@@ -104,13 +87,13 @@
   </div>
 
   <div class="house__cards">
-    <a class="drop reveal slat dark" href="#c-nior-division" data-chref="house.card1.link">
+    <a class="drop reveal slat dark" href="#category/nior-division" data-chref="house.card1.link">
       <img class="cutout" src="assets/img/c-black.webp" alt="" loading="lazy" data-ci="house.card1.image">
       <span class="drop__meta mono" data-c="house.card1.meta">01 / Nior Division<br>Autumn 2026</span>
       <span class="drop__title" data-lines="house.card1.title"><span data-scramble>Dark</span><span data-scramble>washes for</span><span class="fade" data-scramble>the after</span><span class="fade fade--2" data-scramble>hours.</span></span>
       <span class="chip chip--ghost">●&nbsp;<span data-c="house.card1.chip">Top selling</span></span>
     </a>
-    <a class="drop reveal slat dark" href="#c-saint-sinners" data-chref="house.card2.link">
+    <a class="drop reveal slat dark" href="#category/saint-sinners" data-chref="house.card2.link">
       <img class="cutout" src="assets/img/c-blue.webp" alt="" loading="lazy" data-ci="house.card2.image">
       <span class="drop__meta mono" data-c="house.card2.meta">02 / Saint &amp; Sinners Hype<br>Autumn 2026</span>
       <span class="drop__title" data-lines="house.card2.title"><span class="fade fade--2" data-scramble>Loud</span><span class="fade" data-scramble>graphics,</span><span data-scramble>quiet</span><span data-scramble>confidence.</span></span>
@@ -119,9 +102,9 @@
   </div>
 
   <ul class="house__more">
-    <li><a href="#c-essential">Essential Collection <span aria-hidden="true">→</span></a></li>
-    <li><a href="#c-obsedian">Obsedian Virtue <span aria-hidden="true">→</span></a></li>
-    <li><a href="#c-monarch-drop">Monarch Drop <span aria-hidden="true">→</span></a></li>
+    <li><a href="#category/essential">Essential Collection <span aria-hidden="true">→</span></a></li>
+    <li><a href="#category/obsedian">Obsedian Virtue <span aria-hidden="true">→</span></a></li>
+    <li><a href="#category/monarch-drop">Monarch Drop <span aria-hidden="true">→</span></a></li>
   </ul>
 </section>
 
@@ -134,7 +117,7 @@
       <p class="mono poster__kicker" data-c="poster.kicker">Up to 31% off</p>
       <h2 class="poster__title" data-c="poster.title">Raining offers<br>for hot summer</h2>
       <img class="cutout poster__img" src="assets/img/c-rvchl.webp" alt="Model in the RVCHL oversized T-shirt in yellow with wide black trousers" loading="lazy" data-ci="poster.image" data-calt="poster.imageAlt">
-      <a class="pill pill--light pill--sm poster__cta" href="#on-sale" data-c="poster.cta">Shop the sale</a>
+      <a class="pill pill--light pill--sm poster__cta" href="#on-sale" data-chref="poster.ctaLink" data-c="poster.cta">Shop the sale</a>
     </div>
     <p class="marquee marquee--b" data-drift="1" aria-hidden="true" data-marquee="poster.marqueeBottom">OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕</p>
   </div>
@@ -148,9 +131,9 @@
     <a class="eyebrow eyebrow--link" href="#shop">All products</a>
   </div>
 
-  <div class="filters" role="tablist" aria-label="Filter by line"><!-- filled by main.js --></div>
+  <div class="filters" id="homeFilters" role="tablist" aria-label="Filter by line"></div>
 
-  <div class="grid" id="grid"><!-- filled by main.js --></div>
+  <div class="grid" id="grid"></div>
 
   <div class="center">
     <a class="pill pill--dark pill--arrow" href="#shop">See all products <span class="pill__arrow" aria-hidden="true">↗</span></a>
@@ -178,28 +161,21 @@
 
 <!-- 7. CATEGORIES -------------------------------------------------------- -->
 <section class="cats" aria-label="Shop by category">
-  <p class="eyebrow">Shop men</p>
-  <ul class="cats__list">
-    <li><a href="#t-shirt"><span>T-shirt</span><span class="mono">15 styles</span></a></li>
-    <li><a href="#soon-polo"><span>Polo</span><span class="mono">Soon</span></a></li>
-    <li><a href="#soon-half-shirt"><span>Half shirt</span><span class="mono">Soon</span></a></li>
-    <li><a href="#soon-full-shirt"><span>Full shirt</span><span class="mono">Soon</span></a></li>
-    <li><a href="#soon-trouser"><span>Trouser</span><span class="mono">Soon</span></a></li>
-    <li><a href="#soon-denim-pant"><span>Denim pant</span><span class="mono">Soon</span></a></li>
-  </ul>
+  <p class="eyebrow" data-c="categories.eyebrow">Shop men</p>
+  <ul class="cats__list" id="catList"></ul>
 </section>
 
 </main>
 </div>
 
-<!-- PAGES (shop, product, collections, checkout...) rendered by main.js -->
+<!-- PAGES (shop, product, checkout, about, policies…) rendered by store.js -->
 <div data-view="page" hidden>
   <div class="hero pagehead" id="pagehead"></div>
   <main id="page" class="page"></main>
 </div>
 
-<!-- 8. FOOTER ------------------------------------------------------------ -->
-<footer class="footer">
+<!-- FOOTER --------------------------------------------------------------- -->
+<footer class="footer" id="footer" data-page="home">
   <div class="footer__top">
     <div>
       <p class="footer__tag" data-c="footer.tagline">Designed for presence,<br>not attention.</p>
@@ -210,31 +186,99 @@
       </form>
       <p class="footer__ok mono" id="newsOk" hidden>You're on the list. We'll email you before the next drop.</p>
     </div>
-    <nav class="footer__cols" aria-label="Footer">
-      <ul><li class="mono">Shop</li><li><a href="#men">Men</a></li><li><a href="#women">Women</a></li><li><a href="#on-sale">On sale</a></li></ul>
-      <ul><li class="mono">The House</li><li><a href="#c-nior-division">Nior Division</a></li><li><a href="#c-saint-sinners">Saint &amp; Sinners</a></li><li><a href="#c-essential">Essential</a></li></ul>
-      <ul><li class="mono">Help</li><li><a href="#account">Account</a></li><li><a href="#saved">Saved</a></li><li><a href="#checkout">Checkout</a></li><li><a href="#about">About</a></li></ul>
-    </nav>
+    <nav class="footer__cols" id="footerCols" aria-label="Footer"></nav>
+  </div>
+  <div class="footer__pay">
+    <p class="mono">We accept</p>
+    <div class="pay-badges" id="payBadges"></div>
+    <figure class="ssl-banner" id="sslBanner" hidden>
+      <img src="https://securepay.sslcommerz.com/public/image/SSLCommerz-Pay-With-logo-All-Size-05.png" alt="Pay with SSLCOMMERZ: Visa, Mastercard, Amex, bKash, Nagad, Rocket and more" loading="lazy" onerror="this.parentNode.classList.add('no-img');this.remove()">
+      <figcaption class="mono">Payments secured by SSLCOMMERZ</figcaption>
+    </figure>
   </div>
   <p class="footer__word" aria-hidden="true">RAVELLE</p>
-  <p class="footer__copy mono">© 2026 Ravelle – A Life Style Brand · Prices in BDT (৳)</p>
+  <div class="footer__bottom">
+    <p class="footer__copy mono" id="footerCopy"></p>
+    <p class="footer__legal mono" id="footerLegal"></p>
+  </div>
 </footer>
 
-<!-- BAG DRAWER ------------------------------------------------------------ -->
-<div class="scrim" data-close-bag hidden></div>
+<!-- PANELS ---------------------------------------------------------------- -->
+<div class="scrim" hidden></div>
+
 <aside class="drawer" id="bag" aria-label="Your bag" aria-hidden="true">
   <div class="drawer__head">
     <p class="drawer__title">Your bag <span class="mono" data-bag-count-text>(0)</span></p>
-    <button class="icon-btn icon-btn--line" type="button" data-close-bag aria-label="Close bag">✕</button>
+    <button class="icon-btn icon-btn--line" type="button" data-close aria-label="Close bag">✕</button>
   </div>
   <div class="drawer__body" id="bagItems"></div>
   <div class="drawer__foot" id="bagFoot"></div>
 </aside>
+
+<aside class="drawer drawer--left" id="menu" aria-label="Menu" aria-hidden="true">
+  <div class="drawer__head">
+    <a class="menu__logo" href="#home"><img src="assets/img/logo.png" alt="Ravelle home" width="80" height="43"></a>
+    <button class="icon-btn icon-btn--line" type="button" data-close aria-label="Close menu">✕</button>
+  </div>
+  <div class="drawer__body">
+    <button class="menu__search" type="button" data-open-search>Search products</button>
+    <ul class="menu__list" id="menuList"></ul>
+  </div>
+  <div class="drawer__foot menu__foot" id="menuFoot"></div>
+</aside>
+
+<aside class="drawer drawer--top" id="search" aria-label="Search" aria-hidden="true">
+  <form class="search__form" id="searchForm" role="search">
+    <label class="sr" for="searchInput">Search products</label>
+    <input id="searchInput" type="search" placeholder="Search tees, colours, SKU…" autocomplete="off">
+    <button class="icon-btn icon-btn--line" type="button" data-close aria-label="Close search">✕</button>
+  </form>
+  <div class="search__results" id="searchResults"></div>
+</aside>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
+  <div class="modal__head">
+    <p class="modal__title" id="modalTitle"></p>
+    <button class="icon-btn icon-btn--line" type="button" data-close aria-label="Close">✕</button>
+  </div>
+  <div class="modal__body" id="modalBody"></div>
+</div>
+
+<!-- CHAT -------------------------------------------------------------------- -->
+<div class="chat" id="chat" hidden>
+  <section class="chat__panel" id="chatPanel" aria-label="Chat" aria-hidden="true">
+    <header class="chat__head">
+      <span class="chat__dot" aria-hidden="true"></span>
+      <div><b id="chatTitle">Ravelle</b><span class="mono">Usually replies in a few minutes</span></div>
+      <button class="icon-btn icon-btn--line" type="button" data-chat-toggle aria-label="Close chat">✕</button>
+    </header>
+    <div class="chat__messages" id="chatMessages" aria-live="polite"></div>
+    <div class="chat__intro" id="chatIntro">
+      <label class="sr" for="chatName">Your name</label>
+      <input id="chatName" placeholder="Your name (optional)" autocomplete="name">
+    </div>
+    <form class="chat__form" id="chatForm">
+      <label class="sr" for="chatText">Message</label>
+      <textarea id="chatText" rows="1" placeholder="Type a message…" maxlength="2000"></textarea>
+      <button class="pill pill--dark pill--sm" type="submit">Send</button>
+    </form>
+  </section>
+  <button class="chat__btn" type="button" data-chat-toggle aria-label="Chat with us">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    <span class="chat__badge" id="chatBadge" hidden>0</span>
+  </button>
+</div>
+
+<div class="cookies" id="cookies" hidden>
+  <p>We use essential cookies to keep your bag working and anonymous analytics to improve the store. <a class="u" href="#privacy">Privacy policy</a></p>
+  <button class="pill pill--dark pill--sm" type="button" data-cookies-ok>OK</button>
+</div>
+
+<p class="demo-bar mono" id="demoBar" hidden>Demo store · orders stay in this browser · <a href="admin.html">Open admin panel</a></p>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="assets/js/content.js"></script>
-<script src="assets/js/data.js"></script>
-<script src="assets/js/home.js"></script>
-<script src="assets/js/main.js"></script>
+<script src="assets/js/client.js"></script>
+<script src="assets/js/store.js"></script>
 </body>
 </html>
