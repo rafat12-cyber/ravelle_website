@@ -47,7 +47,7 @@ npm start               # http://localhost:3000, admin at /admin
 npm test                # end-to-end API check
 ```
 
-On first start the store is filled with the 15 products and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
+On first start the store is filled with the 41 products from the October 2026 shoot and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
 
 ### `.env`
 
@@ -104,4 +104,4 @@ Open `index.html` straight from the folder, add `?demo` to the address, or host 
 | `server/test.js` | End-to-end test |
 | `docs/API.md` | API and webhook guide |
 
-Products without a local photo load their image from ravellebd.com. If it can't load, the card shows the product name on a colour panel instead.
+Product photos live in `assets/img/products/` (front, front close-up, side and back for each product). Photos you add in the admin are stored in the data folder. If a photo can't load, the card shows the product name on a colour panel instead.

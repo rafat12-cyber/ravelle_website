@@ -51,7 +51,7 @@ async function main() {
   for (var i = 0; i < 50; i++) { try { await call("GET", "/api/health"); break; } catch (e) { await wait(100); } }
   var r = await call("GET", "/api/store");
   assert.equal(r.status, 200);
-  assert.equal(r.body.products.length, 15, "15 products");
+  assert.equal(r.body.products.length, 41, "41 products");
   var product = r.body.products[0], variant = product.variants[1];
   console.log("✓ storefront data:", r.body.products.length, "products,", r.body.categories.length, "categories");
 
