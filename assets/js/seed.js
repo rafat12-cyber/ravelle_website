@@ -16,20 +16,20 @@
   // Categories (from the ravellebd.com menu)
   // ---------------------------------------------------------------------------
   var CATS = [
-    ["men", "Men", null, 1, "assets/img/c-black.webp", "Oversized tees, shirts and trousers."],
-    ["t-shirt", "T-shirt", "men", 1, "assets/img/c-yellow.webp", "Heavyweight oversized tees."],
+    ["men", "Men", null, 1, "assets/img/home/h-look-3.webp", "Oversized tees, shirts and trousers."],
+    ["t-shirt", "T-shirt", "men", 1, "assets/img/home/h-hero.webp", "Heavyweight oversized tees."],
     ["polo", "Polo", "men", 2, "", ""],
     ["half-shirt", "Half shirt", "men", 3, "", ""],
     ["full-shirt", "Full shirt", "men", 4, "", ""],
     ["trouser", "Trouser", "men", 5, "", ""],
     ["denim-pant", "Denim pant", "men", 6, "", ""],
     ["women", "Women", null, 2, "assets/img/c-blue.webp", "The women's line is on its way."],
-    ["the-house", "The House", null, 3, "assets/img/c-rvchl.webp", "Five collections from Ravelle, each with its own mood."],
-    ["nior-division", "Nior Division", "the-house", 1, "assets/img/c-black.webp", "Dark washes for the after hours."],
-    ["saint-sinners", "Saint & Sinners Hype", "the-house", 2, "assets/img/c-blue.webp", "Loud graphics, quiet confidence."],
-    ["essential", "Essential Collection", "the-house", 3, "assets/img/c-yellow.webp", "The everyday blanks, cut heavy."],
-    ["obsedian", "Obsedian Virtue", "the-house", 4, "assets/img/c-rvchl.webp", "Black on black, built to last."],
-    ["monarch-drop", "Monarch Drop", "the-house", 5, "assets/img/c-black.webp", "Regal details on everyday shapes."]
+    ["the-house", "The House", null, 3, "assets/img/home/h-collage-b.webp", "Five collections from Ravelle, each with its own mood."],
+    ["nior-division", "Nior Division", "the-house", 1, "assets/img/home/h-house-1.webp", "Dark washes for the after hours."],
+    ["saint-sinners", "Saint & Sinners Hype", "the-house", 2, "assets/img/home/h-house-2.webp", "Loud graphics, quiet confidence."],
+    ["essential", "Essential Collection", "the-house", 3, "assets/img/home/h-look-4.webp", "The everyday blanks, cut heavy."],
+    ["obsedian", "Obsedian Virtue", "the-house", 4, "assets/img/home/h-look-1.webp", "Black on black, built to last."],
+    ["monarch-drop", "Monarch Drop", "the-house", 5, "assets/img/home/h-look-2.webp", "Regal details on everyday shapes."]
   ];
   var categories = CATS.map(function (c) {
     return { id: "cat_" + c[0].replace(/-/g, "_"), slug: c[0], name: c[1], parentId: c[2] ? "cat_" + c[2].replace(/-/g, "_") : null,
@@ -167,41 +167,21 @@
   var pages = {
     home: {
       hero: {
-        line1: "Designed for presence,", lead: "not", accent: "attention!",
-        cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
-        image: "assets/img/c-yellow.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow",
-        text: "Heavyweight oversized tees, acid washes and baggy fits. Made to be worn hard through a Dhaka summer.",
-        link: "New arrivals",
-        avatars: ["assets/img/a-black.jpg", "assets/img/a-blue.jpg", "assets/img/a-rvchl.jpg"],
-        reelImage: "assets/img/d-black.jpg", reelLabel: "Watch the lookbook"
+        kicker: "Autumn 2026", title: "The new collection", cta: "Shop now", ctaLink: "#shop",
+        image: "assets/img/home/classic-hero.jpg", imageAlt: "Three models in Ravelle oversized tees"
       },
-      collage: {
-        word: "FEARLESS", imageA: "assets/img/d-blue.jpg", imageB: "assets/img/c-black.webp", imageC: "assets/img/d-yellow.jpg",
-        note1Title: "01 — Wash", note1Text: "Sun-faded dye and a cracked chest print. The Fearless tee comes in four washes.",
-        note2Title: "02 — Fit", note2Text: "Dropped shoulder, boxy body. Our model is 6'2\" and wears size L."
-      },
-      house: {
-        eyebrow: "The House", titleStart: "Signature drops", accent: "built", titleEnd: "to be\nworn, not shown.",
-        aside: "Five collections, each with its own mood. Start with the two that sell out first.",
-        card1: { image: "assets/img/c-black.webp", meta: "01 / Nior Division\nAutumn 2026", title: "Dark\nwashes for\nthe after\nhours.", chip: "Top selling", link: "#category/nior-division" },
-        card2: { image: "assets/img/c-blue.webp", meta: "02 / Saint & Sinners Hype\nAutumn 2026", title: "Loud\ngraphics,\nquiet\nconfidence.", chip: "New drop", link: "#category/saint-sinners" }
-      },
-      poster: {
-        kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",
-        image: "assets/img/c-rvchl.webp", imageAlt: "Model in the RVCHL oversized T-shirt in yellow with wide black trousers",
-        marqueeTop: "RAINING OFFERS FOR HOT SUMMER", marqueeBottom: "OWN THE STREET"
-      },
-      arrivals: { eyebrow: "New arrival", titleStart: "Fresh fits for your", accent: "next", titleEnd: "move!" },
-      lookbook: {
-        marqueeBack: "FRESH FITS FOR YOUR NEXT MOVE", marqueeFront: "YOUR NEXT MOVE",
-        looks: [
-          { image: "assets/img/c-black.webp", name: "Fearless tee\nBlack wash", items: "Oversized tee\nWide trouser" },
-          { image: "assets/img/c-blue.webp", name: "Fearless tee\nOcean blue", items: "Oversized tee\nBlack trouser" },
-          { image: "assets/img/c-yellow.webp", name: "Fearless tee\nYellow wash", items: "Oversized tee\nBlack trouser" },
-          { image: "assets/img/c-rvchl.webp", name: "RVCHL tee\nYellow", items: "Oversized tee\nStar wide-leg" }
+      categories: {
+        items: [
+          { label: "T-shirts", image: "assets/img/home/classic-tees.jpg", link: "#category/t-shirt" },
+          { label: "Shirts", image: "assets/img/products/shirt-mosaic-1.jpg", link: "#category/half-shirt" },
+          { label: "Trousers", image: "assets/img/products/baggy-trouser-charcoal-2.jpg", link: "#category/trouser" }
         ]
       },
-      categories: { eyebrow: "Shop men" },
+      arrivals: { title: "New arrivals" },
+      editorial: {
+        title: "Back prints", cta: "Shop now", link: "#shop",
+        imageA: "assets/img/home/classic-pair-1.jpg", imageB: "assets/img/home/classic-pair-2.jpg"
+      },
       footer: { tagline: "Designed for presence,\nnot attention.", newsletter: "Your email for drop alerts" }
     },
     about: {
