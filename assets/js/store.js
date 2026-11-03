@@ -396,14 +396,14 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Try the look: models stand in a row across a light stage, the one in the
-  // middle is the look in focus and its pieces are listed beside it. The row
-  // is drawn three times so there are always models on both sides. Pieces
-  // keep their own sale price.
+  // Try the look: models stand on a light stage at two depths and the row
+  // drifts slowly to the left. Tapping a model (or the timeline) picks that
+  // look and lists its pieces beside it. The row is drawn three times so it
+  // can loop without a gap. Pieces keep their own sale price.
   // ---------------------------------------------------------------------------
-  var TL = { v: 0, n: 0, playing: !reduce, timer: null, seen: false, sizes: {}, looks: [] };
+  var TL = { i: -1, n: 0, x: 0, target: null, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, setW: 0 };
   var tlTrack = $("#tlTrack"), tlStage = $("#tlStage"), tlCursor = $("#tlCursor");
-  var TL_MS = 4500;
+  var TL_MS = 6000, TL_SPEED = 16; // ms per look, px per second
   function tlLooks() {
     return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l, i) {
       var items = String(l.products || "").split(",").map(function (x) { return BY_SLUG[x.trim()]; }).filter(Boolean);
@@ -418,16 +418,15 @@
     }
     return TL.sizes[p.id];
   }
-  function tlLook() { return TL.looks[((TL.v % TL.n) + TL.n) % TL.n]; }
   function drawTry() {
     var looks = tlLooks();
     $("#try").hidden = !looks.length;
     if (!looks.length) return;
-    var keep = TL.n ? ((TL.v % TL.n) + TL.n) % TL.n : 0;
     TL.looks = looks; TL.n = looks.length;
     var html = "";
     for (var r = 0; r < 3; r++) looks.forEach(function (l, i) {
-      html += '<button class="tl__model" type="button" data-k="' + (r * TL.n + i) + '" aria-label="' + esc(l.name) + '"' + (r === 1 ? "" : ' tabindex="-1" aria-hidden="true"') + ">" +
+      // Every third model stands further back
+      html += '<button class="tl__model' + (i % 3 === 1 ? " is-far" : "") + '" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"' + (r === 1 ? "" : ' tabindex="-1" aria-hidden="true"') + ">" +
         '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" loading="lazy" draggable="false">' +
         '<img class="tl__img" src="' + esc(l.image) + '" alt="' + (r === 1 ? esc(l.alt) : "") + '" loading="lazy" draggable="false"></button>';
     });
@@ -435,48 +434,73 @@
     $("#tlSteps").innerHTML = looks.map(function (l, i) {
       return '<li><button type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"><i></i><span class="mono">' + String(i + 1).padStart(2, "0") + " <b>" + esc(l.name) + "</b></span></button></li>";
     }).join("");
-    TL.v = TL.n + keep;
-    tlGo(TL.v, true);
-    tlTimer();
+    tlMeasure();
+    TL.x = -TL.setW;
+    tlApply();
+    var keep = TL.i;
+    TL.i = -1;
+    tlPanel();
+    // The panel fills a moment after the section comes into view, like the reference
+    setTimeout(function () { tlPick(keep >= 0 && keep < TL.n ? keep : 0, false); }, keep >= 0 ? 0 : 700);
   }
-  function tlGo(v, instant) {
-    TL.v = v;
+  function tlMeasure() {
+    var kids = tlTrack.children;
+    TL.setW = TL.n && kids[TL.n] ? kids[TL.n].offsetLeft - kids[0].offsetLeft : 0;
+  }
+  function tlWrap() {
+    if (!TL.setW) return;
+    while (TL.x > -TL.setW * 0.5) { TL.x -= TL.setW; if (TL.target != null) TL.target -= TL.setW; if (TL.drag) TL.drag.x0 -= TL.setW; }
+    while (TL.x < -TL.setW * 1.5) { TL.x += TL.setW; if (TL.target != null) TL.target += TL.setW; if (TL.drag) TL.drag.x0 += TL.setW; }
+  }
+  function tlApply() { tlTrack.style.transform = "translate3d(" + TL.x.toFixed(1) + "px,0,0)"; }
+  // Move the nearest copy of look i to a spot left of centre
+  function tlBring(i) {
+    var best = null, spot = tlStage.clientWidth * (tlStage.clientWidth > 700 ? 0.42 : 0.5);
     $$(".tl__model", tlTrack).forEach(function (m) {
-      var k = +m.dataset.k, d = Math.abs(k - TL.v);
-      m.style.setProperty("--d", Math.min(d, 4));
-      m.style.setProperty("--back", d === 0 ? 0 : (k % 2 ? 1 : 0));
-      m.classList.toggle("is-on", d === 0);
+      if (+m.dataset.i !== i) return;
+      var t = spot - (m.offsetLeft + m.offsetWidth / 2);
+      if (best == null || Math.abs(t - TL.x) < Math.abs(best - TL.x)) best = t;
     });
-    tlPlace(instant);
-    var i = ((TL.v % TL.n) + TL.n) % TL.n;
+    if (best != null) TL.target = best;
+  }
+  function tlPick(i, bring) {
+    TL.i = i;
+    $$(".tl__model", tlTrack).forEach(function (m) { m.classList.toggle("is-on", +m.dataset.i === i); });
     $$("#tlSteps button").forEach(function (b, j) {
       b.classList.toggle("is-on", j === i); b.classList.toggle("is-done", j < i);
       b.setAttribute("aria-current", j === i ? "true" : "false");
+      var bar = b.querySelector("i"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
     });
+    if (bring) tlBring(i);
     tlPanel();
     tlTimer();
   }
-  function tlPlace(instant) {
-    var m = tlTrack.children[TL.v];
-    if (!m) return;
-    tlStage.scrollLeft = 0;
-    if (instant) tlTrack.classList.add("is-instant");
-    tlTrack.style.transform = "translateX(" + Math.round(tlStage.clientWidth / 2 - m.offsetLeft - m.offsetWidth / 2) + "px)";
-    if (instant) { void tlTrack.offsetWidth; tlTrack.classList.remove("is-instant"); }
-  }
-  // After a slide ends, jump back to the middle copy without animating
-  tlTrack.addEventListener("transitionend", function (e) {
-    if (e.target !== tlTrack || !TL.n) return;
-    if (TL.v < TL.n || TL.v >= 2 * TL.n) {
-      var v = TL.n + (((TL.v % TL.n) + TL.n) % TL.n);
-      $$(".tl__model", tlTrack).forEach(function (m) { m.classList.add("is-instant"); });
-      tlGo(v, true);
-      void tlTrack.offsetWidth;
-      $$(".tl__model", tlTrack).forEach(function (m) { m.classList.remove("is-instant"); });
+  var tlLast = 0;
+  function tlFrame(t) {
+    var dt = tlLast ? Math.min(0.05, (t - tlLast) / 1000) : 0;
+    tlLast = t;
+    if (TL.n && TL.seen && !document.hidden) {
+      if (TL.drag) { /* follows the pointer */ }
+      else if (TL.target != null) {
+        TL.x += (TL.target - TL.x) * Math.min(1, dt * 4.5);
+        if (Math.abs(TL.target - TL.x) < 0.5) { TL.x = TL.target; TL.target = null; }
+      } else if (TL.playing && !TL.hover) TL.x -= TL_SPEED * dt;
+      tlWrap();
+      tlApply();
     }
-  });
+    requestAnimationFrame(tlFrame);
+  }
+  requestAnimationFrame(tlFrame);
   function tlPanel() {
-    var look = tlLook(), items = look.items, sum = 0, was = 0;
+    var look = TL.looks[TL.i], all = $("#tlAll");
+    all.disabled = !look;
+    if (!look) {
+      $("#tlPieces").textContent = "";
+      $("#tlItems").innerHTML = "";
+      $("#tlSum").innerHTML = ""; $("#tlSave").textContent = "";
+      return;
+    }
+    var items = look.items, sum = 0, was = 0;
     $("#tlPieces").textContent = items.length + (items.length === 1 ? " piece" : " pieces");
     $("#tlItems").innerHTML = items.map(function (p, k) {
       var cur = tlSize(p), bottom = /trouser|pant|jean|short/i.test(p.line + " " + p.name);
@@ -497,41 +521,45 @@
   }
   function tlTimer() {
     clearTimeout(TL.timer);
-    var on = TL.playing && TL.seen && TL.n > 1;
+    var on = TL.playing && TL.seen && TL.n > 1 && TL.i >= 0;
     $("#try").classList.toggle("is-playing", on);
     var btn = $("#tlPlay");
     btn.classList.toggle("is-paused", !TL.playing);
     btn.setAttribute("aria-label", TL.playing ? "Pause" : "Play");
-    if (on) TL.timer = setTimeout(function () { tlGo(TL.v + 1); }, TL_MS);
+    if (on) TL.timer = setTimeout(function () { tlPick((TL.i + 1) % TL.n, true); }, TL_MS);
   }
   function tlStop() { TL.playing = false; }
-  $("#tlPrev").addEventListener("click", function () { tlStop(); tlGo(TL.v - 1); });
-  $("#tlNext").addEventListener("click", function () { tlStop(); tlGo(TL.v + 1); });
+  $("#tlPrev").addEventListener("click", function () { tlStop(); tlPick((TL.i - 1 + TL.n) % TL.n, true); });
+  $("#tlNext").addEventListener("click", function () { tlStop(); tlPick((TL.i + 1) % TL.n, true); });
   $("#tlPlay").addEventListener("click", function () { TL.playing = !TL.playing; tlTimer(); });
   $("#tlSteps").addEventListener("click", function (e) {
     var b = e.target.closest("button");
-    if (!b) return;
-    var i = +b.dataset.i, cur = ((TL.v % TL.n) + TL.n) % TL.n;
-    tlStop(); tlGo(TL.v + (i - cur));
+    if (b) { tlStop(); tlPick(+b.dataset.i, true); }
   });
-  // Drag the row, or tap a model to bring it to the middle
-  var drag = null;
+  // Drag the row; a tap on a model picks it
   tlStage.addEventListener("pointerdown", function (e) {
     if (e.target.closest(".tl__foot, .tl__head") || e.button) return;
-    drag = { x: e.clientX, moved: false };
+    TL.drag = { px: e.clientX, x0: TL.x, moved: 0 };
+    TL.target = null;
+    tlStage.classList.add("is-grabbing");
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (!TL.drag) return;
+    var dx = e.clientX - TL.drag.px;
+    TL.drag.moved = Math.max(TL.drag.moved, Math.abs(dx));
+    TL.x = TL.drag.x0 + dx;
   });
   window.addEventListener("pointerup", function (e) {
-    if (!drag) return;
-    var dx = e.clientX - drag.x, m = e.target.closest && e.target.closest(".tl__model");
-    drag = null;
-    if (Math.abs(dx) > 40) { tlStop(); tlGo(TL.v + (dx < 0 ? 1 : -1)); }
-    else if (m && tlTrack.contains(m)) { tlStop(); tlGo(+m.dataset.k); }
+    if (!TL.drag) return;
+    var tap = TL.drag.moved < 6, m = e.target.closest && e.target.closest(".tl__model");
+    TL.drag = null;
+    tlStage.classList.remove("is-grabbing");
+    if (tap && m && tlTrack.contains(m)) { tlStop(); tlPick(+m.dataset.i, false); }
   });
   tlTrack.addEventListener("click", function (e) {
-    // Keyboard: Enter or Space on a model
-    if (e.detail) return;
+    if (e.detail) return; // keyboard only; pointer taps are handled above
     var m = e.target.closest(".tl__model");
-    if (m) { tlStop(); tlGo(+m.dataset.k); }
+    if (m) { tlStop(); tlPick(+m.dataset.i, true); }
   });
   tlStage.addEventListener("pointermove", function (e) {
     if (e.pointerType !== "mouse") return;
@@ -539,8 +567,9 @@
     tlCursor.style.transform = "translate(" + (e.clientX - r.left) + "px," + (e.clientY - r.top) + "px)";
     tlCursor.textContent = over ? "View" : "Drag";
     tlCursor.classList.toggle("is-on", !ui);
+    TL.hover = !!over;
   });
-  tlStage.addEventListener("pointerleave", function () { tlCursor.classList.remove("is-on"); });
+  tlStage.addEventListener("pointerleave", function () { tlCursor.classList.remove("is-on"); TL.hover = false; });
   $("#tlItems").addEventListener("change", function (e) {
     var sel = e.target.closest("[data-size]"), li = sel && sel.closest(".tl__item");
     if (li) TL.sizes[li.dataset.p] = sel.value;
@@ -552,8 +581,10 @@
     addToBag(p, v, 1);
   });
   $("#tlAll").addEventListener("click", function () {
+    var look = TL.looks[TL.i];
+    if (!look) return;
     var added = 0, out = [];
-    tlLook().items.forEach(function (p) {
+    look.items.forEach(function (p) {
       var v = variantOf(p, tlSize(p));
       if (!v && p.variants.length) { out.push(shortName(p)); return; }
       if (addToBag(p, v, 1, true)) added++;
@@ -561,9 +592,9 @@
     if (out.length) toast("Sold out: " + esc(out.join(", ")), "warn");
     if (added) { toast("Look added to bag"); openBag(); }
   });
-  window.addEventListener("resize", function () { if (TL.n) tlPlace(true); });
+  window.addEventListener("resize", function () { if (TL.n) { var f = TL.setW ? TL.x / TL.setW : -1; tlMeasure(); TL.x = f * TL.setW; tlApply(); } });
   if ("IntersectionObserver" in window) {
-    new IntersectionObserver(function (es) { TL.seen = es[0].isIntersecting; tlTimer(); }, { threshold: 0.35 }).observe($("#try"));
+    new IntersectionObserver(function (es) { TL.seen = es[0].isIntersecting; tlTimer(); }, { threshold: 0.2 }).observe($("#try"));
   } else TL.seen = true;
 
   // ---------------------------------------------------------------------------
