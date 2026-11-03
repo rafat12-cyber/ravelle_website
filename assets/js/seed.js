@@ -167,41 +167,21 @@
   var pages = {
     home: {
       hero: {
-        line1: "Designed for presence,", lead: "not", accent: "attention!",
-        cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
-        image: "assets/img/home/h-hero.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in ocean blue",
-        text: "Heavyweight oversized tees, acid washes and baggy fits. Made to be worn hard through a Dhaka summer.",
-        link: "New arrivals",
-        avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"],
-        reelImage: "assets/img/home/h-reel.jpg", reelLabel: "Watch the lookbook"
+        kicker: "Autumn 2026", title: "The new collection", cta: "Shop now", ctaLink: "#shop",
+        image: "assets/img/home/classic-hero.jpg", imageAlt: "Three models in Ravelle oversized tees"
       },
-      collage: {
-        word: "PRINTS", imageA: "assets/img/home/h-collage-a.jpg", imageB: "assets/img/home/h-collage-b.webp", imageC: "assets/img/home/h-collage-c.jpg",
-        note1Title: "01 — Back prints", note1Text: "Small mark up front, the story on the back. Santa Rosa, RVCHL and Starlight are printed big across the shoulders.",
-        note2Title: "02 — Fit", note2Text: "Dropped shoulder, boxy body. Our model is 6'2\" and wears size L."
-      },
-      house: {
-        eyebrow: "The House", titleStart: "Signature drops", accent: "built", titleEnd: "to be\nworn, not shown.",
-        aside: "Five collections, each with its own mood. Start with the two that sell out first.",
-        card1: { image: "assets/img/home/h-house-1.webp", meta: "01 / Nior Division\nAutumn 2026", title: "Dark\nwashes for\nthe after\nhours.", chip: "Top selling", link: "#category/nior-division" },
-        card2: { image: "assets/img/home/h-house-2.webp", meta: "02 / Saint & Sinners Hype\nAutumn 2026", title: "Loud\ngraphics,\nquiet\nconfidence.", chip: "New drop", link: "#category/saint-sinners" }
-      },
-      poster: {
-        kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",
-        image: "assets/img/home/h-poster.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with wide black trousers",
-        marqueeTop: "RAINING OFFERS FOR HOT SUMMER", marqueeBottom: "OWN THE STREET"
-      },
-      arrivals: { eyebrow: "New arrival", titleStart: "Fresh fits for your", accent: "next", titleEnd: "move!" },
-      lookbook: {
-        marqueeBack: "FRESH FITS FOR YOUR NEXT MOVE", marqueeFront: "YOUR NEXT MOVE",
-        looks: [
-          { image: "assets/img/home/h-look-1.webp", name: "After Hours tee\nBlack wash", items: "Oversized tee\nWide trouser" },
-          { image: "assets/img/home/h-look-2.webp", name: "Santa Rosa tee\nOcean blue", items: "Back print tee\nBlack trouser" },
-          { image: "assets/img/home/h-look-3.webp", name: "Stride Out tee\nBrick red", items: "Oversized tee\nBlack trouser" },
-          { image: "assets/img/home/h-look-4.webp", name: "RVCHL tee\nYellow", items: "Back print tee\nBlack trouser" }
+      categories: {
+        items: [
+          { label: "T-shirts", image: "assets/img/home/classic-tees.jpg", link: "#category/t-shirt" },
+          { label: "Shirts", image: "assets/img/products/shirt-mosaic-1.jpg", link: "#category/half-shirt" },
+          { label: "Trousers", image: "assets/img/products/baggy-trouser-charcoal-2.jpg", link: "#category/trouser" }
         ]
       },
-      categories: { eyebrow: "Shop men" },
+      arrivals: { title: "New arrivals" },
+      editorial: {
+        title: "Back prints", cta: "Shop now", link: "#shop",
+        imageA: "assets/img/home/classic-pair-1.jpg", imageB: "assets/img/home/classic-pair-2.jpg"
+      },
       footer: { tagline: "Designed for presence,\nnot attention.", newsletter: "Your email for drop alerts" }
     },
     about: {
