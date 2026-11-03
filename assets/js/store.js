@@ -278,7 +278,6 @@
     var l = looks[idx];
     if (!l) return;
     $("#lookName").innerHTML = br(l.name);
-    $("#lookItems").innerHTML = "● " + br(l.items);
     $("#lookCount").textContent = "0" + (idx + 1) + " / 0" + looks.length;
   }
   var ticking = false;
