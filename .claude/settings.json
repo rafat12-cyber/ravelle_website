@@ -1,0 +1,38 @@
+{
+  "extraKnownMarketplaces": {
+    "compound-engineering-plugin": {
+      "source": { "source": "github", "repo": "EveryInc/compound-engineering-plugin" }
+    },
+    "playwright-skill": {
+      "source": { "source": "github", "repo": "lackeyjb/playwright-skill" }
+    }
+  },
+  "enabledPlugins": {
+    "compound-engineering@compound-engineering-plugin": true,
+    "playwright-skill@playwright-skill": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v graphify >/dev/null 2>&1; then graphify hook-guard search; fi",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v graphify >/dev/null 2>&1; then graphify hook-guard read; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
