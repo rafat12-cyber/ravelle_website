@@ -66,12 +66,31 @@
 
 <main id="main">
 
-<!-- 2. PRESENCE COLLAGE ------------------------------------------------- -->
-<section class="collage" aria-label="Back prints">
-  <p class="collage__word" aria-hidden="true" data-c="collage.word">PRINTS</p>
-  <figure class="collage__img collage__img--a reveal slat"><img src="assets/img/home/h-collage-a.jpg" alt="Santa Rosa T-shirt in red, back print detail" loading="lazy" data-ci="collage.imageA"></figure>
-  <figure class="collage__img collage__img--b reveal slat dark"><img class="cutout" src="assets/img/home/h-collage-b.webp" alt="Model wearing the RVCHL oversized T-shirt in black, seen from the back" loading="lazy" data-ci="collage.imageB"></figure>
-  <figure class="collage__img collage__img--c reveal slat"><img src="assets/img/home/h-collage-c.jpg" alt="Starlight T-shirt in cream, back print detail" loading="lazy" data-ci="collage.imageC"></figure>
+<!-- 2. TRY THE LOOK: models in full outfits, the pieces of the one in focus -->
+<section class="tl" id="try" aria-label="Try the look">
+  <div class="tl__frame">
+    <div class="tl__stage">
+      <div class="tl__head">
+        <h2 class="h2"><span data-c="tryLook.title">Try the</span> <em class="alt" data-c="tryLook.accent">look.</em></h2>
+        <p class="tl__count mono" id="tlCount" aria-live="polite"></p>
+      </div>
+      <div class="tl__track" id="tlTrack"></div>
+      <div class="tl__ctrl">
+        <button class="tl__btn" type="button" id="tlPlay" aria-label="Pause"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path class="tl__ic-pause" d="M7 5h3v14H7zM14 5h3v14h-3z" fill="currentColor"/><path class="tl__ic-play" d="M8 5v14l11-7z" fill="currentColor"/></svg></button>
+        <button class="tl__btn" type="button" id="tlPrev" aria-label="Previous look"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+        <button class="tl__btn" type="button" id="tlNext" aria-label="Next look"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      </div>
+    </div>
+    <aside class="tl__panel" aria-label="In this look">
+      <div class="tl__panel-head"><p data-c="tryLook.panelTitle">In this look</p><span class="mono" id="tlPieces"></span></div>
+      <ul class="tl__items" id="tlItems"></ul>
+      <div class="tl__total">
+        <div><p data-c="tryLook.totalTitle">Complete the look</p><span class="mono" id="tlSave"></span></div>
+        <p class="tl__sum" id="tlSum"></p>
+      </div>
+      <button class="pill pill--dark tl__all" type="button" id="tlAll"><span data-c="tryLook.cta">Add full look to bag</span> <span aria-hidden="true">→</span></button>
+    </aside>
+  </div>
 </section>
 
 <!-- 3. THE HOUSE / TOP PICKS --------------------------------------------- -->

@@ -369,6 +369,7 @@
   function drawHome() {
     var home = S.pages.home;
     bind(homeView, home);
+    drawTry();
     current = 0;
     $$(".look__img", homeView).forEach(function (im, i) { im.classList.toggle("is-on", i === 0); });
     drawLook(0);
@@ -393,6 +394,123 @@
     $$("#homeFilters .filter").forEach(function (b) { b.classList.toggle("is-on", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
     $$("#grid .card").forEach(function (c) { c.hidden = f !== "All" && c.dataset.line !== f; });
   });
+
+  // ---------------------------------------------------------------------------
+  // Try the look: a row of models, the one in focus is sharp and its pieces
+  // are listed beside it. Pieces keep their own sale price.
+  // ---------------------------------------------------------------------------
+  var TL = { i: 0, playing: !reduce, timer: null, seen: false, sizes: {} };
+  var tlTrack = $("#tlTrack");
+  function tlLooks() {
+    return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l) {
+      var items = String(l.products || "").split(",").map(function (x) { return BY_SLUG[x.trim()]; }).filter(Boolean);
+      return { image: l.image, alt: l.imageAlt || "", items: items };
+    }).filter(function (l) { return l.image && l.items.length; });
+  }
+  function tlSize(p) {
+    if (!TL.sizes[p.id]) {
+      var vs = p.variants || [], pick1 = vs.filter(function (v) { return v.options.Size === "L" && v.stock > 0; })[0] || vs.filter(function (v) { return !p.trackStock || v.stock > 0; })[0];
+      TL.sizes[p.id] = pick1 ? pick1.id : null;
+    }
+    return TL.sizes[p.id];
+  }
+  function drawTry() {
+    var looks = tlLooks(), sec = $("#try");
+    sec.hidden = !looks.length;
+    if (!looks.length) return;
+    TL.looks = looks;
+    tlTrack.innerHTML = looks.map(function (l, i) {
+      return '<button class="tl__model" type="button" data-i="' + i + '" aria-label="Look ' + (i + 1) + '"><img src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" loading="lazy" draggable="false"></button>';
+    }).join("");
+    tlGo(Math.min(TL.i, looks.length - 1));
+    tlTimer();
+  }
+  function tlGo(i) {
+    var looks = TL.looks, n = looks.length;
+    TL.i = (i + n) % n;
+    $$(".tl__model", tlTrack).forEach(function (m, k) {
+      var d = Math.min(3, Math.abs(k - TL.i));
+      m.style.setProperty("--d", d);
+      m.classList.toggle("is-on", k === TL.i);
+      m.setAttribute("aria-pressed", k === TL.i ? "true" : "false");
+    });
+    tlPlace();
+    $("#tlCount").textContent = String(TL.i + 1).padStart(2, "0") + " / " + String(n).padStart(2, "0");
+    tlPanel();
+  }
+  function tlPlace() {
+    var m = tlTrack.children[TL.i];
+    if (!m) return;
+    var stage = tlTrack.parentNode;
+    stage.scrollLeft = 0;
+    var anchor = stage.clientWidth * (stage.clientWidth > 700 ? 0.3 : 0.5);
+    tlTrack.style.transform = "translateX(" + Math.round(anchor - m.offsetLeft - m.offsetWidth / 2) + "px)";
+  }
+  function tlPanel() {
+    var items = TL.looks[TL.i].items, sum = 0, was = 0;
+    $("#tlPieces").textContent = items.length + (items.length === 1 ? " piece" : " pieces");
+    $("#tlItems").innerHTML = items.map(function (p, k) {
+      var cur = tlSize(p);
+      sum += p.price; was += Math.max(p.comparePrice || 0, p.price);
+      return '<li class="tl__item" data-p="' + p.id + '">' +
+        '<a class="tl__thumb" href="#product/' + p.slug + '" style="--tone:' + esc(p.hex || "#7b7e83") + '">' + (p.images[0] ? '<img src="' + esc(p.images[0]) + '" alt="" loading="lazy">' : "") + '<span class="mono">' + (k + 1) + "</span></a>" +
+        '<div class="tl__info"><span class="mono">' + esc(p.line) + '</span><a href="#product/' + p.slug + '">' + esc(shortName(p)) + "</a>" +
+          '<p class="tl__price">' + taka(p.price) + (p.comparePrice > p.price ? " <s>" + taka(p.comparePrice) + "</s>" : "") + "</p>" +
+          '<div class="tl__sizes" role="group" aria-label="Size">' + (p.variants || []).map(function (v) {
+            var out = p.trackStock && v.stock <= 0;
+            return '<button type="button" data-v="' + v.id + '"' + (v.id === cur ? ' class="is-on" aria-pressed="true"' : ' aria-pressed="false"') + (out ? " disabled" : "") + ">" + esc(v.options.Size || optText(v.options)) + "</button>";
+          }).join("") + "</div></div>" +
+        '<button class="tl__add" type="button" data-add aria-label="Add ' + esc(shortName(p)) + ' to bag">+</button>' +
+      "</li>";
+    }).join("");
+    $("#tlSum").innerHTML = (was > sum ? "<s>" + taka(was) + "</s> " : "") + taka(sum);
+    $("#tlSave").textContent = was > sum ? "You save " + taka(was - sum) : "";
+  }
+  function tlTimer() {
+    clearInterval(TL.timer);
+    var btn = $("#tlPlay");
+    btn.classList.toggle("is-paused", !TL.playing);
+    btn.setAttribute("aria-label", TL.playing ? "Pause" : "Play");
+    if (TL.playing && TL.seen && TL.looks && TL.looks.length > 1) TL.timer = setInterval(function () { tlGo(TL.i + 1); }, 4200);
+  }
+  tlTrack.addEventListener("click", function (e) {
+    var m = e.target.closest(".tl__model");
+    if (!m) return;
+    TL.playing = false; tlGo(+m.dataset.i); tlTimer();
+  });
+  $("#tlPrev").addEventListener("click", function () { TL.playing = false; tlGo(TL.i - 1); tlTimer(); });
+  $("#tlNext").addEventListener("click", function () { TL.playing = false; tlGo(TL.i + 1); tlTimer(); });
+  $("#tlPlay").addEventListener("click", function () { TL.playing = !TL.playing; tlTimer(); });
+  $("#tlItems").addEventListener("click", function (e) {
+    var li = e.target.closest(".tl__item");
+    if (!li) return;
+    var p = BY_ID[li.dataset.p], sb = e.target.closest("[data-v]");
+    if (sb) {
+      TL.sizes[p.id] = sb.dataset.v;
+      $$("[data-v]", li).forEach(function (b) { var on = b === sb; b.classList.toggle("is-on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+      return;
+    }
+    if (e.target.closest("[data-add]")) {
+      var v = variantOf(p, tlSize(p));
+      if (!v && p.variants.length) { toast("That piece is sold out.", "warn"); return; }
+      addToBag(p, v, 1);
+    }
+  });
+  $("#tlAll").addEventListener("click", function () {
+    var added = 0, out = [];
+    TL.looks[TL.i].items.forEach(function (p) {
+      var v = variantOf(p, tlSize(p));
+      if (!v && p.variants.length) { out.push(shortName(p)); return; }
+      if (addToBag(p, v, 1, true)) added++;
+    });
+    if (out.length) toast("Sold out: " + esc(out.join(", ")), "warn");
+    if (added) { toast("Look added to bag"); openBag(); }
+  });
+  window.addEventListener("resize", function () { if (TL.looks) tlPlace(); });
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(function (es) { TL.seen = es[0].isIntersecting; tlTimer(); }, { threshold: 0.35 }).observe($("#try"));
+  } else TL.seen = true;
+  tlTrack.addEventListener("load", function () { tlPlace(); }, true);
 
   // ---------------------------------------------------------------------------
   // Page header
