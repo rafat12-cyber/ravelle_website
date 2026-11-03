@@ -425,10 +425,10 @@
     TL.looks = looks; TL.n = looks.length;
     var html = "";
     for (var r = 0; r < 3; r++) looks.forEach(function (l, i) {
-      // Every third model stands further back
-      html += '<button class="tl__model' + (i % 3 === 1 ? " is-far" : "") + '" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"' + (r === 1 ? "" : ' tabindex="-1" aria-hidden="true"') + ">" +
-        '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" loading="lazy" draggable="false">' +
-        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + (r === 1 ? esc(l.alt) : "") + '" loading="lazy" draggable="false"></button>';
+          html += '<button class="tl__model" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"' + (r === 1 ? "" : ' tabindex="-1" aria-hidden="true"') + ">" +
+        '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" draggable="false">' +
+        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + (r === 1 ? esc(l.alt) : "") + '" draggable="false">' +
+        '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></button>";
     });
     tlTrack.innerHTML = html;
     $("#tlSteps").innerHTML = looks.map(function (l, i) {
@@ -441,8 +441,16 @@
     TL.i = -1;
     tlPanel();
     // The panel fills a moment after the section comes into view, like the reference
-    setTimeout(function () { tlPick(keep >= 0 && keep < TL.n ? keep : 0, false); }, keep >= 0 ? 0 : 700);
+    setTimeout(function () { tlPick(keep >= 0 && keep < TL.n ? keep : 0, true); }, keep >= 0 ? 0 : 700);
   }
+  // Models take their width from their photo, so measure again as each loads
+  tlTrack.addEventListener("load", function () {
+    var f = TL.setW ? TL.x / TL.setW : -1;
+    tlMeasure();
+    TL.x = f * TL.setW;
+    if (TL.target != null) TL.target = null, tlBring(TL.i);
+    tlApply();
+  }, true);
   function tlMeasure() {
     var kids = tlTrack.children;
     TL.setW = TL.n && kids[TL.n] ? kids[TL.n].offsetLeft - kids[0].offsetLeft : 0;
@@ -575,10 +583,11 @@
     if (li) TL.sizes[li.dataset.p] = sel.value;
   });
   $("#tlItems").addEventListener("click", function (e) {
-    if (!e.target.closest("[data-add]")) return;
-    var p = BY_ID[e.target.closest(".tl__item").dataset.p], v = variantOf(p, tlSize(p));
+    var btn = e.target.closest("[data-add]");
+    if (!btn) return;
+    var p = BY_ID[btn.closest(".tl__item").dataset.p], v = variantOf(p, tlSize(p));
     if (!v && p.variants.length) { toast("That piece is sold out.", "warn"); return; }
-    addToBag(p, v, 1);
+    if (addToBag(p, v, 1)) { btn.classList.add("is-done"); setTimeout(function () { btn.classList.remove("is-done"); }, 1400); }
   });
   $("#tlAll").addEventListener("click", function () {
     var look = TL.looks[TL.i];

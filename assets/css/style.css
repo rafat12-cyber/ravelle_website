@@ -221,17 +221,22 @@ button { font: inherit; color: inherit; }
 .tl__head { position: absolute; top: 34px; left: 40px; z-index: 5; cursor: auto; }
 .tl__title { margin: 0; font-size: clamp(30px, 3vw, 44px); font-weight: 400; letter-spacing: -.02em; line-height: 1.05; color: #2a2b2d; }
 .tl__sub { margin: 10px 0 0; font-size: 12px; color: #8a8d91; }
-.tl__track { position: absolute; left: 0; bottom: 118px; display: flex; align-items: flex-end; will-change: transform; }
+.tl__track { position: absolute; left: 0; bottom: 136px; display: flex; align-items: flex-end; will-change: transform; }
 .tl__stage.is-grabbing { cursor: grabbing; }
-.tl__model { position: relative; z-index: 3; flex: none; width: 150px; height: clamp(320px, 50vh, 420px); margin: 0 46px; padding: 0; border: 0; background: none; cursor: none;
-  transform-origin: 50% 100%; -webkit-tap-highlight-color: transparent; }
-/* Models further back: smaller, higher on the floor, soft */
-.tl__model.is-far { z-index: 1; margin: 0 -6px; transform: translateY(-46px) scale(.78); }
-.tl__img { position: relative; z-index: 2; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; transition: filter .6s, opacity .6s; }
-.tl__model.is-far .tl__img { filter: blur(2.4px) saturate(.85); opacity: .82; }
-.tl__model.is-far.is-on .tl__img, .tl__model.is-far:hover .tl__img { filter: none; opacity: 1; }
+/* Every model is the same height, head to toe, standing on one floor line */
+.tl__view { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent); mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent); }
+.tl__model { --h: clamp(330px, 52vh, 440px); position: relative; z-index: 3; flex: none; height: var(--h); min-width: 60px; margin: 0 44px; padding: 0; border: 0; background: none; cursor: none;
+  -webkit-tap-highlight-color: transparent; transition: transform .6s var(--ease); }
+.tl__model:hover { transform: translateY(-6px); }
+.tl__img { position: relative; z-index: 2; display: block; height: 100%; width: auto; max-width: none; transition: opacity .6s, filter .6s; }
+.tl:has(.tl__model.is-on) .tl__model:not(.is-on) .tl__img { opacity: .9; }
+.tl__model:hover .tl__img { opacity: 1 !important; filter: none !important; }
+.tl__tag { position: absolute; left: 50%; bottom: -40px; z-index: 3; transform: translate(-50%, 6px); white-space: nowrap; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #2a2b2d;
+  opacity: 0; transition: opacity .5s, transform .5s var(--ease); pointer-events: none; }
+.tl__tag::before { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a2b2d; margin-right: 8px; vertical-align: 1px; }
+.tl__model.is-on .tl__tag { opacity: 1; transform: translate(-50%, 0); }
 /* Soft wall shadow behind each model, light from the front left */
-.tl__ghost { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%;
+.tl__ghost { position: absolute; left: 0; top: 0; z-index: 0; height: 100%; width: auto; max-width: none;
   filter: brightness(0) blur(10px); opacity: .055; transform: translate(34%, -7%) scale(.97); }
 .tl__model::after { content: ""; position: absolute; z-index: 1; left: -18%; right: -18%; bottom: -14px; height: 34px; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,40,38,.26), rgba(40,40,38,.08) 60%, transparent); }
 .tl__model:focus-visible { outline: 1px solid #111; outline-offset: 6px; }
@@ -268,7 +273,7 @@ button { font: inherit; color: inherit; }
 .tl__item:nth-child(2) { animation-delay: .07s; }
 .tl__item:nth-child(3) { animation-delay: .14s; }
 @keyframes tl-in { from { opacity: 0; transform: translateY(8px); } }
-.tl__thumb { position: relative; width: 96px; aspect-ratio: 1; background-color: #f1f1ef; background-repeat: no-repeat; background-size: auto 265%; background-position: 50% 13%; }
+.tl__thumb { position: relative; width: 96px; aspect-ratio: 1; background-color: #f1f1ef; transition: background-size .5s var(--ease); background-repeat: no-repeat; background-size: auto 265%; background-position: 50% 13%; }
 .tl__thumb--bottom { background-size: auto 182%; background-position: 50% 100%; }
 .tl__thumb .mono { position: absolute; top: 6px; right: 8px; font-size: 9.5px; color: #6d7075; }
 .tl__info { display: grid; gap: 4px; align-content: start; min-width: 0; padding-top: 2px; }
@@ -282,6 +287,8 @@ button { font: inherit; color: inherit; }
 .tl__size select { border: 0; background: none; font: inherit; color: #2a2b2d; letter-spacing: .06em; padding: 2px 0; cursor: pointer; }
 .tl__add { align-self: end; border: 0; background: none; font-size: 22px; font-weight: 300; line-height: 1; color: #2a2b2d; cursor: pointer; padding: 4px 2px; }
 .tl__add:hover { opacity: .55; }
+.tl__add.is-done { font-size: 0; }
+.tl__add.is-done::after { content: "\2713"; font-size: 16px; }
 .tl__total { display: flex; justify-content: space-between; align-items: end; gap: 12px; padding: 22px 0 18px; }
 .tl__total p { margin: 0 0 3px; font-size: 14px; color: #2a2b2d; }
 .tl__total span { font-size: 11.5px; color: #9a9da1; }
@@ -295,13 +302,16 @@ button { font: inherit; color: inherit; }
   .tl { grid-template-columns: minmax(0, 1fr); margin: 40px 0 80px; }
   .tl__stage { height: 560px; min-height: 0; }
   .tl__head { top: 24px; left: 20px; right: 20px; }
-  .tl__track { bottom: 96px; }
-  .tl__model { width: 120px; height: 340px; margin: 0 22px; }
-  .tl__model.is-far { margin: 0 -14px; transform: translateY(-34px) scale(.78); }
+  .tl__track { bottom: 108px; }
+  .tl__view { -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); }
+  .tl__model { --h: 330px; margin: 0 22px; }
+  .tl__tag { bottom: -34px; font-size: 9px; }
   .tl__foot { padding: 0 14px 22px; gap: 10px; }
-  .tl__steps i { width: 26px; }
-  .tl__steps .is-on i { width: 44px; }
-  .tl__steps span { font-size: 9px; }
+  .tl__steps { gap: 4px; }
+  .tl__steps i { width: 14px; }
+  .tl__steps .is-on i { width: 30px; }
+  .tl__steps span { display: none; }
+  .tl__steps button { padding: 12px 0; }
   .tl__steps b { display: none !important; }
   .tl__panel { border-left: 0; border-top: 1px solid #e7e7e5; padding: 24px 20px; }
   .tl__item { grid-template-columns: 84px 1fr auto; gap: 14px; }
