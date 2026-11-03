@@ -245,7 +245,9 @@
     $$(".reveal", root).forEach(function (el) { rio.observe(el); });
   }
 
-  // Scroll: sticky header and drifting marquees
+  // Scroll: sticky header, drifting marquees and the lookbook stack
+  var lookbook = document.getElementById("lookbook");
+  var current = 0;
   function onScroll() {
     var vh = window.innerHeight, y = window.scrollY;
     var top = $("#topbar");
@@ -258,6 +260,26 @@
       var p = (vh - r.top) / (vh + r.height);
       el.style.transform = "translateX(" + (p * 30 * parseFloat(el.dataset.drift)) + "%)";
     });
+    if (lookbook && lookbook.offsetParent) {
+      var imgs = $$(".look__img", lookbook);
+      var b = lookbook.getBoundingClientRect();
+      var prog = Math.min(0.999, Math.max(0, -b.top / (b.height - vh)));
+      var idx = Math.floor(prog * imgs.length);
+      if (idx !== current && imgs[idx]) {
+        imgs[current].classList.remove("is-on");
+        imgs[idx].classList.add("is-on");
+        drawLook(idx);
+        current = idx;
+      }
+    }
+  }
+  function drawLook(idx) {
+    var looks = ((S.pages.home || {}).lookbook || {}).looks || [];
+    var l = looks[idx];
+    if (!l) return;
+    $("#lookName").innerHTML = br(l.name);
+    $("#lookItems").innerHTML = "● " + br(l.items);
+    $("#lookCount").textContent = "0" + (idx + 1) + " / 0" + looks.length;
   }
   var ticking = false;
   window.addEventListener("scroll", function () {
@@ -348,9 +370,30 @@
   function drawHome() {
     var home = S.pages.home;
     bind(homeView, home);
-    var list = S.products.filter(function (p) { return p.featured || p.isNew; }).concat(S.products.filter(function (p) { return !p.featured && !p.isNew; })).slice(0, 8);
+    current = 0;
+    $$(".look__img", homeView).forEach(function (im, i) { im.classList.toggle("is-on", i === 0); });
+    drawLook(0);
+    var list = S.products.filter(function (p) { return p.featured || p.isNew; }).concat(S.products.filter(function (p) { return !p.featured && !p.isNew; })).slice(0, 12);
     $("#grid").innerHTML = grid(list);
+    var lines = [];
+    list.forEach(function (p) { if (p.line && lines.indexOf(p.line) < 0) lines.push(p.line); });
+    $("#homeFilters").innerHTML = ["All"].concat(lines).map(function (l, i) {
+      return '<button class="filter' + (i ? "" : " is-on") + '" data-filter="' + esc(l) + '" role="tab" aria-selected="' + !i + '">' + esc(l) + "</button>";
+    }).join("");
+    // Categories with products or children, top level first
+    var cats = S.categories.filter(function (c) { return c.parentId && CAT_BY_ID[c.parentId] && CAT_BY_ID[c.parentId].slug === "men"; });
+    $("#catList").innerHTML = cats.map(function (c) {
+      var n = productsIn(c).length;
+      return '<li><a href="#category/' + c.slug + '"><span>' + esc(c.name) + '</span><span class="mono">' + (n ? n + (n === 1 ? " style" : " styles") : "Soon") + "</span></a></li>";
+    }).join("");
   }
+  $("#homeFilters").addEventListener("click", function (e) {
+    var btn = e.target.closest(".filter");
+    if (!btn) return;
+    var f = btn.dataset.filter;
+    $$("#homeFilters .filter").forEach(function (b) { b.classList.toggle("is-on", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
+    $$("#grid .card").forEach(function (c) { c.hidden = f !== "All" && c.dataset.line !== f; });
+  });
 
   // ---------------------------------------------------------------------------
   // Page header
@@ -1019,7 +1062,7 @@
   // ---------------------------------------------------------------------------
   // Router
   // ---------------------------------------------------------------------------
-  var HOME_ANCHORS = { arrivals: 1, top: 1 };
+  var HOME_ANCHORS = { house: 1, arrivals: 1, lookbook: 1, top: 1 };
   var LEGACY = { "men": "category/men", "women": "category/women", "t-shirt": "category/t-shirt", "the-house": "category/the-house", "account": "track" };
   function route() {
     var raw = location.hash.replace(/^#/, ""), h = decodeURIComponent(raw.split("?")[0]), query = raw.split("?")[1] || "";
@@ -1372,7 +1415,7 @@
       var m = e.data || {};
       if (m.type === "ravelle:page" && m.key && m.page) {
         S.pages[m.key] = m.page;
-        if (m.key === "home") { bind(homeView, m.page); bind($("#footer"), m.page); editable(homeView); }
+        if (m.key === "home") { bind(homeView, m.page); bind($("#footer"), m.page); drawLook(current); editable(homeView); }
         else {
           var root = document.querySelectorAll('[data-page="' + m.key + '"]');
           if (root.length) Array.prototype.forEach.call(root, function (r) { bind(r, m.page); editable(r); });

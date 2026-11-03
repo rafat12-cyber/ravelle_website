@@ -942,7 +942,7 @@
   // Pages: visual editor (live preview in an iframe of the store)
   // ---------------------------------------------------------------------------
   const PAGES = {
-    home: { title: "Home page", route: "home", sections: { hero: "Hero", categories: "Shop by category", arrivals: "New arrivals", editorial: "Photo pair", footer: "Footer" } },
+    home: { title: "Home page", route: "home", sections: { hero: "Hero", collage: "Presence collage", house: "The House", poster: "Offer poster", arrivals: "New arrivals", lookbook: "Lookbook", categories: "Shop by category", footer: "Footer" } },
     about: { title: "About us", route: "about" },
     contact: { title: "Contact us", route: "contact" },
     terms: { title: "Terms & conditions", route: "terms" },
@@ -956,7 +956,7 @@
     setTitle("Pages");
     const pages = ((await api("GET", "/api/pages").catch(fail)) || {}).pages || {};
     view.innerHTML = `<div class="head"><div><h1 class="h1">Pages</h1><p class="muted">Change the words and pictures on every page. The design stays the same, so the store always looks right.</p></div></div>
-      <div class="grid-3">${Object.keys(PAGES).filter((k) => pages[k]).map((k) => `<a class="card" href="#/pages/${k}" style="text-decoration:none"><h2 class="h2">${esc(PAGES[k].title)}</h2><p class="muted small" style="margin:0">${k === "home" ? "Hero, categories, new arrivals, photo pair and footer" : pages[k].updated ? "Last updated " + esc(pages[k].updated) : esc((pages[k].intro || "").slice(0, 90))}</p><span class="btn btn--ghost btn--sm" style="justify-self:start">Edit page</span></a>`).join("")}</div>
+      <div class="grid-3">${Object.keys(PAGES).filter((k) => pages[k]).map((k) => `<a class="card" href="#/pages/${k}" style="text-decoration:none"><h2 class="h2">${esc(PAGES[k].title)}</h2><p class="muted small" style="margin:0">${k === "home" ? "Hero, collections, offer poster, lookbook and footer" : pages[k].updated ? "Last updated " + esc(pages[k].updated) : esc((pages[k].intro || "").slice(0, 90))}</p><span class="btn btn--ghost btn--sm" style="justify-self:start">Edit page</span></a>`).join("")}</div>
       <div class="card"><h2 class="h2">Where are the footer and header links?</h2><p class="muted" style="margin:0">Menus live in <a href="#/menus">Menus</a>. Company details, the trade license, TIN and DBID shown on About us and in the footer come from <a href="#/settings">Settings</a>.</p></div>`;
   }
   async function viewPageEditor(key) {
@@ -1003,7 +1003,7 @@
       if (v && typeof v === "object") return `<details class="group"${depth === 0 && key !== "home" ? " open" : ""} data-group="${esc(p)}"><summary>${esc((meta.sections && meta.sections[k]) || human(k))}</summary><div class="group__body">${build(v, p, depth + 1)}</div></details>`;
       return "";
     }).join("");
-    $("#peForm").innerHTML = build(draft, "", 0) + `<datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
+    $("#peForm").innerHTML = build(draft, "", 0) + `<datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#lookbook", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
     $("#peForm").addEventListener("input", (e) => {
       const el = e.target.closest("[data-p]");
       if (!el) return;
