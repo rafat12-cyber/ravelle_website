@@ -169,9 +169,8 @@
       hero: {
         line1: "Designed for presence,", lead: "not", accent: "attention!",
         cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
-        image: "assets/img/home/h-hero.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in ocean blue",
-        avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"],
-        reelImage: "assets/img/home/h-reel.jpg", reelLabel: "Lookbook"
+        image: "assets/img/home/h-hero-duo.webp", imageAlt: "Two models in the Trust Broken tee in ocean blue and the Santa Rosa tee in red",
+        avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"]
       },
       tryLook: {
         title: "Try the Look.", sub: "Nine looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
@@ -188,9 +187,9 @@
         ]
       },
       house: {
-        eyebrow: "The House", titleStart: "Signature drops", accent: "built", titleEnd: "to be\nworn, not shown.",
-        card1: { image: "assets/img/home/h-house-1.webp", meta: "Nior Division", title: "Dark\nwashes for\nthe after\nhours.", link: "#category/nior-division" },
-        card2: { image: "assets/img/home/h-house-2.webp", meta: "Saint & Sinners Hype", title: "Loud\ngraphics,\nquiet\nconfidence.", link: "#category/saint-sinners" }
+        eyebrow: "New in", titleStart: "Boxy", accent: "fitted", titleEnd: "shirts.", linkLabel: "Shop all shirts →", link: "#category/half-shirt",
+        card1: { image: "assets/img/home/h-shirt-1.webp", meta: "৳850", title: "Mosaic", link: "#product/boxy-fitted-shirt-mosaic" },
+        card2: { image: "assets/img/home/h-shirt-2.webp", meta: "৳850", title: "Sage\nGarden", link: "#product/boxy-fitted-shirt-sage-garden" }
       },
       poster: {
         kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",

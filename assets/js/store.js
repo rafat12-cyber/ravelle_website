@@ -396,14 +396,15 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Try the look: models stand on a light stage at two depths and the row
-  // drifts slowly to the left. Tapping a model (or the timeline) picks that
-  // look and lists its pieces beside it. The row is drawn three times so it
-  // can loop without a gap. Pieces keep their own sale price.
+  // Try the look: a layered carousel. The look in the middle stands in
+  // front, its neighbours step back behind it, and the next ones further
+  // back again. Everything is placed from one number (pos) that eases
+  // toward its target every frame, so dragging, the arrows and autoplay all
+  // glide. Pieces keep their own sale price.
   // ---------------------------------------------------------------------------
-  var TL = { i: -1, n: 0, x: 0, target: null, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, setW: 0 };
+  var TL = { n: 0, pos: 0, target: 0, i: -1, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, unit: 200 };
   var tlTrack = $("#tlTrack"), tlStage = $("#tlStage"), tlCursor = $("#tlCursor");
-  var TL_MS = 6000, TL_SPEED = 16; // ms per look, px per second
+  var TL_MS = 3200; // time on each look while autoplaying
   function tlLooks() {
     return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l, i) {
       var items = String(l.products || "").split(",").map(function (x) { return BY_SLUG[x.trim()]; }).filter(Boolean);
@@ -418,96 +419,83 @@
     }
     return TL.sizes[p.id];
   }
+  var tlModels = [];
   function drawTry() {
     var looks = tlLooks();
     $("#try").hidden = !looks.length;
     if (!looks.length) return;
     TL.looks = looks; TL.n = looks.length;
-    var html = "";
-    for (var r = 0; r < 3; r++) looks.forEach(function (l, i) {
-          html += '<button class="tl__model" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"' + (r === 1 ? "" : ' tabindex="-1" aria-hidden="true"') + ">" +
+    tlTrack.innerHTML = looks.map(function (l, i) {
+      return '<button class="tl__model" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
         '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" draggable="false">' +
-        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + (r === 1 ? esc(l.alt) : "") + '" draggable="false">' +
+        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false">' +
         '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></button>";
-    });
-    tlTrack.innerHTML = html;
+    }).join("");
+    tlModels = $$(".tl__model", tlTrack);
     $("#tlSteps").innerHTML = looks.map(function (l, i) {
       return '<li><button type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"><i></i><span class="mono">' + String(i + 1).padStart(2, "0") + " <b>" + esc(l.name) + "</b></span></button></li>";
     }).join("");
-    tlMeasure();
-    TL.x = -TL.setW;
-    tlApply();
-    var keep = TL.i;
+    var keep = TL.i >= 0 && TL.i < TL.n ? TL.i : 0;
+    TL.pos = TL.target = keep;
     TL.i = -1;
-    tlPanel();
-    // The panel fills a moment after the section comes into view, like the reference
-    setTimeout(function () { tlPick(keep >= 0 && keep < TL.n ? keep : 0, true); }, keep >= 0 ? 0 : 700);
-  }
-  // Models take their width from their photo, so measure again as each loads
-  tlTrack.addEventListener("load", function () {
-    var f = TL.setW ? TL.x / TL.setW : -1;
     tlMeasure();
-    TL.x = f * TL.setW;
-    if (TL.target != null) TL.target = null, tlBring(TL.i);
-    tlApply();
-  }, true);
-  function tlMeasure() {
-    var kids = tlTrack.children;
-    TL.setW = TL.n && kids[TL.n] ? kids[TL.n].offsetLeft - kids[0].offsetLeft : 0;
+    tlLayout();
+    tlSelect(keep);
   }
-  function tlWrap() {
-    if (!TL.setW) return;
-    while (TL.x > -TL.setW * 0.5) { TL.x -= TL.setW; if (TL.target != null) TL.target -= TL.setW; if (TL.drag) TL.drag.x0 -= TL.setW; }
-    while (TL.x < -TL.setW * 1.5) { TL.x += TL.setW; if (TL.target != null) TL.target += TL.setW; if (TL.drag) TL.drag.x0 += TL.setW; }
-  }
-  function tlApply() { tlTrack.style.transform = "translate3d(" + TL.x.toFixed(1) + "px,0,0)"; }
-  // Move the nearest copy of look i to a spot left of centre
-  function tlBring(i) {
-    var best = null, spot = tlStage.clientWidth * (tlStage.clientWidth > 700 ? 0.42 : 0.5);
-    $$(".tl__model", tlTrack).forEach(function (m) {
-      if (+m.dataset.i !== i) return;
-      var t = spot - (m.offsetLeft + m.offsetWidth / 2);
-      if (best == null || Math.abs(t - TL.x) < Math.abs(best - TL.x)) best = t;
+  function tlMeasure() { TL.unit = Math.max(96, Math.min(190, tlStage.clientWidth * 0.165)); }
+  function tlWrapD(d) { var n = TL.n; d = ((d % n) + n) % n; return d > n / 2 ? d - n : d; }
+  // Place every model from the current position
+  function tlLayout() {
+    var u = TL.unit;
+    tlModels.forEach(function (m, k) {
+      var d = tlWrapD(k - TL.pos), a = Math.abs(d), sg = d < 0 ? -1 : 1;
+      // Each step back adds less sideways distance, so the rows tuck in behind
+      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * 0.72 + Math.max(0, Math.min(a, 4) - 2) * u * 0.55);
+      var sc = 1 - Math.min(a, 4) * 0.13;
+      var y = -Math.min(a, 4) * 16;
+      var blur = Math.max(0, a - 0.6) * 1.5;
+      var op = a > 3.2 ? Math.max(0, 1 - (a - 3.2) / 0.8) : 1;
+      m.style.transform = "translate3d(calc(-50% + " + x.toFixed(1) + "px)," + y.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
+      m.style.zIndex = String(100 - Math.round(a * 10));
+      m.style.opacity = op.toFixed(3);
+      m.style.visibility = op <= 0.01 ? "hidden" : "visible";
+      m.style.setProperty("--blur", blur.toFixed(2) + "px");
+      m.style.setProperty("--shade", Math.min(a, 3) * 0.06);
     });
-    if (best != null) TL.target = best;
   }
-  function tlPick(i, bring) {
+  function tlSelect(i) {
+    if (i === TL.i) return;
     TL.i = i;
-    $$(".tl__model", tlTrack).forEach(function (m) { m.classList.toggle("is-on", +m.dataset.i === i); });
+    tlModels.forEach(function (m, k) { m.classList.toggle("is-on", k === i); });
     $$("#tlSteps button").forEach(function (b, j) {
       b.classList.toggle("is-on", j === i); b.classList.toggle("is-done", j < i);
       b.setAttribute("aria-current", j === i ? "true" : "false");
       var bar = b.querySelector("i"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
     });
-    if (bring) tlBring(i);
     tlPanel();
     tlTimer();
   }
+  // Go to look i the short way round
+  function tlGoTo(i) { TL.target = TL.target + tlWrapD(i - TL.target); }
   var tlLast = 0;
   function tlFrame(t) {
     var dt = tlLast ? Math.min(0.05, (t - tlLast) / 1000) : 0;
     tlLast = t;
-    if (TL.n && TL.seen && !document.hidden) {
-      if (TL.drag) { /* follows the pointer */ }
-      else if (TL.target != null) {
-        TL.x += (TL.target - TL.x) * Math.min(1, dt * 4.5);
-        if (Math.abs(TL.target - TL.x) < 0.5) { TL.x = TL.target; TL.target = null; }
-      } else if (TL.playing && !TL.hover) TL.x -= TL_SPEED * dt;
-      tlWrap();
-      tlApply();
+    if (TL.n && TL.seen && !document.hidden && !TL.drag) {
+      var diff = TL.target - TL.pos;
+      if (Math.abs(diff) > 0.0005) {
+        // Smooth, frame-rate independent ease
+        TL.pos += diff * (1 - Math.exp(-dt * 7.5));
+        tlLayout();
+      } else if (diff) { TL.pos = TL.target; tlLayout(); }
     }
     requestAnimationFrame(tlFrame);
   }
   requestAnimationFrame(tlFrame);
   function tlPanel() {
-    var look = TL.looks[TL.i], all = $("#tlAll");
-    all.disabled = !look;
-    if (!look) {
-      $("#tlPieces").textContent = "";
-      $("#tlItems").innerHTML = "";
-      $("#tlSum").innerHTML = ""; $("#tlSave").textContent = "";
-      return;
-    }
+    var look = TL.looks[TL.i];
+    $("#tlAll").disabled = !look;
+    if (!look) return;
     var items = look.items, sum = 0, was = 0;
     $("#tlPieces").textContent = items.length + (items.length === 1 ? " piece" : " pieces");
     $("#tlItems").innerHTML = items.map(function (p, k) {
@@ -529,45 +517,58 @@
   }
   function tlTimer() {
     clearTimeout(TL.timer);
-    var on = TL.playing && TL.seen && TL.n > 1 && TL.i >= 0;
+    var on = TL.playing && TL.seen && TL.n > 1 && TL.i >= 0 && !TL.hover && !TL.drag;
     $("#try").classList.toggle("is-playing", on);
     var btn = $("#tlPlay");
     btn.classList.toggle("is-paused", !TL.playing);
     btn.setAttribute("aria-label", TL.playing ? "Pause" : "Play");
-    if (on) TL.timer = setTimeout(function () { tlPick((TL.i + 1) % TL.n, true); }, TL_MS);
+    if (on) TL.timer = setTimeout(function () { TL.target = Math.round(TL.target) + 1; tlSelect(((Math.round(TL.target) % TL.n) + TL.n) % TL.n); }, TL_MS);
   }
+  function tlStep(dir) { TL.target = Math.round(TL.target) + dir; tlSelect(((Math.round(TL.target) % TL.n) + TL.n) % TL.n); }
   function tlStop() { TL.playing = false; }
-  $("#tlPrev").addEventListener("click", function () { tlStop(); tlPick((TL.i - 1 + TL.n) % TL.n, true); });
-  $("#tlNext").addEventListener("click", function () { tlStop(); tlPick((TL.i + 1) % TL.n, true); });
+  $("#tlPrev").addEventListener("click", function () { tlStop(); tlStep(-1); });
+  $("#tlNext").addEventListener("click", function () { tlStop(); tlStep(1); });
   $("#tlPlay").addEventListener("click", function () { TL.playing = !TL.playing; tlTimer(); });
   $("#tlSteps").addEventListener("click", function (e) {
     var b = e.target.closest("button");
-    if (b) { tlStop(); tlPick(+b.dataset.i, true); }
+    if (b) { tlStop(); tlGoTo(+b.dataset.i); tlSelect(+b.dataset.i); }
   });
-  // Drag the row; a tap on a model picks it
+  // Drag: the row follows the pointer, then settles on the nearest look,
+  // carrying a little of the flick speed
   tlStage.addEventListener("pointerdown", function (e) {
     if (e.target.closest(".tl__foot, .tl__head") || e.button) return;
-    TL.drag = { px: e.clientX, x0: TL.x, moved: 0 };
-    TL.target = null;
+    TL.drag = { px: e.clientX, p0: TL.pos, moved: 0, lx: e.clientX, lt: performance.now(), v: 0 };
     tlStage.classList.add("is-grabbing");
+    tlTimer();
   });
   window.addEventListener("pointermove", function (e) {
-    if (!TL.drag) return;
-    var dx = e.clientX - TL.drag.px;
-    TL.drag.moved = Math.max(TL.drag.moved, Math.abs(dx));
-    TL.x = TL.drag.x0 + dx;
+    var g = TL.drag;
+    if (!g) return;
+    var now = performance.now(), dx = e.clientX - g.px;
+    g.moved = Math.max(g.moved, Math.abs(dx));
+    if (now > g.lt) { g.v = 0.8 * g.v + 0.2 * ((e.clientX - g.lx) / (now - g.lt)); g.lx = e.clientX; g.lt = now; }
+    TL.pos = TL.target = g.p0 - dx / TL.unit;
+    tlLayout();
   });
   window.addEventListener("pointerup", function (e) {
-    if (!TL.drag) return;
-    var tap = TL.drag.moved < 6, m = e.target.closest && e.target.closest(".tl__model");
+    var g = TL.drag;
+    if (!g) return;
     TL.drag = null;
     tlStage.classList.remove("is-grabbing");
-    if (tap && m && tlTrack.contains(m)) { tlStop(); tlPick(+m.dataset.i, false); }
+    var m = e.target.closest && e.target.closest(".tl__model");
+    if (g.moved < 6) {
+      if (m && tlTrack.contains(m)) { tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
+      else tlTimer();
+      return;
+    }
+    tlStop();
+    TL.target = Math.round(TL.pos - g.v * 260 / TL.unit);
+    tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
   });
   tlTrack.addEventListener("click", function (e) {
     if (e.detail) return; // keyboard only; pointer taps are handled above
     var m = e.target.closest(".tl__model");
-    if (m) { tlStop(); tlPick(+m.dataset.i, true); }
+    if (m) { tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
   });
   tlStage.addEventListener("pointermove", function (e) {
     if (e.pointerType !== "mouse") return;
@@ -575,9 +576,14 @@
     tlCursor.style.transform = "translate(" + (e.clientX - r.left) + "px," + (e.clientY - r.top) + "px)";
     tlCursor.textContent = over ? "View" : "Drag";
     tlCursor.classList.toggle("is-on", !ui);
-    TL.hover = !!over;
+    var h = !!over;
+    if (h !== TL.hover) { TL.hover = h; tlTimer(); }
   });
-  tlStage.addEventListener("pointerleave", function () { tlCursor.classList.remove("is-on"); TL.hover = false; });
+  tlStage.addEventListener("pointerleave", function () { tlCursor.classList.remove("is-on"); if (TL.hover) { TL.hover = false; tlTimer(); } });
+  tlStage.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") { tlStop(); tlStep(1); }
+    if (e.key === "ArrowLeft") { tlStop(); tlStep(-1); }
+  });
   $("#tlItems").addEventListener("change", function (e) {
     var sel = e.target.closest("[data-size]"), li = sel && sel.closest(".tl__item");
     if (li) TL.sizes[li.dataset.p] = sel.value;
@@ -601,7 +607,7 @@
     if (out.length) toast("Sold out: " + esc(out.join(", ")), "warn");
     if (added) { toast("Look added to bag"); openBag(); }
   });
-  window.addEventListener("resize", function () { if (TL.n) { var f = TL.setW ? TL.x / TL.setW : -1; tlMeasure(); TL.x = f * TL.setW; tlApply(); } });
+  window.addEventListener("resize", function () { if (TL.n) { tlMeasure(); tlLayout(); } });
   if ("IntersectionObserver" in window) {
     new IntersectionObserver(function (es) { TL.seen = es[0].isIntersecting; tlTimer(); }, { threshold: 0.2 }).observe($("#try"));
   } else TL.seen = true;
