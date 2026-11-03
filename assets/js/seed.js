@@ -174,14 +174,14 @@
         reelImage: "assets/img/home/h-reel.jpg", reelLabel: "Lookbook"
       },
       tryLook: {
-        title: "Try the", accent: "look.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
+        title: "Try the Look.", sub: "Six looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
         looks: [
-          { image: "assets/img/home/look-1.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with the black baggy trouser", products: "fearless-oversized-t-shirt-yellow, baggy-trouser-black" },
-          { image: "assets/img/home/look-2.webp", imageAlt: "Model in the RVCHL oversized T-shirt in black with the black baggy trouser", products: "rvchl-oversized-t-shirt-black, baggy-trouser-black" },
-          { image: "assets/img/home/look-3.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in ocean blue with the black baggy trouser", products: "trust-broken-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
-          { image: "assets/img/home/look-4.webp", imageAlt: "Model in the Starlight oversized T-shirt in cream with the black baggy trouser", products: "starlight-oversized-t-shirt-cream, baggy-trouser-black" },
-          { image: "assets/img/home/look-5.webp", imageAlt: "Model in the Starlight oversized T-shirt in black with the black baggy trouser", products: "starlight-oversized-t-shirt-black, baggy-trouser-black" },
-          { image: "assets/img/home/look-6.webp", imageAlt: "Model in the Stride Out oversized T-shirt in blue with the black baggy trouser", products: "stride-out-oversized-t-shirt-blue, baggy-trouser-black" }
+          { name: "Fearless", image: "assets/img/home/look-1.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with the black baggy trouser", products: "fearless-oversized-t-shirt-yellow, baggy-trouser-black" },
+          { name: "RVCHL", image: "assets/img/home/look-2.webp", imageAlt: "Model in the RVCHL oversized T-shirt in black with the black baggy trouser", products: "rvchl-oversized-t-shirt-black, baggy-trouser-black" },
+          { name: "Trust Broken", image: "assets/img/home/look-3.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in ocean blue with the black baggy trouser", products: "trust-broken-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Starlight Cream", image: "assets/img/home/look-4.webp", imageAlt: "Model in the Starlight oversized T-shirt in cream with the black baggy trouser", products: "starlight-oversized-t-shirt-cream, baggy-trouser-black" },
+          { name: "Starlight Black", image: "assets/img/home/look-5.webp", imageAlt: "Model in the Starlight oversized T-shirt in black with the black baggy trouser", products: "starlight-oversized-t-shirt-black, baggy-trouser-black" },
+          { name: "Stride Out", image: "assets/img/home/look-6.webp", imageAlt: "Model in the Stride Out oversized T-shirt in blue with the black baggy trouser", products: "stride-out-oversized-t-shirt-blue, baggy-trouser-black" }
         ]
       },
       house: {
