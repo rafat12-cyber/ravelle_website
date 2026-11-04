@@ -169,7 +169,7 @@
       hero: {
         line1: "Designed for presence,", lead: "not", accent: "attention!",
         cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
-        image: "assets/img/home/h-hero-duo.webp", imageAlt: "Two models in the Trust Broken tee in ocean blue and the Santa Rosa tee in red",
+        image: "assets/img/home/h-hero-fearless.webp", imageAlt: "Two models in the Fearless tee in black and in ocean blue",
         avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"]
       },
       tryLook: {
