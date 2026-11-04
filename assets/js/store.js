@@ -405,6 +405,7 @@
   var TL = { n: 0, pos: 0, target: 0, i: -1, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, unit: 200 };
   var tlTrack = $("#tlTrack"), tlStage = $("#tlStage"), tlCursor = $("#tlCursor");
   var TL_MS = 3200; // time on each look while autoplaying
+  var TL_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
   function tlLooks() {
     return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l, i) {
       var items = String(l.products || "").split(",").map(function (x) { return BY_SLUG[x.trim()]; }).filter(Boolean);
@@ -426,10 +427,10 @@
     if (!looks.length) return;
     TL.looks = looks; TL.n = looks.length;
     tlTrack.innerHTML = looks.map(function (l, i) {
-      return '<button class="tl__model" type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
+      return '<div class="tl__model" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
         '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" draggable="false">' +
         '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false">' +
-        '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></button>";
+        '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></div>";
     }).join("");
     tlModels = $$(".tl__model", tlTrack);
     $("#tlSteps").innerHTML = looks.map(function (l, i) {
@@ -459,10 +460,11 @@
       m.style.zIndex = String(100 - Math.round(a * 10));
       m.style.opacity = op.toFixed(3);
       m.style.visibility = op <= 0.01 ? "hidden" : "visible";
-      // Only filter models that need it; a filter on the front model can
-      // flash white on iPhone while it moves
+      // Phones get no filters at all (Safari can paint filtered, moving
+      // photos as white boxes); models further back just fade a little
       var sh = Math.min(a, 3) * 0.06, img = m._img || (m._img = m.querySelector(".tl__img"));
-      img.style.filter = blur < 0.05 && sh < 0.01 ? "none" : "blur(" + blur.toFixed(2) + "px) brightness(" + (1 + sh).toFixed(3) + ") saturate(" + (1 - sh).toFixed(3) + ")";
+      if (TL_TOUCH) { img.style.filter = ""; img.style.opacity = (1 - Math.min(a, 3) * 0.1).toFixed(3); }
+      else img.style.filter = blur < 0.05 && sh < 0.01 ? "none" : "blur(" + blur.toFixed(2) + "px) brightness(" + (1 + sh).toFixed(3) + ") saturate(" + (1 - sh).toFixed(3) + ")";
     });
   }
   function tlSelect(i) {
@@ -575,10 +577,10 @@
     TL.target = Math.round(TL.pos - g.v * 260 / TL.unit);
     tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
   });
-  tlTrack.addEventListener("click", function (e) {
-    if (e.detail) return; // keyboard only; pointer taps are handled above
+  tlTrack.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
     var m = e.target.closest(".tl__model");
-    if (m) { tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
+    if (m) { e.preventDefault(); tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
   });
   tlStage.addEventListener("pointermove", function (e) {
     if (e.pointerType !== "mouse") return;
