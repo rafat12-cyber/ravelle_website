@@ -942,7 +942,7 @@
   // Pages: visual editor (live preview in an iframe of the store)
   // ---------------------------------------------------------------------------
   const PAGES = {
-    home: { title: "Home page", route: "home", sections: { hero: "Hero", tryLook: "Try the look", house: "Oversized items", poster: "Offer poster", arrivals: "New arrivals", lookbook: "Lookbook", categories: "Shop by category", footer: "Footer" } },
+    home: { title: "Home page", route: "home", sections: { hero: "Hero", tryLook: "Try the look", house: "Oversized items", poster: "Offer poster", arrivals: "Product showcase", lookbook: "Lookbook", categories: "Shop by category", footer: "Footer" } },
     about: { title: "About us", route: "about" },
     contact: { title: "Contact us", route: "contact" },
     terms: { title: "Terms & conditions", route: "terms" },
@@ -989,7 +989,8 @@
       if (isImageKey(k, v)) return imgField(path, v, label);
       if (isMdKey(k)) return `<label class="field" data-path="${esc(path)}"><span>${label}</span><textarea class="input input--md" data-p="${esc(path)}">${esc(v)}</textarea><small>## Heading · - list item · 1. step · **bold** · [link text](#contact)</small></label>`;
       const long = v.length > 60 || v.indexOf("\n") > -1;
-      const linkHint = /link$/i.test(k) ? `<small>A page link like #shop, #category/men, #about, or a full https:// address.</small>` : "";
+      const linkHint = /link$/i.test(k) ? `<small>A page link like #shop, #category/men, #about, or a full https:// address.</small>`
+        : k === "category" ? `<small>Category: ${esc(((store && store.categories) || []).map((c) => c.slug).join(", "))}, or top-selling. Join several with commas.</small>` : "";
       return `<label class="field" data-path="${esc(path)}"><span>${label}</span>${long ? `<textarea class="input" data-p="${esc(path)}" rows="${Math.min(6, Math.max(2, v.split("\n").length + 1))}">${esc(v)}</textarea>` : `<input class="input" data-p="${esc(path)}" value="${esc(v)}" ${/link$/i.test(k) ? 'list="peLinks"' : ""}>`}${linkHint}</label>`;
     };
     const build = (obj, path, depth) => Object.keys(obj).map((k) => {
@@ -998,7 +999,7 @@
       if (Array.isArray(v)) {
         return `<details class="group"${depth ? "" : " open"}><summary>${human(k)}</summary><div class="group__body">${v.map((item, i) =>
           typeof item === "string" ? fieldFor(k.replace(/s$/, "") + " " + (i + 1), item, p + "." + i).replace(/<span>[^<]*<\/span>/, `<span>${human(k).replace(/s$/, "")} ${i + 1}</span>`)
-            : `<details class="group"><summary>${human(k).replace(/s$/, "")} ${i + 1}${item.title || item.name ? ": " + esc(String(item.title || item.name).split("\n")[0]) : ""}</summary><div class="group__body">${build(item, p + "." + i, depth + 2)}</div></details>`).join("")}</div></details>`;
+            : `<details class="group"><summary>${human(k).replace(/s$/, "")} ${i + 1}${item.title || item.name || item.label ? ": " + esc(String(item.title || item.name || item.label).split("\n")[0]) : ""}</summary><div class="group__body">${build(item, p + "." + i, depth + 2)}</div></details>`).join("")}</div></details>`;
       }
       if (v && typeof v === "object") return `<details class="group"${depth === 0 && key !== "home" ? " open" : ""} data-group="${esc(p)}"><summary>${esc((meta.sections && meta.sections[k]) || human(k))}</summary><div class="group__body">${build(v, p, depth + 1)}</div></details>`;
       return "";

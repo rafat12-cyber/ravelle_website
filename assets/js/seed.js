@@ -197,14 +197,24 @@
         image: "assets/img/home/h-poster-rv.webp", imageAlt: "Model from behind in the RV Core Hustle T-shirt with black baggy trousers",
         marqueeTop: "RAINING OFFERS FOR HOT SUMMER", marqueeBottom: "OWN THE STREET"
       },
-      arrivals: { titleStart: "Fresh fits for your", accent: "next", titleEnd: "move!" },
+      arrivals: {
+        titleStart: "Fresh fits for your", accent: "next", titleEnd: "move!",
+        // Tabs under the heading. Category is a category slug (t-shirt, half-shirt, full-shirt, trouser,
+        // polo...) or top-selling; join several slugs with commas. Clear a label to hide its tab.
+        tabs: [
+          { label: "T-shirt", category: "t-shirt" },
+          { label: "Shirt", category: "half-shirt, full-shirt" },
+          { label: "Trouser", category: "trouser" },
+          { label: "Polo", category: "polo" },
+          { label: "Top Selling", category: "top-selling" }
+        ]
+      },
       lookbook: {
         marqueeBack: "FRESH FITS FOR YOUR NEXT MOVE", marqueeFront: "YOUR NEXT MOVE",
         looks: [
-          { image: "assets/img/home/h-look-1.webp", name: "After Hours tee\nBlack wash" },
-          { image: "assets/img/home/h-look-2.webp", name: "Santa Rosa tee\nOcean blue" },
-          { image: "assets/img/home/h-look-3.webp", name: "Stride Out tee\nBrick red" },
-          { image: "assets/img/home/h-look-4.webp", name: "RVCHL tee\nYellow" }
+          { image: "assets/img/home/lb-1.webp", name: "Fearless tee\nOcean blue" },
+          { image: "assets/img/home/lb-2.webp", name: "Brand New Day tee\nBlack" },
+          { image: "assets/img/home/lb-3.webp", name: "Starlight tee\nBlack" }
         ]
       },
       categories: { eyebrow: "Shop men" },

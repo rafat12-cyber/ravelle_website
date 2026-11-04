@@ -380,13 +380,12 @@
     current = 0;
     $$(".look__img", homeView).forEach(function (im, i) { im.classList.toggle("is-on", i === 0); });
     drawLook(0);
-    var list = S.products.filter(function (p) { return p.featured || p.isNew; }).concat(S.products.filter(function (p) { return !p.featured && !p.isNew; })).slice(0, 12);
-    $("#grid").innerHTML = grid(list);
-    var lines = [];
-    list.forEach(function (p) { if (p.line && lines.indexOf(p.line) < 0) lines.push(p.line); });
-    $("#homeFilters").innerHTML = ["All"].concat(lines).map(function (l, i) {
-      return '<button class="filter' + (i ? "" : " is-on") + '" data-filter="' + esc(l) + '" role="tab" aria-selected="' + !i + '">' + esc(l) + "</button>";
+    // Category tabs (Admin > Pages > Home > Arrivals), eight products each
+    HOME_TABS = ((home.arrivals || {}).tabs || DEFAULT_TABS).filter(function (t) { return t && String(t.label || "").trim(); });
+    $("#homeFilters").innerHTML = HOME_TABS.map(function (t, i) {
+      return '<button class="filter' + (i ? "" : " is-on") + '" data-tab="' + i + '" role="tab" aria-selected="' + !i + '">' + esc(t.label) + "</button>";
     }).join("");
+    drawArrivals(0);
     // Categories with products or children, top level first
     var cats = S.categories.filter(function (c) { return c.parentId && CAT_BY_ID[c.parentId] && CAT_BY_ID[c.parentId].slug === "men"; });
     $("#catList").innerHTML = cats.map(function (c) {
@@ -394,12 +393,34 @@
       return '<li><a href="#category/' + c.slug + '"><span>' + esc(c.name) + '</span><span class="mono">' + (n ? n + (n === 1 ? " style" : " styles") : "Soon") + "</span></a></li>";
     }).join("");
   }
+  var HOME_TABS = [];
+  var DEFAULT_TABS = [{ label: "T-shirt", category: "t-shirt" }, { label: "Shirt", category: "half-shirt, full-shirt" },
+    { label: "Trouser", category: "trouser" }, { label: "Polo", category: "polo" }, { label: "Top Selling", category: "top-selling" }];
+  function tabProducts(t) {
+    var slugs = String((t && t.category) || "").toLowerCase().split(",").map(function (s) { return s.trim().replace(/^#?category\//, ""); }).filter(Boolean);
+    if (!slugs.length || slugs.indexOf("top-selling") > -1 || slugs.indexOf("all") > -1) {
+      // Top selling: featured pieces first, then new arrivals, then the rest
+      var rank = function (p) { return (p.featured ? 0 : 2) + (p.isNew ? 0 : 1); };
+      return S.products.slice().sort(function (a, b) { return rank(a) - rank(b); });
+    }
+    var out = [];
+    slugs.forEach(function (sl) {
+      var c = CAT_BY_SLUG[sl];
+      if (c) productsIn(c).forEach(function (p) { if (out.indexOf(p) < 0) out.push(p); });
+    });
+    // featured and new pieces lead within a category too
+    return out.sort(function (a, b) { return (b.featured ? 2 : 0) + (b.isNew ? 1 : 0) - (a.featured ? 2 : 0) - (a.isNew ? 1 : 0); });
+  }
+  function drawArrivals(i) {
+    var t = HOME_TABS[i], list = t ? tabProducts(t).slice(0, 8) : [];
+    $("#grid").innerHTML = list.length ? grid(list) : '<p class="grid__empty">New ' + esc(t ? t.label : "styles") + " pieces are dropping soon.</p>";
+    guardImages($("#grid"));
+  }
   $("#homeFilters").addEventListener("click", function (e) {
     var btn = e.target.closest(".filter");
     if (!btn) return;
-    var f = btn.dataset.filter;
     $$("#homeFilters .filter").forEach(function (b) { b.classList.toggle("is-on", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
-    $$("#grid .card").forEach(function (c) { c.hidden = f !== "All" && c.dataset.line !== f; });
+    drawArrivals(+btn.dataset.tab);
   });
 
   // ---------------------------------------------------------------------------
