@@ -246,7 +246,7 @@ button { font: inherit; color: inherit; }
 .collage__note--b { grid-column: 3; grid-row: 1; justify-self: end; }
 
 /* 2. Try the look --------------------------------------------------------- */
-.tl { position: relative; display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 1fr); margin: 0 0 110px; border-bottom: 1px solid #e7e7e5;
+.tl { position: relative; display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 1fr); margin: 45px 0 110px; border-bottom: 1px solid #e7e7e5;
   background: linear-gradient(180deg, var(--ground) 0, #f4f4f3 150px, #f4f4f3 100%); }
 .tl__stage { position: relative; min-width: 0; height: min(760px, 88vh); min-height: 620px; overflow: hidden; overflow: clip; background: none; cursor: none; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .tl__head { position: absolute; top: 34px; left: 40px; z-index: 5; cursor: auto; }
@@ -341,7 +341,7 @@ button { font: inherit; color: inherit; }
 
 @media (hover: none) { .tl__stage, .tl__model { cursor: auto; } .tl__cursor { display: none; } }
 @media (max-width: 960px) {
-  .tl { grid-template-columns: minmax(0, 1fr); margin: 0 0 80px; }
+  .tl { grid-template-columns: minmax(0, 1fr); margin: 40px 0 80px; }
   .tl__stage { height: 560px; min-height: 0; }
   .tl__head { top: 24px; left: 20px; right: 20px; }
   .tl__track { bottom: 112px; }
