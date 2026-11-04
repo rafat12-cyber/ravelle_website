@@ -349,3 +349,8 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
   .menu-item { grid-template-columns: 1fr; }
   .badge--demo { display: none; }
 }
+
+/* Product list drag handle */
+.t td.drag { cursor: grab; color: var(--ink-3, #9aa0a6); font-size: 16px; text-align: center; user-select: none; touch-action: none; width: 28px; }
+.t td.drag:active { cursor: grabbing; }
+.t tr.is-dragging { opacity: .45; background: var(--bg-2, #f1f2f4); }

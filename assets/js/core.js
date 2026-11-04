@@ -839,6 +839,16 @@
     route("GET", "/api/analytics", "dashboard", function (c) { return analytics(c.db, c.query.days); }, { readonly: true });
 
     // --- Products ------------------------------------------------------------------------
+    // Manual order: the listed products swap into the places they already hold, so a filtered list can be reordered on its own
+    route("PUT", "/api/products-order", "products", function (c) {
+      var ids = Array.isArray(c.body.ids) ? c.body.ids.map(String) : [];
+      var slots = [], queue = {}, picked = [];
+      c.db.products.forEach(function (p, i) { if (ids.indexOf(p.id) > -1) { slots.push(i); (queue[p.id] = queue[p.id] || []).push(p); } });
+      ids.forEach(function (id) { var q = queue[id]; if (q && q.length) picked.push(q.shift()); });
+      if (picked.length !== slots.length) fail(400, "Send every product in the list once.");
+      slots.forEach(function (slot, k) { c.db.products[slot] = picked[k]; });
+      return { ok: true, count: picked.length };
+    });
     route("GET", "/api/products", "products", function (c) {
       var q = str(c.query.q).toLowerCase(), cat = str(c.query.category), status = str(c.query.status);
       var list = c.db.products.filter(function (p) {

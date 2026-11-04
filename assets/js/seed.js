@@ -124,7 +124,7 @@
   var products = P.map(function (r, i) {
     var line = r[0], color = r[1], sku = "RV-" + LINE[line].code + "-" + COLOR[color], type = TYPE[LINE[line].type || "tee"];
     return {
-      id: "prd_" + r[5].replace(/-/g, "_").slice(0, 40), slug: r[5], sku: sku, status: "published",
+      id: "prd_" + r[5].replace(/-/g, "_").slice(0, 60), slug: r[5], sku: sku, status: "published",
       name: type.name(line, color), line: line, color: color, hex: r[2],
       price: r[3], comparePrice: r[4], description: LINE[line].about, details: FIT.slice(),
       images: r[6], sizeGuide: "assets/img/size-guide-sample.webp",

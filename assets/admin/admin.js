@@ -597,7 +597,7 @@
     await loadStore();
     const qs = new URLSearchParams(query || "");
     const state = { q: "", category: qs.get("category") || "", status: "" };
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Products</h1><p class="muted">${store.products.length} published. Every product and size has its own SKU.</p></div>
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Products</h1><p class="muted">${store.products.length} published. Drag ⠿ to change the order products show in the shop.</p></div>
       <div class="flex"><button class="btn btn--ghost" id="prdCsv">Export CSV</button><a class="btn btn--dark" href="#/products/new">Add product</a></div></div>
       <div class="toolbar"><div class="grow"><input class="input" id="prdQ" placeholder="Search name, SKU, colour"></div>
         <select class="input" id="prdCat"><option value="">All categories</option>${catTree(store.categories).map(({ c, depth }) => `<option value="${c.id}"${c.id === state.category ? " selected" : ""}>${"— ".repeat(depth)}${esc(c.name)}</option>`).join("")}</select>
@@ -610,17 +610,42 @@
       try { list = (await api("GET", "/api/products?" + p)).products; } catch (err) { return fail(err); }
       const catName = (id) => (store.categories.find((c) => c.id === id) || {}).name;
       const low = store.settings.lowStock || 5;
-      $("#prdList").innerHTML = list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Product</th><th>SKU</th><th>Categories</th><th class="right">Price</th><th class="right">Stock</th><th>Status</th><th></th></tr></thead><tbody>${list.map((p) => `
-        <tr class="is-link" data-href="#/products/${esc(p.id)}"><td><div class="flex" style="flex-wrap:nowrap">${p.images[0] ? `<img class="thumb" src="${esc(p.images[0])}" alt="" loading="lazy">` : `<span class="thumb" style="background:${esc(p.hex || "#ddd")}"></span>`}<span><b>${esc(p.name)}</b><br><small class="muted">${p.variants.length ? p.variants.length + " variations" : "No variations"}${p.featured ? " · Featured" : ""}${p.isNew ? " · New" : ""}</small></span></div></td>
+      $("#prdList").innerHTML = list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th style="width:28px"></th><th>Product</th><th>SKU</th><th>Categories</th><th class="right">Price</th><th class="right">Stock</th><th>Status</th><th></th></tr></thead><tbody id="prdRows">${list.map((p) => `
+        <tr class="is-link" data-href="#/products/${esc(p.id)}" data-id="${esc(p.id)}"><td class="drag" title="Drag to reorder">⠿</td><td><div class="flex" style="flex-wrap:nowrap">${p.images[0] ? `<img class="thumb" src="${esc(p.images[0])}" alt="" loading="lazy">` : `<span class="thumb" style="background:${esc(p.hex || "#ddd")}"></span>`}<span><b>${esc(p.name)}</b><br><small class="muted">${p.variants.length ? p.variants.length + " variations" : "No variations"}${p.featured ? " · Featured" : ""}${p.isNew ? " · New" : ""}</small></span></div></td>
         <td class="mono">${esc(p.sku)}</td><td>${p.categoryIds.map(catName).filter(Boolean).map(esc).join(", ")}</td>
         <td class="right num">${taka(p.price)}${p.comparePrice > p.price ? `<br><small class="muted"><s>${taka(p.comparePrice)}</s></small>` : ""}</td>
         <td class="right num">${p.stock == null ? "—" : `<b style="color:${p.stock === 0 ? "var(--danger)" : p.stock <= low ? "var(--warn)" : "inherit"}">${p.stock}</b>`}</td><td>${pill(p.status)}</td>
         <td class="right nowrap"><button class="btn btn--ghost btn--sm" data-dup="${esc(p.id)}">Duplicate</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">No products match.</p>`;
     };
+    // Drag rows by the handle to set the order products show in on the store
+    let dragRow = null;
+    const saveOrder = async () => {
+      const ids = $$("#prdRows tr").map((tr) => tr.dataset.id);
+      try { await api("PUT", "/api/products-order", { ids }); store = null; toast("Order saved. The shop shows products in this order."); } catch (err) { fail(err); load(); }
+    };
+    // Mouse, pen and touch: press the handle and move up or down
+    $("#prdList").addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".drag");
+      if (!h) return;
+      e.preventDefault();
+      dragRow = h.closest("tr"); dragRow.classList.add("is-dragging");
+      try { h.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    $("#prdList").addEventListener("pointermove", (e) => {
+      if (!dragRow) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY), tr = el && el.closest("#prdRows tr");
+      if (!tr || tr === dragRow) return;
+      const r = tr.getBoundingClientRect();
+      tr.parentNode.insertBefore(dragRow, e.clientY > r.top + r.height / 2 ? tr.nextSibling : tr);
+    });
+    const endDrag = () => { if (!dragRow) return; dragRow.classList.remove("is-dragging"); dragRow = null; saveOrder(); };
+    $("#prdList").addEventListener("pointerup", endDrag);
+    $("#prdList").addEventListener("pointercancel", endDrag);
     $("#prdQ").oninput = debounce((e) => { state.q = e.target.value.trim(); load(); }, 250);
     $("#prdCat").onchange = (e) => { state.category = e.target.value; load(); };
     $("#prdStatus").onchange = (e) => { state.status = e.target.value; load(); };
     $("#prdList").addEventListener("click", async (e) => {
+      if (e.target.closest(".drag")) { e.stopPropagation(); return; }
       const b = e.target.closest("[data-dup]");
       if (!b) return;
       e.stopPropagation();

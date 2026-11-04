@@ -62,11 +62,21 @@
         '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
         '<span class="card__top">' + (soldOut(p) ? '<span class="chip chip--out">Sold out</span>' : off ? '<span class="chip">−' + off + "%</span>" : p.isNew ? '<span class="chip">New</span>' : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
-        '<span class="card__bar"><span class="card__name"><b>' + esc(shortName(p)) + "</b>" +
-          '<span class="card__price">' + (p.color ? esc(p.color) + " · " : "") + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span></span>" +
+        '<span class="card__bar"><span class="card__name"><b class="card__short">' + esc(shortName(p)) + '</b><b class="card__full">' + esc(p.name) + "</b>" +
+          '<span class="card__price"><span class="card__col">' + (p.color ? esc(p.color) + " · " : "") + "</span>" + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span>" +
+          (inStockSizes(p).length ? '<span class="card__sizes">' + inStockSizes(p).map(function (s) { return "<i>" + esc(s) + "</i>"; }).join("") + "</span>" : "") + "</span>" +
           '<span class="card__go" aria-hidden="true">›</span></span>' +
       "</a>"
     );
+  }
+  // Sizes that can still be bought (sold-out sizes are left out)
+  function inStockSizes(p) {
+    var out = [];
+    (p.variants || []).forEach(function (v) {
+      var o = v.options || {}, s = o.Size || o.size;
+      if (s && (v.stock == null || v.stock > 0) && out.indexOf(s) < 0) out.push(s);
+    });
+    return out;
   }
   // "Fearless Oversized T-shirt – Black" shows as "Fearless Oversized T-shirt" with the colour beneath.
   function shortName(p) { return p.color ? p.name.replace(new RegExp("\\s*[–-]\\s*" + p.color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i"), "") : p.name; }
