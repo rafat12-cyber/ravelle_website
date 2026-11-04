@@ -1164,7 +1164,7 @@
     page.innerHTML =
       '<section class="about" data-page="about">' +
         '<div class="about__story">' +
-          '<figure class="collage__img reveal slat dark about__cut"><img data-ci="image" data-calt="imageAlt" alt="" loading="lazy"></figure>' +
+          '<figure class="collage__img reveal slat dark"><img data-ci="image" data-calt="imageAlt" alt="" loading="lazy"></figure>' +
           '<div class="about__text"><p class="eyebrow" data-c="storyTitle"></p><div class="prose prose--lead" data-md="story"></div></div>' +
         "</div>" +
         '<div class="about__pillars about__pillars--row">' + (d.values || []).map(function (v, i) {

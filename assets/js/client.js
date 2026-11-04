@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v22";
+  var DB_KEY = "ravelle:demo-db:v23";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   function loadScript(src) {
@@ -204,8 +204,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1164"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1154"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1165"))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1165"); })
       .then(function () { startDemo(); return m; });
   });
 

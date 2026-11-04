@@ -223,7 +223,7 @@
     about: {
       eyebrow: "About us", title: "Own your style.", accent: "Define", titleEnd: "your identity.",
       intro: "Ravelle is a lifestyle brand from Dhaka, built for people who dress for themselves.",
-      image: "assets/img/c-black.webp", imageAlt: "Model in the Fearless oversized T-shirt in black",
+      image: "assets/img/about.webp", imageAlt: "Two models in Fearless oversized T-shirts, black and blue, with black star baggy trousers",
       storyTitle: "Our story",
       story: "Ravelle blends modern streetwear with classic polish. We make everyday staples and bolder statement pieces that feel good, last long and look like you.\n\nEvery piece starts with fabric. We cut heavyweight cotton into relaxed, oversized shapes, then finish them with washes and prints that age well. The result works for a long day in the city and still looks considered at night.\n\nOur goal is simple: make contemporary fashion more expressive, more accessible and more meaningful for people who want to stand out on their own terms.",
       values: [
