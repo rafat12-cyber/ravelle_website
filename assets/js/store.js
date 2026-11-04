@@ -54,7 +54,7 @@
     ruler: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 15 15 3l6 6L9 21l-6-6Z M7 11l2 2M10 8l2 2M13 5l2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
   };
 
-  function card(p, i) {
+  function card(p, i, shop) {
     var off = offOf(p), img = p.images[0] || "";
     return (
       '<a class="card' + (soldOut(p) ? " is-out" : "") + '" data-line="' + esc(p.line) + '" href="#product/' + p.slug + '" style="--tone:' + esc(p.hex || "#7b7e83") + '">' +
@@ -62,9 +62,9 @@
         '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
         '<span class="card__top">' + (soldOut(p) ? '<span class="chip chip--out">Sold out</span>' : off ? '<span class="chip">−' + off + "%</span>" : p.isNew ? '<span class="chip">New</span>' : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
-        '<span class="card__bar"><span class="card__name"><b class="card__short">' + esc(shortName(p)) + '</b><b class="card__full">' + esc(p.name) + "</b>" +
-          '<span class="card__price"><span class="card__col">' + (p.color ? esc(p.color) + " · " : "") + "</span>" + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span>" +
-          (inStockSizes(p).length ? '<span class="card__sizes">' + inStockSizes(p).map(function (s) { return "<i>" + esc(s) + "</i>"; }).join("") + "</span>" : "") + "</span>" +
+        '<span class="card__bar"><span class="card__name"><b class="' + (shop ? "card__full" : "card__short") + '">' + esc(shop ? p.name : shortName(p)) + "</b>" +
+          '<span class="card__price">' + (!shop && p.color ? '<span class="card__col">' + esc(p.color) + " · </span>" : "") + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span>" +
+          (shop && inStockSizes(p).length ? '<span class="card__sizes">' + inStockSizes(p).map(function (s) { return "<i>" + esc(s) + "</i>"; }).join("") + "</span>" : "") + "</span>" +
           '<span class="card__go" aria-hidden="true">›</span></span>' +
       "</a>"
     );
@@ -80,7 +80,7 @@
   }
   // "Fearless Oversized T-shirt – Black" shows as "Fearless Oversized T-shirt" with the colour beneath.
   function shortName(p) { return p.color ? p.name.replace(new RegExp("\\s*[–-]\\s*" + p.color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i"), "") : p.name; }
-  function grid(list) { return list.map(card).join(""); }
+  function grid(list) { return list.map(function (p, i) { return card(p, i, false); }).join(""); }
 
   // A photo that can't load gives way to the colour card behind it.
   function guardImages(root) {
@@ -858,7 +858,7 @@
       if (state.sort === "featured") list.sort(function (a, b) { return a.order - b.order; });
       // Sold-out products always go to the end, whatever the sort
       list = list.filter(function (p) { return !soldOut(p); }).concat(list.filter(soldOut));
-      $("#shopGrid").innerHTML = grid(list);
+      $("#shopGrid").innerHTML = list.map(function (p, i) { return card(p, i, true); }).join("");
       $("#count").textContent = list.length + (list.length === 1 ? " product" : " products");
       $("#shopEmpty").hidden = list.length > 0;
       guardImages($("#shopGrid"));
