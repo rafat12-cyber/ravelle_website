@@ -1721,15 +1721,8 @@
   window.Ravelle.ready.then(reloadStore).then(function () {
     document.documentElement.classList.add("is-ready");
     var heroWord = $(".hero [data-scramble]");
-    var intro = document.documentElement.classList.contains("js-intro");
-    if (heroWord && intro && io) setTimeout(function () { scramble(heroWord); }, 2350);
-    // Re-scramble the accent word every few seconds while the hero is on screen
-    if (heroWord && !matchMedia("(prefers-reduced-motion: reduce)").matches) setInterval(function () {
-      var r = heroWord.getBoundingClientRect();
-      if (!document.hidden && r.bottom > 0 && r.top < innerHeight) scramble(heroWord);
-    }, 6000);
     setTimeout(function () { document.documentElement.classList.remove("js-intro"); }, 3600);
-    activate(homeView, intro ? heroWord : null);
+    activate(homeView, heroWord); // the hero word eases in with CSS, never scrambles
     activate($("#footer"));
     route();
     if (chatEnabled()) {
