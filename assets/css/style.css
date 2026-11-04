@@ -792,6 +792,7 @@ body.is-locked { overflow: hidden; }
 @media (max-width: 960px) {
   .pd, .soon, .checkout { grid-template-columns: 1fr; gap: 30px; }
   .pd__info, .summary { position: static; }
+  .checkout .summary { order: -1; } /* phones: order summary first, above contact and delivery */
   .house__grid { grid-template-columns: 1fr 1fr; }
   .house__grid > * { grid-column: auto !important; }
   .about__cols { grid-template-columns: 1fr 1fr; }
