@@ -137,7 +137,7 @@ button { font: inherit; color: inherit; }
 .nav__group a:not(.pill):not(.icon-btn)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: currentColor; transform: scaleX(0); transform-origin: right; transition: transform .35s var(--ease); }
 .nav__group a:not(.pill):not(.icon-btn):hover::after { transform: scaleX(1); transform-origin: left; }
 .nav__brand { display: flex; align-items: center; margin-top: -6px; }
-.nav__brand img { height: 40px; width: auto; }
+.nav__brand img { height: var(--logo-h, 40px); width: auto; }
 
 .hero__copy { position: relative; z-index: 2; display: grid; justify-items: center; gap: 22px; padding: 58px 16px 0; }
 .hero__ctas { display: flex; gap: 6px; }
@@ -858,7 +858,9 @@ body.is-locked { overflow: hidden; }
 }
 .topbar .nav { padding: 8px 10px 8px 22px; }
 .topbar .nav__brand { margin-top: 0; }
-.topbar .nav__brand img { height: 32px; }
+.topbar .nav__brand img { height: calc(var(--logo-h, 40px) - 8px); }
+.no-sticky .topbar { display: none; }
+.footer__pay[hidden], .footer__word[hidden], .footer__form[hidden] { display: none; }
 .topbar .nav__sub { top: calc(100% + 16px); }
 .is-edit .topbar { display: none; }
 

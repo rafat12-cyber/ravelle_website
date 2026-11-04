@@ -319,6 +319,11 @@
     var want = (a && a.dataset.img) || im.dataset.base;
     if (im.getAttribute("src") !== want) im.setAttribute("src", want);
   });
+  // Header & footer options from Admin (defaults filled in by the engine)
+  function LAY() {
+    var l = S.settings.layout || {};
+    return { header: l.header || { showSearch: true, showAccount: true, sticky: true, announce: true }, footer: l.footer || {} };
+  }
   function navHTML() {
     var items = S.menus.header || [];
     return '<nav class="nav" aria-label="Main">' +
@@ -326,21 +331,55 @@
         '<button class="icon-btn icon-btn--line nav__burger" type="button" data-open-menu aria-label="Open menu">' + ICON.menu + "</button>" +
         '<ul class="nav__group nav__menu">' + items.map(menuItem).join("") + "</ul>" +
       "</div>" +
-      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="assets/img/logo.webp" alt="Ravelle" width="100" height="54"></a>' +
+      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="' + esc(LAY().header.logo || "assets/img/logo.webp") + '" alt="Ravelle" width="100" height="54"></a>' +
       '<div class="nav__group nav__group--end">' +
-        '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" +
-        '<a class="icon-btn icon-btn--line nav__track" href="#track" aria-label="Track your order">' + ICON.user + "</a>" +
+        (LAY().header.showSearch ? '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" : "") +
+        (LAY().header.showAccount ? '<a class="icon-btn icon-btn--line nav__track" href="#track" aria-label="Track your order">' + ICON.user + "</a>" : "") +
         '<button class="icon-btn bag-btn" type="button" data-open-bag aria-label="Open bag">' + ICON.bag + '<span class="bag-count" data-bag-count hidden>0</span></button>' +
       "</div></nav>";
+  }
+  var codeDone = false;
+  function injectCode() {
+    if (codeDone || EDIT || document.querySelector('meta[name="rv-code"]')) return;
+    codeDone = true;
+    var code = S.settings.code || {};
+    [[code.head, document.head], [code.bodyEnd, document.body]].forEach(function (pair) {
+      if (!pair[0]) return;
+      var box = document.createElement("div");
+      box.innerHTML = pair[0];
+      Array.prototype.slice.call(box.childNodes).forEach(function (n) {
+        if (n.nodeName === "SCRIPT") {
+          var sc = document.createElement("script");
+          Array.prototype.forEach.call(n.attributes, function (a) { sc.setAttribute(a.name, a.value); });
+          sc.text = n.text;
+          pair[1].appendChild(sc);
+        } else pair[1].appendChild(n);
+      });
+    });
   }
   function drawChrome() {
     var nav = navHTML();
     $(".hero .nav").outerHTML = nav;
     $("#topbar").innerHTML = '<div class="topbar__inner">' + nav + "</div>";
     var st = S.settings.store || {};
-    var ann = $("#announce");
-    ann.hidden = !S.settings.announcement;
+    var lay = LAY(), ann = $("#announce");
+    ann.hidden = !S.settings.announcement || lay.header.announce === false;
     ann.textContent = S.settings.announcement || "";
+    if (lay.header.announceBg) ann.style.background = lay.header.announceBg;
+    if (lay.header.announceColor) ann.style.color = lay.header.announceColor;
+    document.documentElement.style.setProperty("--logo-h", (lay.header.logoHeight || 40) + "px");
+    document.body.classList.toggle("no-sticky", lay.header.sticky === false);
+    if (lay.header.logo) $$(".menu__logo img, .poster__logo").forEach(function (im) { im.src = lay.header.logo; });
+    // Footer parts
+    var ft = lay.footer, home = S.pages.home || {};
+    $("#news").hidden = ft.newsletter === false;
+    if ((home.footer || {}).newsletter) $("#email").placeholder = home.footer.newsletter;
+    if (ft.newsletterButton) $("#news button").textContent = ft.newsletterButton;
+    $(".footer__pay").hidden = ft.showPayments === false;
+    $(".footer__word").hidden = ft.showWordmark === false;
+    if (ft.wordmark) $(".footer__word").textContent = ft.wordmark;
+    $("#footerLegal").hidden = ft.showLegal === false;
+    injectCode();
 
     // Mobile menu
     $("#menuList").innerHTML = (S.menus.header || []).map(function (it, i) {
@@ -368,17 +407,18 @@
       return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
     }).join("") +
       '<ul class="footer__contact"><li class="mono">Get in touch</li>' +
-        (st.address ? "<li>" + esc(st.address) + "</li>" : "") +
+        (LAY().footer.showContact === false ? "" : (st.address ? "<li>" + esc(st.address) + "</li>" : "") +
         (st.phone ? '<li><a href="tel:' + esc(st.phone.replace(/[^\d+]/g, "")) + '">' + esc(st.phone) + "</a></li>" : "") +
-        (st.email ? '<li><a href="mailto:' + esc(st.email) + '">' + esc(st.email) + "</a></li>" : "") +
-        (socials.length ? '<li class="footer__social">' + socials.map(function (s) {
+        (st.email ? '<li><a href="mailto:' + esc(st.email) + '">' + esc(st.email) + "</a></li>" : "")) +
+        (socials.length && LAY().footer.showSocial !== false ? '<li class="footer__social">' + socials.map(function (s) {
           var url = s[0] === "whatsapp" ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : soc[s[0]];
           return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + s[1] + "</a>";
         }).join("") + "</li>" : "") +
       "</ul>";
     var legal = [["Trade license", st.tradeLicense], ["TIN", st.tin], ["DBID", st.dbid], ["BIN", st.bin]].filter(function (x) { return x[1]; });
     $("#footerLegal").innerHTML = legal.map(function (x) { return "<span>" + x[0] + ": " + esc(x[1]) + "</span>"; }).join("");
-    $("#footerCopy").innerHTML = "© " + new Date().getFullYear() + " " + esc(st.legalName || "Ravelle") + " · Prices in BDT (৳)";
+    $("#footerCopy").innerHTML = LAY().footer.copyright ? esc(LAY().footer.copyright).replace(/\{year\}/g, new Date().getFullYear())
+      : "© " + new Date().getFullYear() + " " + esc(st.legalName || "Ravelle") + " · Prices in BDT (৳)";
     var payments = S.settings.payments || {};
     $("#payBadges").innerHTML = (payments.sslcommerz ? ["VISA", "Mastercard", "AMEX", "bKash", "Nagad", "Rocket", "Upay", "DBBL Nexus", "Internet banking"] : []).concat(payments.cod ? ["Cash on delivery"] : [])
       .map(function (b) { return '<span class="pay-badge">' + esc(b) + "</span>"; }).join("");
@@ -909,6 +949,7 @@
         p.categoryIds.map(function (id) { return (CAT_BY_ID[id] || {}).name; }).join(" ")).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) > -1; });
     });
+    if (q) track("search", "", { q: q, n: list.length });
     viewListing({ list: list, crumb: "Search", title: '“' + esc(q) + '”', sub: list.length ? list.length + " results" : "Nothing found. Try another word, like tee, black or fearless." });
   }
 
@@ -1286,6 +1327,7 @@
       page.innerHTML = '<section class="shop"><div class="empty"><p>Your bag is empty.</p><a class="pill pill--dark pill--sm" href="#shop">Shop the collection</a></div></section>';
       return;
     }
+    track("checkout");
     var ship = S.settings.shipping || { zones: [] }, pay = S.settings.payments || {};
     if (!checkoutState.zone && ship.zones[0]) checkoutState.zone = ship.zones[0].id;
     var saved = store.get("customer", {});
@@ -1350,7 +1392,7 @@
         customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value },
         items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }),
         zone: checkoutState.zone, couponCode: checkoutState.coupon ? checkoutState.coupon.code : "",
-        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value
+        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource()
       };
       var errs = {};
       if (!body.customer.name.trim()) errs.name = "Enter your name.";
@@ -1411,6 +1453,7 @@
     if (h.indexOf("c-") === 0) h = "category/" + h.slice(2);
     if (h.indexOf("soon-") === 0) h = "category/" + h.slice(5);
     closeBag(); closeMenu(); closeModal();
+    track("page", "", { path: pagePath() });
     if (!h || h === "home" || HOME_ANCHORS[h]) {
       pageView.hidden = true;
       homeView.hidden = false;
@@ -1672,11 +1715,50 @@
   // ---------------------------------------------------------------------------
   // Analytics: one visit per browser per day, product views and add-to-bags
   // ---------------------------------------------------------------------------
-  var sid = store.get("sid", null);
+  var sid = store.get("sid", null), sidNew = !sid;
   if (!sid) { sid = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set("sid", sid); }
-  function track(type, productId) {
+  // Where this visit came from: a utm_source tag, an ad click id, or the site that linked here
+  function trafficSource() {
+    var saved = null;
+    try { saved = sessionStorage.getItem("ravelle:src"); } catch (e) {}
+    if (saved) return saved;
+    var q = location.search, utm = (q.match(/[?&]utm_source=([^&#]+)/) || [])[1], src = "Direct";
+    var ref = "";
+    try { ref = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, "") : ""; } catch (e) {}
+    if (ref === location.hostname.replace(/^www\./, "")) ref = "";
+    var named = [[/facebook|fb\.|fbclid/i, "Facebook"], [/instagram/i, "Instagram"], [/google|gclid/i, "Google"], [/bing/i, "Bing"], [/youtube|youtu\.be/i, "YouTube"],
+      [/tiktok/i, "TikTok"], [/whatsapp|wa\.me/i, "WhatsApp"], [/messenger|m\.me/i, "Messenger"], [/t\.co$|twitter|x\.com/i, "X (Twitter)"], [/linkedin/i, "LinkedIn"], [/pinterest/i, "Pinterest"]];
+    var name = function (s) { for (var i = 0; i < named.length; i++) if (named[i][0].test(s)) return named[i][1]; return null; };
+    if (utm) { utm = decodeURIComponent(utm).replace(/\+/g, " "); src = name(utm) || utm.charAt(0).toUpperCase() + utm.slice(1); }
+    else if (/[?&]fbclid=/.test(q)) src = ref && /instagram/i.test(ref) ? "Instagram" : "Facebook";
+    else if (/[?&]gclid=/.test(q)) src = "Google Ads";
+    else if (ref) src = name(ref) || ref;
+    src = src.slice(0, 40);
+    try { sessionStorage.setItem("ravelle:src", src); } catch (e) {}
+    return src;
+  }
+  function deviceInfo() {
+    var ua = navigator.userAgent, w = Math.min(screen.width || innerWidth, innerWidth || 9999);
+    var dev = /iPad|Tablet/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua)) ? "Tablet" : /Mobi|iPhone|Android/i.test(ua) || w < 600 ? "Mobile" : "Desktop";
+    var br = /FBAN|FBAV|FB_IAB/.test(ua) ? "Facebook app" : /Instagram/.test(ua) ? "Instagram app" : /SamsungBrowser/.test(ua) ? "Samsung Internet" :
+      /OPR\/|Opera/.test(ua) ? "Opera" : /Edg\//.test(ua) ? "Edge" : /UCBrowser/.test(ua) ? "UC Browser" : /Firefox|FxiOS/.test(ua) ? "Firefox" :
+      /Chrome|CriOS/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "Other";
+    var os = /Android/.test(ua) ? "Android" : /iPhone|iPad|iPod/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /CrOS/.test(ua) ? "ChromeOS" : /Linux/.test(ua) ? "Linux" : "Other";
+    return { dev: dev, br: br, os: os };
+  }
+  function track(type, productId, info) {
     if (EDIT) return;
-    api("POST", "/api/track", { type: type, productId: productId || "", sid: sid }).catch(function () {});
+    var body = { type: type, productId: productId || "", sid: sid };
+    if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
+    api("POST", "/api/track", body).catch(function () {});
+  }
+  function pagePath() {
+    var h = decodeURIComponent(location.hash.replace(/^#\/?/, "").split("?")[0]);
+    if (!h || h === "home" || HOME_ANCHORS[h]) return "home";
+    if (/^order\//.test(h)) return "order";
+    if (/^search\//.test(h)) return "search";
+    if (h.indexOf("p-") === 0) return "product/" + h.slice(2);
+    return h.slice(0, 80);
   }
 
   // ---------------------------------------------------------------------------
@@ -1836,7 +1918,8 @@
     }
     if (!store.get("cookies", 0) && !EDIT) $("#cookies").hidden = false;
     if (window.Ravelle.mode === "demo" && !EDIT) $("#demoBar").hidden = false;
-    track("visit");
+    var di = deviceInfo();
+    track("visit", "", { src: trafficSource(), dev: di.dev, br: di.br, os: di.os, nv: sidNew, path: pagePath() });
   }, function (err) {
     console.error(err);
     toast("The store couldn't load. Refresh to try again.", "warn");

@@ -210,7 +210,8 @@
     [/^lookbook\.looks\.\d+\.image$/, 900, 1200, "3:4 photo", 180],
     [/^sizeGuide$/, 1200, 0, "width", 120],
     [/^image$/, 900, 1200, "3:4 photo", 150],
-    [/^product$/, 690, 862, "4:5 photo", 80]
+    [/^product$/, 690, 862, "4:5 photo", 80],
+    [/^logo$/, 360, 120, "wide logo with a see-through background", 30]
   ];
   function imgSpec(name) {
     const s = IMG_SPECS.find((x) => x[0].test(name)) || [null, 1200, 0, "longest side", 200];
@@ -1367,6 +1368,243 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Header & footer: what shows in the store's header and footer, plus tracking code
+  // ---------------------------------------------------------------------------
+  async function viewLayout() {
+    setTitle("Header & footer");
+    let s, home;
+    try {
+      [s, home] = await Promise.all([api("GET", "/api/settings").then((r) => r.settings), api("GET", "/api/pages/home").then((r) => r.page)]);
+    } catch (err) { return fail(err); }
+    const H = s.layout.header, F = s.layout.footer, code = s.code || {}, foot = home.footer || {};
+    const sw = (g, k, label, on) => `<label class="switch"><input type="checkbox" data-l="${g}" name="${k}" ${on ? "checked" : ""}> ${label}</label>`;
+    const txt = (attr, k, label, value, hint, ph) => `<label class="field"><span>${label}</span><input class="input" ${attr} name="${k}" value="${esc(value || "")}" placeholder="${esc(ph || "")}">${hint ? `<small>${hint}</small>` : ""}</label>`;
+    const color = (k, label, value) => `<label class="field"><span>${label}</span><span class="flex" style="flex-wrap:nowrap"><input type="color" data-l="header" name="${k}" value="${esc(value)}" style="width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:none"><code class="small" data-hex="${k}">${esc(value)}</code></span></label>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Header & footer</h1><p class="muted">Everything at the top and bottom of every store page, plus Google Analytics, Meta Pixel and other code.</p></div>
+      <a class="btn btn--ghost" href="#/menus">Edit menu links</a></div>
+      <form class="stack" id="layForm">
+        <div class="card"><h2 class="h2">Announcement bar</h2><p class="muted small" style="margin:0">The thin strip above the header.</p>
+          ${sw("header", "announce", "Show the announcement bar", H.announce)}
+          <label class="field"><span>Text</span><input class="input" id="announcement" value="${esc(s.announcement || "")}" placeholder="Free delivery inside Dhaka over ৳2,000"></label>
+          <div class="row row--3">${color("announceBg", "Background colour", H.announceBg)}${color("announceColor", "Text colour", H.announceColor)}
+            <div class="field"><span>Preview</span><div id="annPrev" style="padding:9px 12px;border-radius:8px;font:500 12px/1.3 ui-monospace,monospace;text-align:center;letter-spacing:.04em"></div></div></div></div>
+        <div class="card"><h2 class="h2">Header</h2>
+          ${imgField("logo", H.logo, "Logo", "Leave empty to use the Ravelle logo.")}
+          <div class="row row--3"><label class="field"><span>Logo height (px)</span><input class="input" type="number" min="20" max="80" data-l="header" name="logoHeight" value="${esc(H.logoHeight)}"><small>20 to 80. The default is 40.</small></label></div>
+          ${sw("header", "sticky", "Show the slim header bar when people scroll down", H.sticky)}
+          ${sw("header", "showSearch", "Show the search icon", H.showSearch)}
+          ${sw("header", "showAccount", "Show the order tracking icon", H.showAccount)}
+          <p class="muted small" style="margin:0">Menu links, dropdowns and their photos are in <a href="#/menus">Menus</a>.</p></div>
+        <div class="card"><h2 class="h2">Footer</h2>
+          <label class="field"><span>Tagline</span><textarea class="input" id="tagline" rows="2">${esc(foot.tagline || "")}</textarea><small>The big line at the top of the footer. Press Enter for a new line.</small></label>
+          ${sw("footer", "newsletter", "Show the email sign-up", F.newsletter)}
+          <div class="row row--2">${txt('id="newsPh"', "newsPh", "Email box text", foot.newsletter, "", "Your email for drop alerts")}${txt('data-l="footer"', "newsletterButton", "Button text", F.newsletterButton, "", "Notify me")}</div>
+          ${sw("footer", "showContact", "Show the contact column (address, phone, email)", F.showContact)}
+          ${sw("footer", "showSocial", "Show social media links", F.showSocial)}
+          ${sw("footer", "showPayments", "Show the payment methods row", F.showPayments)}
+          ${sw("footer", "showLegal", "Show trade license, TIN and DBID", F.showLegal)}
+          ${sw("footer", "showWordmark", "Show the big name at the bottom", F.showWordmark)}
+          <div class="row row--2">${txt('data-l="footer"', "wordmark", "Big name text", F.wordmark, "", "RAVELLE")}${txt('data-l="footer"', "copyright", "Copyright line", F.copyright, "Leave empty for the default. Write {year} for the current year.", "© {year} Ravelle · Prices in BDT (৳)")}</div>
+          <p class="muted small" style="margin:0">Footer link columns are in <a href="#/menus">Menus</a>. Address, phone and legal numbers are in <a href="#/settings">Settings</a>.</p></div>
+        <div class="card"><h2 class="h2">Social links</h2><div class="row row--2">
+          ${["facebook", "instagram", "tiktok", "youtube"].map((k) => txt('data-s="social"', k, k === "tiktok" ? "TikTok" : k === "youtube" ? "YouTube" : k.charAt(0).toUpperCase() + k.slice(1), (s.social || {})[k], "", `https://www.${k}.com/ravellebd`)).join("")}
+          ${txt('data-s="store"', "whatsapp", "WhatsApp number", (s.store || {}).whatsapp, "Turns on the WhatsApp button.", "+880 17XX-XXXXXX")}</div></div>
+        <div class="card"><h2 class="h2">Tracking and custom code</h2>
+          <p class="muted small" style="margin:0">Added to every store page. Your store's own visitor numbers are on the <a href="#/analytics">Analytics</a> page either way.</p>
+          <div class="row row--2">${txt('data-c="1"', "gaId", "Google Analytics 4 measurement ID", code.gaId, "In Google Analytics: Admin › Data streams › your site. Starts with G-.", "G-XXXXXXXXXX")}
+            ${txt('data-c="1"', "pixelId", "Meta (Facebook) Pixel ID", code.pixelId, "In Meta Events Manager › Data sources. Numbers only.", "123456789012345")}</div>
+          <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" data-c="1" name="head" rows="7" spellcheck="false" placeholder="&lt;!-- Paste Google Tag Manager, TikTok Pixel, Search Console verification, etc. --&gt;">${esc(code.head || "")}</textarea>
+            <small>For Google Tag Manager, TikTok Pixel, site verification tags and other snippets that say “paste in the head”.</small></label>
+          <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" data-c="1" name="bodyEnd" rows="5" spellcheck="false" placeholder="&lt;!-- e.g. Google Tag Manager (noscript) --&gt;">${esc(code.bodyEnd || "")}</textarea></label>
+          <p class="small" style="margin:0;color:var(--warn)">Only paste code from services you trust, like Google or Meta. Code here runs for every visitor.</p></div>
+        <div class="sticky-save"><span class="small">Changes show on the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#layForm");
+    let dirty = false;
+    wireImgFields(form, () => { dirty = true; });
+    const prev = () => {
+      const p = $("#annPrev");
+      p.style.background = $('[name="announceBg"]').value; p.style.color = $('[name="announceColor"]').value;
+      p.textContent = $("#announcement").value || "Your announcement";
+      $$("[data-hex]").forEach((c) => { c.textContent = $(`[name="${c.dataset.hex}"]`).value; });
+    };
+    prev();
+    form.addEventListener("input", () => { dirty = true; prev(); });
+    form.addEventListener("change", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const layout = { header: {}, footer: {} }, out = { social: {}, store: {}, code: {} };
+      $$("[data-l]", form).forEach((el) => { layout[el.dataset.l][el.name] = el.type === "checkbox" ? el.checked : el.type === "number" ? +el.value : el.value; });
+      layout.header.logo = $('input[name="logo"]', form).value;
+      $$("[data-s]", form).forEach((el) => { out[el.dataset.s][el.name] = el.value; });
+      $$("[data-c]", form).forEach((el) => { out.code[el.name] = el.value; });
+      out.layout = layout; out.announcement = $("#announcement").value;
+      try {
+        await api("PUT", "/api/settings", { settings: out });
+        const page = Object.assign({}, home, { footer: Object.assign({}, home.footer, { tagline: $("#tagline").value, newsletter: $("#newsPh").value }) });
+        await api("PUT", "/api/pages/home", { page });
+        dirty = false; store = null;
+        toast("Header and footer saved");
+      } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Analytics: traffic, sources, devices, funnel, sales, products and customers
+  // ---------------------------------------------------------------------------
+  let anDays = 30;
+  const pageName = (p) => {
+    const named = { home: "Home", shop: "Shop", men: "Men", women: "Women", "new-in": "New in", "on-sale": "On sale", checkout: "Checkout", search: "Search results",
+      track: "Track order", saved: "Saved items", about: "About us", contact: "Contact us", order: "Order confirmation" };
+    if (named[p]) return named[p];
+    if (/^product\//.test(p)) return "Product: " + p.slice(8).replace(/-/g, " ");
+    if (/^category\//.test(p)) return "Category: " + p.slice(9).replace(/-/g, " ");
+    return p.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+  };
+  async function viewAnalytics() {
+    setTitle("Analytics");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Analytics</h1><p class="muted">Visitors, where they come from, what they do, and what they buy.</p></div>
+      <div class="flex"><div class="tabs" id="anRange">${[[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "12 months"]].map(([d, l]) => `<button class="tab${d === anDays ? " is-on" : ""}" data-d="${d}">${l}</button>`).join("")}</div>
+      <button class="btn btn--ghost btn--sm" id="anCsv" disabled>Export CSV</button></div></div>
+      <div id="an"><p class="muted">Loading…</p></div>`;
+    $("#anRange").onclick = (e) => { const b = e.target.closest("[data-d]"); if (b) { anDays = +b.dataset.d; viewAnalytics(); } };
+    let d;
+    try { d = await api("GET", "/api/analytics?days=" + anDays); } catch (err) { return fail(err); }
+    const t = d.totals, p = d.previous, tr = d.traffic, pct = (a, b) => (b ? (a / b * 100).toFixed(1) : "0.0") + "%";
+    const delta = (a, b) => {
+      if (!b) return `<span class="kpi__delta">${a ? "New this period" : "No data before"}</span>`;
+      const ch = (a - b) / b * 100;
+      return `<span class="kpi__delta"><b class="${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(1)}%</b> vs previous period</span>`;
+    };
+    const kpi = (label, value, sub) => `<div class="kpi"><span class="kpi__label">${label}</span><span class="kpi__value">${value}</span>${sub}</div>`;
+    const card = (title, body, note) => `<div class="card"><h2 class="h2">${title}</h2>${note ? `<p class="muted small" style="margin:-4px 0 4px">${note}</p>` : ""}${body}</div>`;
+    const share = (rows) => { const sum = rows.reduce((s, r) => s + r.value, 0) || 1; return rows.map((r) => ({ label: `${r.label} · ${Math.round(r.value / sum * 100)}%`, value: r.value })); };
+    const table = (head, rows) => rows.length ? `<div class="table-wrap"><table class="t"><thead><tr>${head.map((h, i) => `<th${i ? ' class="right"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="right num"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p class="muted">No data in this period.</p>`;
+    let series = d.series;
+    const byWeek = series.length > 92;
+    if (byWeek) {
+      const w = [];
+      for (let i = 0; i < series.length; i += 7) {
+        const c = series.slice(i, i + 7), s = (k) => c.reduce((a, x) => a + x[k], 0);
+        w.push({ date: c[0].date, visits: s("visits"), pageviews: s("pageviews"), orders: s("orders"), revenue: s("revenue"), newVisitors: s("newVisitors") });
+      }
+      series = w;
+    }
+    const lab = (s) => new Date(s + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    const per = byWeek ? "per week" : "per day";
+    const funnelTop = d.funnel[0].value || 1;
+    const funnel = `<div class="funnel">${d.funnel.map((f, i) => `<div class="funnel__row"><span class="funnel__label">${esc(f.label)}</span>
+      <span class="hbar__track"><span class="hbar__fill" style="width:${(f.value / funnelTop * 100).toFixed(1)}%"></span></span>
+      <span class="num"><b>${int(f.value)}</b> <small class="muted">${pct(f.value, funnelTop)}${i ? ` · ${pct(f.value, d.funnel[i - 1].value)} of previous step` : ""}</small></span></div>`).join("")}</div>`;
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const hourLab = (h) => (h % 12 || 12) + (h < 12 ? "am" : "pm");
+    $("#an").innerHTML = `
+      <div class="kpis">
+        ${kpi("Visitors", int(tr.visits), delta(t.visits, p.visits))}
+        ${kpi("Page views", int(tr.pageviews), `<span class="kpi__delta">${tr.pagesPerVisit} pages per visit</span>`)}
+        ${kpi("New visitors", pct(tr.newVisitors, tr.visits), `<span class="kpi__delta">${int(tr.newVisitors)} first-time · ${int(tr.visits - tr.newVisitors)} returning</span>`)}
+        ${kpi("Conversion rate", t.conversion + "%", delta(t.conversion, p.conversion))}
+        ${kpi("Revenue", taka(t.revenue), delta(t.revenue, p.revenue))}
+        ${kpi("Orders", int(t.orders), delta(t.orders, p.orders))}
+        ${kpi("Average order", taka(t.aov), delta(t.aov, p.aov))}
+        ${kpi("Abandoned checkouts", int(d.rates.abandoned), `<span class="kpi__delta">${d.rates.bagToOrder}% of bags become orders</span>`)}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        <div class="card"><div class="card__head"><h2 class="h2">Visitors ${per}</h2></div><div class="chart" id="aVis"></div></div>
+        <div class="card"><div class="card__head"><h2 class="h2">Revenue ${per}</h2></div><div class="chart" id="aRev"></div></div>
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Shopping funnel", funnel, "How many visitors reach each step. Each visitor is counted once a day.")}
+        <div class="card"><div class="card__head"><h2 class="h2">Page views ${per}</h2></div><div class="chart" id="aPv"></div></div>
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Where visitors come from</h2>
+      <div class="cols cols--even">
+        ${card("Traffic sources", hbars(share(d.sources)), "From the link people clicked: Facebook, Instagram, Google, or typed in (Direct). Add ?utm_source=name to links in your ads to name them.")}
+        ${card("Revenue by source", hbars(d.revenueBySource, taka), "Which source the buyer first came from.")}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Landing pages", hbars(d.landing.map((r) => ({ label: pageName(r.label), value: r.value }))), "The first page people open.")}
+        ${card("Most viewed pages", hbars(d.pages.slice(0, 12).map((r) => ({ label: pageName(r.label), value: r.value }))))}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Devices</h2>
+      <div class="cols cols--3">
+        ${card("Device", hbars(share(d.devices)))}
+        ${card("Browser", hbars(share(d.browsers)))}
+        ${card("Operating system", hbars(share(d.systems)))}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">When people shop <small class="muted">(Bangladesh time)</small></h2>
+      <div class="cols cols--even">
+        <div class="card"><h2 class="h2">Visitors by hour</h2><div class="chart" id="aHour"></div></div>
+        <div class="card"><h2 class="h2">Orders by day of week</h2><div class="chart" id="aWeek"></div></div>
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Search</h2>
+      <div class="cols cols--even">
+        ${card("What people search for", hbars(d.searches))}
+        ${card("Searches with no results", hbars(d.noResults), "Products people want that the store doesn't have yet.")}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Sales</h2>
+      <div class="cols cols--3">
+        ${card("Payment method", hbars(Object.keys(d.byPayment).map((k) => ({ label: PAY_LABEL[k] || k, value: d.byPayment[k] })), taka))}
+        ${card("Payment status", hbars(d.paymentStatus.map((r) => ({ label: human(r.label), value: r.value }))))}
+        ${card("Order status", hbars(STATUSES.map((s) => ({ label: human(s), value: d.byStatus[s] || 0 })).filter((r) => r.value)) +
+          `<dl class="kv" style="margin-top:10px"><dt>Cancelled</dt><dd>${d.rates.cancelled}%</dd><dt>Returned</dt><dd>${d.rates.returned}%</dd><dt>Discounts given</dt><dd>${taka(t.discounts)}</dd><dt>Items sold</dt><dd>${int(t.items)}</dd></dl>`)}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Revenue by city", hbars(d.revenueByCity, taka))}
+        ${card("Revenue by category", hbars(d.categories.map((c) => ({ label: c.name, value: c.revenue })), taka))}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Sizes sold", hbars(d.sizes), "Units sold per size. Use it to plan stock.")}
+        ${card("Colours sold", hbars(d.colours))}
+      </div>
+      <div class="card card--flush" style="margin-top:18px"><div class="card__head" style="padding:16px 18px 6px"><div><h2 class="h2">Products</h2><p class="muted small">Click a column to sort. Conversion = orders ÷ views.</p></div></div>
+        <div class="table-wrap"><table class="t" id="anProd"></table></div></div>
+      <h2 class="h2" style="margin:26px 0 10px">Customers</h2>
+      <div class="cols cols--even">
+        ${card("New and returning", hbars([{ label: "New customers", value: d.customers.newRevenue }, { label: "Returning customers", value: d.customers.returningRevenue }], taka) +
+          `<dl class="kv" style="margin-top:10px"><dt>Bought this period</dt><dd>${int(d.customers.buyers)}</dd><dt>Bought before too</dt><dd>${int(d.customers.returning)}</dd><dt>All customers</dt><dd>${int(d.customers.total)}</dd></dl>`, "Revenue from first-time buyers and people who bought before.")}
+        ${card("Top customers", table(["Customer", "Orders", "Spent"], d.customers.top.map((c) => [`${esc(c.name)}<br><small class="muted">${esc(c.phone)}</small>`, c.orders, taka(c.revenue)])))}
+      </div>
+      <div style="margin-top:18px">${card("Coupons", table(["Code", "Orders", "Discount given", "Revenue"], d.coupons.map((c) => [`<b class="mono">${esc(c.code)}</b>`, c.orders, taka(c.discount), taka(c.revenue)])))}</div>`;
+    const rows = (key, fmt, unit) => series.map((s) => ({ label: lab(s.date), value: s[key], tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${fmt(s[key])} ${unit}` }));
+    chart($("#aVis"), series.map((s) => ({ label: lab(s.date), value: s.visits, tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${int(s.visits)} visitors · ${int(s.newVisitors)} new` })), { label: "Visitors", type: "line" });
+    chart($("#aRev"), series.map((s) => ({ label: lab(s.date), value: s.revenue, tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${taka(s.revenue)} · ${s.orders} order${s.orders === 1 ? "" : "s"}` })), { label: "Revenue", format: taka, short: shortTaka });
+    chart($("#aPv"), rows("pageviews", int, "page views"), { label: "Page views", type: "line" });
+    chart($("#aHour"), d.hours.map((h, i) => ({ label: hourLab(i), value: h.visits, tip: `<b>${hourLab(i)}–${hourLab((i + 1) % 24)}</b><br>${int(h.visits)} visitors · ${h.orders} order${h.orders === 1 ? "" : "s"}` })), { label: "Visitors by hour" });
+    chart($("#aWeek"), d.weekdays.map((w, i) => ({ label: days[i], value: w.orders, tip: `<b>${days[i]}</b><br>${w.orders} order${w.orders === 1 ? "" : "s"} · ${taka(w.revenue)}` })), { label: "Orders by day of week" });
+    let sortKey = "revenue", dir = -1;
+    const cols = [["name", "Product"], ["views", "Views"], ["carts", "Add to bag"], ["orders", "Orders"], ["units", "Units"], ["revenue", "Revenue"], ["conversion", "Conversion"], ["stock", "Stock"]];
+    const drawProd = () => {
+      const list = d.products.slice().sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * dir);
+      $("#anProd").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th class="sortable${k === "name" ? "" : " right"}" data-k="${k}">${l}${k === sortKey ? (dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead><tbody>${list.map((x) => `
+        <tr class="is-link" data-href="#/products/${esc(x.id)}"><td><div class="flex" style="flex-wrap:nowrap">${x.image ? `<img class="thumb" src="${esc(x.image)}" alt="" loading="lazy">` : ""}<span>${esc(x.name)}<br><small class="muted mono">${esc(x.sku)}</small></span></div></td>
+        <td class="right num">${int(x.views)}</td><td class="right num">${int(x.carts)}</td><td class="right num">${int(x.orders)}</td><td class="right num">${int(x.units)}</td><td class="right num">${taka(x.revenue)}</td><td class="right num">${x.conversion}%</td><td class="right num">${x.stock == null ? "—" : int(x.stock)}</td></tr>`).join("")}</tbody>`;
+    };
+    drawProd();
+    $("#anProd").addEventListener("click", (e) => {
+      const th = e.target.closest("th[data-k]");
+      if (!th) return;
+      if (sortKey === th.dataset.k) dir = -dir; else { sortKey = th.dataset.k; dir = th.dataset.k === "name" ? 1 : -1; }
+      drawProd();
+    });
+    const btn = $("#anCsv");
+    btn.disabled = false;
+    btn.onclick = () => {
+      const out = [["Report", "Item", "Value"]];
+      const add = (name, list, fmt) => list.forEach((r) => out.push([name, r.label, fmt ? fmt(r) : r.value]));
+      series.forEach((s) => out.push(["Daily", s.date, `${s.visits} visitors; ${s.pageviews} page views; ${s.orders} orders; ${s.revenue} BDT`]));
+      add("Funnel", d.funnel); add("Traffic source", d.sources); add("Revenue by source (BDT)", d.revenueBySource);
+      add("Device", d.devices); add("Browser", d.browsers); add("Operating system", d.systems);
+      add("Landing page", d.landing.map((r) => ({ label: pageName(r.label), value: r.value }))); add("Page", d.pages.map((r) => ({ label: pageName(r.label), value: r.value })));
+      add("Search", d.searches); add("Search with no results", d.noResults);
+      add("Revenue by city (BDT)", d.revenueByCity); add("Size sold", d.sizes); add("Colour sold", d.colours);
+      d.products.forEach((x) => out.push(["Product", x.name, `${x.views} views; ${x.carts} add to bag; ${x.orders} orders; ${x.units} units; ${x.revenue} BDT`]));
+      download(`ravelle-analytics-${anDays}d.csv`, csv(out));
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Integrations: API keys, webhooks and the AI chat hookup
   // ---------------------------------------------------------------------------
   async function viewIntegrations() {
@@ -1457,10 +1695,10 @@
   // Shell: sidebar, router, sign in
   // ---------------------------------------------------------------------------
   const NAV = [
-    ["", [["dashboard", "Dashboard", "dashboard"]]],
+    ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
     ["Sales", [["orders", "Orders", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
-    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["media", "Media library", "content"]]],
+    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"]]],
     ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"]]]
   ];
@@ -1492,7 +1730,7 @@
   function notFound() { view.innerHTML = `<p class="empty">That page doesn't exist. <a href="#/dashboard">Go to the dashboard</a></p>`; }
 
   const ROUTES = [
-    [/^dashboard$/, viewDashboard, "dashboard"],
+    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
     [/^coupons$/, viewCoupons, "coupons"],

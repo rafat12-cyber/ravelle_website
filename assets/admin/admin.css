@@ -125,6 +125,11 @@ textarea.input--md { font-family: var(--f-mono); font-size: 12.5px; min-height: 
 .card__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .cols--even { grid-template-columns: 1fr 1fr; }
+.cols--3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.funnel { display: grid; gap: 12px; }
+.funnel__row { display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; align-items: center; font-size: 12.5px; }
+.funnel__row .num { grid-column: 2; font-size: 12px; }
+.funnel__label { color: var(--ink-2); }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 
 /* Status and pills */
@@ -334,7 +339,7 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
   .top { padding: 10px 16px; }
   .top__menu { display: inline-grid; }
   .view { padding: 16px 16px 80px; }
-  .cols--even, .grid-3, .row--2, .row--3 { grid-template-columns: 1fr; }
+  .cols--even, .cols--3, .grid-3, .row--2, .row--3 { grid-template-columns: 1fr; }
   .pe { grid-template-columns: 1fr; height: auto; margin: -16px -16px -80px; }
   .pe__side { border-right: 0; max-height: none; }
   .pe__frame { height: 70vh; }

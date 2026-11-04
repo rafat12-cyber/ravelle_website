@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v20";
+  var DB_KEY = "ravelle:demo-db:v21";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   function loadScript(src) {
@@ -118,6 +118,26 @@
       var dk = new Date(now - d * day).toISOString().slice(0, 10);
       var visits = Math.round(60 + rnd() * 70 + (44 - d) * 2.2);
       var dayStats = db.stats.days[dk] = { visits: visits, views: {}, carts: {} };
+      // Sample traffic so the Analytics page has something to show in the demo
+      var spread = function (pairs, total) {
+        var m = {}, sum = pairs.reduce(function (s, x) { return s + x[1]; }, 0);
+        pairs.forEach(function (x) { var v = Math.round(total * x[1] / sum * (0.8 + rnd() * 0.4)); if (v) m[x[0]] = v; });
+        return m;
+      };
+      dayStats.src = spread([["Facebook", 46], ["Instagram", 22], ["Direct", 16], ["Google", 9], ["TikTok", 4], ["WhatsApp", 3]], visits);
+      dayStats.dev = spread([["Mobile", 82], ["Desktop", 14], ["Tablet", 4]], visits);
+      dayStats.br = spread([["Chrome", 44], ["Facebook app", 26], ["Instagram app", 10], ["Samsung Internet", 8], ["Safari", 9], ["Other", 3]], visits);
+      dayStats.os = spread([["Android", 72], ["iOS", 14], ["Windows", 12], ["macOS", 2]], visits);
+      dayStats.lands = spread([["home", 58], ["shop", 14], ["product/oversized-t-shirt-fearless-black", 12], ["new-in", 9], ["on-sale", 7]], visits);
+      dayStats.newVisitors = Math.round(visits * (0.55 + rnd() * 0.15));
+      dayStats.pageviews = Math.round(visits * (3.2 + rnd() * 1.6));
+      dayStats.pages = spread([["home", 30], ["shop", 18], ["men", 9], ["women", 6], ["new-in", 8], ["on-sale", 7], ["checkout", 3], ["search", 3], ["track", 2], ["about", 1], ["contact", 1]], dayStats.pageviews * 0.7);
+      dayStats.hours = [];
+      for (var hr = 0; hr < 24; hr++) dayStats.hours.push(Math.round(visits * [1, 0.6, 0.3, 0.2, 0.2, 0.3, 0.6, 1.2, 1.8, 2.4, 3, 3.4, 3.6, 3.8, 3.6, 3.4, 3.6, 4.2, 4.8, 5.6, 6.4, 6.8, 5.2, 2.8][hr] / 78.8));
+      dayStats.searches = spread([["fearless", 5], ["black tee", 4], ["polo", 3], ["oversized", 3], ["shirt", 2], ["trouser", 2]], visits * 0.06);
+      dayStats.noResults = spread([["hoodie", 3], ["jacket", 2], ["panjabi", 2]], visits * 0.015);
+      dayStats.funnel = { view: Math.round(visits * (0.58 + rnd() * 0.1)), cart: Math.round(visits * (0.12 + rnd() * 0.05)), checkout: Math.round(visits * (0.05 + rnd() * 0.02)) };
+      dayStats.checkouts = Math.round(dayStats.funnel.checkout * 1.2);
       db.products.forEach(function (p, idx) {
         var weight = p.featured ? 3 : p.isNew ? 2 : 1;
         dayStats.views[p.id] = Math.round(rnd() * 9 * weight + 2);
@@ -147,7 +167,7 @@
           paymentStatus: pay === "sslcommerz" ? (status === "cancelled" ? "refunded" : "paid") : status === "delivered" ? "paid" : "unpaid",
           paymentMethod: pay, customer: { name: who.name, phone: who.phone, email: "", address: "House " + (1 + Math.floor(rnd() * 90)) + ", " + who.place[0], city: who.place[1] },
           shippingZone: { id: zone.id, name: zone.name, days: zone.days }, items: lines, subtotal: subtotal, discount: discount, coupon: useCoupon ? "WELCOME10" : "",
-          shipping: zone.fee, total: subtotal - discount + zone.fee, note: "", source: "website", restocked: status === "cancelled" || status === "returned",
+          shipping: zone.fee, total: subtotal - discount + zone.fee, note: "", source: pick(["Facebook", "Facebook", "Facebook", "Instagram", "Instagram", "Direct", "Google", "TikTok"]), restocked: status === "cancelled" || status === "returned",
           history: [{ at: at, status: "pending", note: "Order placed", by: "Customer" }].concat(status === "pending" ? [] : [{ at: at + 36e5 * 3, status: status, note: "Status: " + status, by: "Rafat" }])
         };
         if (useCoupon) db.coupons[0].used++;
@@ -184,8 +204,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1150"))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1150"); })
       .then(function () { startDemo(); return m; });
   });
 

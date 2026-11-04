@@ -276,10 +276,21 @@ function api(req, res, u, p) {
 var TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml",
   ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".md": "text/plain; charset=utf-8" };
+// The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
+function serveIndex(req, res) {
+  fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
+    if (err) return text(res, 500, "Could not read the page.");
+    var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
+    html = html.replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+      .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
+    res.end(req.method === "HEAD" ? "" : html);
+  });
+}
 function serveStatic(req, res, p) {
   if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405); return res.end(); }
   var file;
-  if (p === "/" || p === "/index.html") file = path.join(ROOT, "index.html");
+  if (p === "/" || p === "/index.html") return serveIndex(req, res);
   else if (p === "/admin/") { res.writeHead(301, { Location: "/admin" }); return res.end(); }
   else if (p === "/admin" || p === "/admin.html") file = path.join(ROOT, "admin.html");
   else if (p === "/robots.txt") return text(res, 200, "User-agent: *\nDisallow: /admin\nDisallow: /api/\n");

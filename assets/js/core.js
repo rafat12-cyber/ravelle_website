@@ -126,12 +126,41 @@
     return { id: c.id, name: c.name, phone: c.phone, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt,
       unread: c.unreadAdmin || 0, lastMessage: last ? { from: last.from, text: last.text || (last.image ? "Photo" : ""), at: last.at } : null, page: c.page || "" };
   }
+  // Header and footer options (Admin > Header & footer). Older databases get these defaults.
+  var LAYOUT_DEFAULTS = {
+    header: { announce: true, announceBg: "#111214", announceColor: "#ffffff", logo: "", logoHeight: 40, sticky: true, showSearch: true, showAccount: true },
+    footer: { newsletter: true, newsletterButton: "Notify me", showPayments: true, showWordmark: true, wordmark: "RAVELLE", showContact: true,
+      showSocial: true, showLegal: true, copyright: "" }
+  };
+  function siteLayout(s) {
+    var l = (s && s.layout) || {}, out = {};
+    Object.keys(LAYOUT_DEFAULTS).forEach(function (k) {
+      out[k] = {};
+      Object.keys(LAYOUT_DEFAULTS[k]).forEach(function (f) { var v = (l[k] || {})[f]; out[k][f] = v === undefined ? LAYOUT_DEFAULTS[k][f] : v; });
+    });
+    return out;
+  }
+  function siteCode(s) {
+    var c = (s && s.code) || {};
+    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "" };
+  }
+  // The tracking snippets that go in <head>: Google Analytics 4, Meta Pixel, then any custom code
+  function headCode(s) {
+    var c = siteCode(s), out = "";
+    if (c.gaId) out += '<script async src="https://www.googletagmanager.com/gtag/js?id=' + c.gaId + '"></script>\n' +
+      "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','" + c.gaId + "');</script>\n";
+    if (c.pixelId) out += "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
+      "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];" +
+      "s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','" + c.pixelId + "');fbq('track','PageView');</script>\n";
+    return out + c.head;
+  }
   function publicSettings(s) {
     return {
       store: s.store, social: s.social, shipping: s.shipping,
       payments: { cod: !!(s.payments && s.payments.cod), sslcommerz: !!(s.payments && s.payments.sslcommerz && s.payments.sslcommerz.enabled) },
       chat: { enabled: !!(s.chat && s.chat.enabled), greeting: s.chat && s.chat.greeting, title: s.chat && s.chat.title },
-      seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock
+      seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock,
+      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd }
     };
   }
 
@@ -364,14 +393,37 @@
       });
       o.restocked = true;
     }
-    function track(db, type, productId, sid, extra) {
-      var d = dayKey(now());
+    // Add one to a counter in a map, folding rare keys into "Other" so a day stays small
+    function bump(map, key, by, cap) {
+      key = String(key || "").slice(0, 60) || "Unknown";
+      if (!(key in map) && Object.keys(map).length >= (cap || 150)) key = "Other";
+      map[key] = (map[key] || 0) + (by || 1);
+    }
+    var FUNNEL_BIT = { view: 2, cart: 4, checkout: 8 };
+    function track(db, type, productId, sid, extra, info) {
+      var t = now(), d = dayKey(t);
+      info = info || {};
       db.stats = db.stats || { days: {} };
       var day = db.stats.days[d] = db.stats.days[d] || { visits: 0, views: {}, carts: {}, sids: {} };
+      day.sids = day.sids || {};
+      ["pages", "src", "dev", "br", "os", "lands", "searches", "noResults"].forEach(function (k) { day[k] = day[k] || {}; });
+      day.hours = day.hours || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      day.funnel = day.funnel || { view: 0, cart: 0, checkout: 0 };
+      var mask = sid ? (day.sids[sid] || 0) : 0;
       if (type === "visit") {
-        if (sid && !day.sids[sid]) { day.sids[sid] = 1; day.visits++; }
+        if (sid && !(mask & 1)) {
+          day.sids[sid] = mask | 1; day.visits++;
+          if (info.nv) day.newVisitors = (day.newVisitors || 0) + 1;
+          bump(day.src, info.src || "Direct"); bump(day.dev, info.dev); bump(day.br, info.br); bump(day.os, info.os);
+          bump(day.lands, info.path || "home");
+          day.hours[(new Date(t).getUTCHours() + 6) % 24]++; // Bangladesh time
+        }
         return;
       }
+      if (type === "page") { day.pageviews = (day.pageviews || 0) + 1; bump(day.pages, info.path || "home", 1, 300); return; }
+      if (type === "search") { bump(day.searches, String(info.q || "").toLowerCase().trim(), 1, 300); if (!info.n) bump(day.noResults, String(info.q || "").toLowerCase().trim(), 1, 200); return; }
+      if (FUNNEL_BIT[type] && sid && !(mask & FUNNEL_BIT[type])) { day.sids[sid] = mask | FUNNEL_BIT[type]; day.funnel[type]++; }
+      if (type === "checkout") { day.checkouts = (day.checkouts || 0) + 1; return; }
       if (!productId) return;
       var bucket = type === "view" ? day.views : type === "cart" ? day.carts : null;
       if (bucket) bucket[productId] = (bucket[productId] || 0) + (extra || 1);
@@ -501,6 +553,86 @@
       };
     }
 
+    // Everything on the Analytics page: traffic, sources, devices, funnel, sales and products
+    function analytics(db, days) {
+      var base = dashboard(db, days);
+      var start = base.range.start, end = base.range.end, n = base.range.days;
+      var counted = function (o) { return o.status !== "cancelled" && o.paymentStatus !== "failed"; };
+      var sumMaps = function (key) {
+        var out = {};
+        Object.keys((db.stats || {}).days || {}).forEach(function (k) {
+          var t = new Date(k + "T12:00:00Z").getTime();
+          if (t < start || t > end) return;
+          var m = db.stats.days[k][key] || {};
+          Object.keys(m).forEach(function (x) { out[x] = (out[x] || 0) + m[x]; });
+        });
+        return Object.keys(out).map(function (x) { return { label: x, value: out[x] }; }).sort(function (a, b) { return b.value - a.value; });
+      };
+      var tot = { pageviews: 0, newVisitors: 0, checkouts: 0, fView: 0, fCart: 0, fCheckout: 0 }, hours = [];
+      for (var h = 0; h < 24; h++) hours.push({ visits: 0, orders: 0, revenue: 0 });
+      var series = base.series.map(function (s) {
+        var ds = ((db.stats || {}).days || {})[s.date] || {};
+        tot.pageviews += ds.pageviews || 0; tot.newVisitors += ds.newVisitors || 0; tot.checkouts += ds.checkouts || 0;
+        var f = ds.funnel || {};
+        tot.fView += f.view || 0; tot.fCart += f.cart || 0; tot.fCheckout += f.checkout || 0;
+        (ds.hours || []).forEach(function (v, i) { hours[i].visits += v; });
+        return { date: s.date, visits: s.visits, pageviews: ds.pageviews || 0, orders: s.orders, revenue: s.revenue, newVisitors: ds.newVisitors || 0 };
+      });
+      var orders = db.orders.filter(function (o) { return o.createdAt >= start && o.createdAt <= end; });
+      var good = orders.filter(counted);
+      var weekdays = [0, 1, 2, 3, 4, 5, 6].map(function () { return { orders: 0, revenue: 0 }; });
+      var bySource = {}, byCity = {}, coupons = {}, sizes = {}, colours = {}, payStatus = {}, customers = {};
+      good.forEach(function (o) {
+        var bd = new Date(o.createdAt + 6 * 36e5);
+        hours[bd.getUTCHours()].orders++; hours[bd.getUTCHours()].revenue += o.total;
+        weekdays[bd.getUTCDay()].orders++; weekdays[bd.getUTCDay()].revenue += o.total;
+        bump(bySource, o.source && o.source !== "website" ? o.source : "Direct", o.total, 100);
+        bump(byCity, (o.customer.city || "").trim() || (o.shippingZone && o.shippingZone.name) || "Not given", o.total, 100);
+        if (o.coupon) { coupons[o.coupon] = coupons[o.coupon] || { code: o.coupon, orders: 0, discount: 0, revenue: 0 }; coupons[o.coupon].orders++; coupons[o.coupon].discount += o.discount || 0; coupons[o.coupon].revenue += o.total; }
+        o.items.forEach(function (it) {
+          var size = (it.options || {}).Size || (it.options || {}).size || Object.keys(it.options || {}).map(function (k) { return it.options[k]; }).join(" / ") || "One size";
+          bump(sizes, size, it.qty, 60); bump(colours, it.color || "Other", it.qty, 60);
+        });
+        var ph = normPhone(o.customer.phone);
+        customers[ph] = customers[ph] || { name: o.customer.name, phone: ph, orders: 0, revenue: 0, first: o.createdAt };
+        customers[ph].orders++; customers[ph].revenue += o.total;
+      });
+      orders.forEach(function (o) { bump(payStatus, o.paymentStatus || "unpaid"); });
+      var list = function (m) { return Object.keys(m).map(function (k) { return { label: k, value: m[k] }; }).sort(function (a, b) { return b.value - a.value; }); };
+      var newRev = 0, retRev = 0;
+      Object.keys(customers).forEach(function (ph) {
+        var before = db.orders.some(function (o) { return normPhone(o.customer.phone) === ph && o.createdAt < start; });
+        if (before) retRev += customers[ph].revenue; else newRev += customers[ph].revenue;
+      });
+      var cancelled = orders.filter(function (o) { return o.status === "cancelled"; }).length;
+      var returned = orders.filter(function (o) { return o.status === "returned"; }).length;
+      var visits = base.totals.visits;
+      return {
+        range: base.range, totals: base.totals, previous: base.previous,
+        traffic: { visits: visits, pageviews: tot.pageviews, newVisitors: Math.min(tot.newVisitors, visits), pagesPerVisit: visits ? +(tot.pageviews / visits).toFixed(1) : 0, checkouts: tot.checkouts },
+        series: series,
+        funnel: [
+          { label: "Visited the store", value: visits },
+          { label: "Viewed a product", value: Math.min(visits, tot.fView) },
+          { label: "Added to bag", value: Math.min(visits, tot.fCart) },
+          { label: "Started checkout", value: Math.min(visits, tot.fCheckout) },
+          { label: "Placed an order", value: base.totals.orders }
+        ],
+        sources: sumMaps("src"), devices: sumMaps("dev"), browsers: sumMaps("br"), systems: sumMaps("os"),
+        pages: sumMaps("pages").slice(0, 25), landing: sumMaps("lands").slice(0, 15),
+        searches: sumMaps("searches").slice(0, 20), noResults: sumMaps("noResults").slice(0, 20),
+        hours: hours, weekdays: weekdays,
+        revenueBySource: list(bySource), revenueByCity: list(byCity).slice(0, 15),
+        coupons: Object.keys(coupons).map(function (k) { return coupons[k]; }).sort(function (a, b) { return b.orders - a.orders; }),
+        sizes: list(sizes), colours: list(colours).slice(0, 15), paymentStatus: list(payStatus),
+        byPayment: base.byPayment, byStatus: base.byStatus, byZone: base.byZone, categories: base.categories, products: base.products,
+        customers: { buyers: base.customers.buyers, returning: base.customers.returning, total: base.customers.total, newRevenue: newRev, returningRevenue: retRev,
+          top: Object.keys(customers).map(function (k) { return customers[k]; }).sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 10) },
+        rates: { cancelled: orders.length ? +(cancelled / orders.length * 100).toFixed(1) : 0, returned: orders.length ? +(returned / orders.length * 100).toFixed(1) : 0,
+          bagToOrder: tot.fCart ? +(base.totals.orders / tot.fCart * 100).toFixed(1) : 0, abandoned: Math.max(0, tot.fCheckout - base.totals.orders) }
+      };
+    }
+
     // =========================================================================
     // Routes
     // =========================================================================
@@ -519,9 +651,11 @@
       };
     });
     route("POST", "/api/track", null, function (c) {
-      var t = str(c.body.type, 10);
-      if (["visit", "view", "cart"].indexOf(t) < 0) fail(400, "Unknown event.");
-      track(c.db, t, str(c.body.productId, 40), str(c.body.sid, 40));
+      var t = str(c.body.type, 10), b = c.body;
+      if (["visit", "view", "cart", "page", "search", "checkout"].indexOf(t) < 0) fail(400, "Unknown event.");
+      track(c.db, t, str(b.productId, 40), str(b.sid, 40), 0, {
+        path: str(b.path, 80), src: str(b.src, 40), dev: str(b.dev, 20), br: str(b.br, 30), os: str(b.os, 20), nv: !!b.nv, q: str(b.q, 60), n: int(b.n)
+      });
       return { ok: true };
     }, { quiet: true });
 
@@ -702,6 +836,7 @@
 
     // --- Dashboard ----------------------------------------------------------------------
     route("GET", "/api/dashboard", "dashboard", function (c) { return dashboard(c.db, c.query.days); }, { readonly: true });
+    route("GET", "/api/analytics", "dashboard", function (c) { return analytics(c.db, c.query.days); }, { readonly: true });
 
     // --- Products ------------------------------------------------------------------------
     route("GET", "/api/products", "products", function (c) {
@@ -1020,6 +1155,7 @@
 
     route("GET", "/api/settings", "settings", function (c) {
       var s = clone(c.db.settings);
+      s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -1047,6 +1183,29 @@
       }
       if (b.lowStock !== undefined) s.lowStock = Math.max(0, int(b.lowStock));
       if (b.announcement !== undefined) s.announcement = str(b.announcement, 200);
+      if (b.layout && typeof b.layout === "object") {
+        var cur = siteLayout(s);
+        Object.keys(LAYOUT_DEFAULTS).forEach(function (k) {
+          var src = b.layout[k] || {};
+          Object.keys(LAYOUT_DEFAULTS[k]).forEach(function (f) {
+            if (src[f] === undefined) return;
+            var def = LAYOUT_DEFAULTS[k][f];
+            if (typeof def === "boolean") cur[k][f] = bool(src[f]);
+            else if (typeof def === "number") cur[k][f] = Math.min(80, Math.max(20, int(src[f]) || def));
+            else if (/Bg$|Color$/.test(f)) cur[k][f] = /^#[0-9a-f]{6}$/i.test(src[f]) ? src[f] : def;
+            else cur[k][f] = str(src[f], 300);
+          });
+        });
+        s.layout = cur;
+      }
+      if (b.code && typeof b.code === "object") {
+        var code = siteCode(s), bc = b.code;
+        if (bc.head !== undefined) code.head = String(bc.head || "").slice(0, 20000);
+        if (bc.bodyEnd !== undefined) code.bodyEnd = String(bc.bodyEnd || "").slice(0, 20000);
+        if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
+        if (bc.pixelId !== undefined) { code.pixelId = String(bc.pixelId || "").trim(); if (code.pixelId && !/^\d{6,20}$/.test(code.pixelId)) fail(400, "The Meta Pixel ID is a number, like 123456789012345."); }
+        s.code = code;
+      }
       return { settings: s };
     });
 
@@ -1246,6 +1405,6 @@
     return db;
   }
 
-  return { create: create, freshDb: freshDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS,
+  return { create: create, freshDb: freshDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS, headCode: headCode, siteCode: siteCode,
     ORDER_STATUSES: ORDER_STATUSES, PAYMENT_STATUSES: PAYMENT_STATUSES, isPhone: isPhone, normPhone: normPhone };
 });
