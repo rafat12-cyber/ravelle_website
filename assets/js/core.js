@@ -969,6 +969,7 @@
           var out = { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: str(it.url, 300),
             children: depth < 2 ? clean(it.children, depth + 1) : [] };
           if (depth < 2 && str(it.image, 300)) out.image = str(it.image, 300); // dropdown photo (header menu only)
+          if (depth === 0 && it.perColumn) out.perColumn = Math.min(12, Math.max(1, int(it.perColumn) || 6)); // dropdown links per column
           return out;
         }).filter(function (it) { return it.label; });
       };

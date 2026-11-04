@@ -1074,15 +1074,16 @@
       ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
     const linkSelect = `<select class="input input--sm" data-pick-link><option value="">Link to…</option>${links.map(([g, l]) => `<optgroup label="${g}">${l.map(([n, u]) => `<option value="${esc(u)}" data-label="${esc(n.replace(/^(— )+/, ""))}">${esc(n)}</option>`).join("")}</optgroup>`).join("")}</select>`;
     view.innerHTML = `<div class="head"><div><h1 class="h1">Menus</h1><p class="muted">The header menu (with dropdowns) and the footer columns. Link to categories, sub-categories, pages or any web address.</p></div><button class="btn btn--dark" id="mnSave" disabled>Saved</button></div>
-      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop all links sit left of the logo. A link with dropdown links opens a panel: its photo on the left, then the links in columns of six. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
+      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop all links sit left of the logo. A link with dropdown links opens a panel: the links in columns (six per column unless you change it), then its photo on the right. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
         <div class="card"><div class="card__head"><h2 class="h2">Footer columns</h2><button class="btn btn--ghost btn--sm" data-add-col>+ Add column</button></div><div class="stack" id="mnFooter"></div></div></div>`;
     const setDirty = () => { dirty = true; $("#mnSave").disabled = false; $("#mnSave").textContent = "Save menus"; };
     const row = (it, path, canNest) => `<div><div class="menu-item" data-path="${path}"><input class="input input--sm" data-f="label" value="${esc(it.label)}" placeholder="Label">
       <div class="flex" style="flex-wrap:nowrap"><input class="input input--sm grow" data-f="url" value="${esc(it.url)}" placeholder="#shop or https://…">${linkSelect}</div>
       <div class="menu-tools"><button class="icon" type="button" data-act="up" aria-label="Move up">↑</button><button class="icon" type="button" data-act="down" aria-label="Move down">↓</button>${canNest ? `<button class="icon" type="button" data-act="child" title="Add dropdown link">+</button>` : ""}<button class="icon" type="button" data-act="del" aria-label="Remove">✕</button></div>
       ${path.indexOf("header.") === 0 ? `<div class="menu-photo"><span class="menu-photo__frame">${it.image ? `<img src="${esc(it.image)}" alt="" data-measure>` : ""}</span>
-        <div><b class="small">${canNest ? "Dropdown photo" : "Photo on hover (optional)"}</b><br><small class="muted">Upload <b>440 × 550 px</b> (4:5). It shows in a 220 × 275 frame${canNest ? " on the left of this link's dropdown" : " in place of the dropdown photo while this link is hovered"}.</small><br>
+        <div><b class="small">${canNest ? "Dropdown photo" : "Photo on hover (optional)"}</b><br><small class="muted">Upload <b>440 × 550 px</b> (4:5). It shows in a 220 × 275 frame${canNest ? " on the right of this link's dropdown" : " in place of the dropdown photo while this link is hovered"}.</small><br>
         <small class="menu-photo__size" data-size></small>
+        ${canNest ? `<label class="flex small" style="margin-top:6px;gap:8px;align-items:center">Links per column <select class="input input--sm" data-f="perColumn" style="width:auto">${Array.from({ length: 12 }, (_, k) => k + 1).map((n) => `<option value="${n}"${(+it.perColumn || 6) === n ? " selected" : ""}>${n}${n === 6 ? " (default)" : ""}</option>`).join("")}</select></label>` : ""}
         <div class="flex" style="margin-top:6px"><button class="btn btn--ghost btn--sm" type="button" data-act="img">${it.image ? "Change photo" : "Choose photo"}</button>${it.image ? `<button class="btn btn--ghost btn--sm" type="button" data-act="noimg">Remove</button>` : ""}</div></div></div>` : ""}</div>
       ${canNest && it.children && it.children.length ? `<div class="menu-kids">${it.children.map((c, j) => row(c, path + ".children." + j, false)).join("")}</div>` : ""}</div>`;
     const draw = () => {
@@ -1108,6 +1109,7 @@
       if (e.target.dataset.col != null) { menus.footer[+e.target.dataset.col].title = e.target.value; setDirty(); }
     });
     view.addEventListener("change", (e) => {
+      if (e.target.dataset.f === "perColumn") { get(e.target.closest(".menu-item").dataset.path).perColumn = +e.target.value; setDirty(); return; }
       const sel = e.target.closest("[data-pick-link]");
       if (!sel || !sel.value) return;
       const r = sel.closest(".menu-item"), it = get(r.dataset.path), opt = sel.selectedOptions[0];

@@ -294,18 +294,21 @@
   // ---------------------------------------------------------------------------
   // Header, menus and footer
   // ---------------------------------------------------------------------------
-  // Dropdown: photo on the left, links in columns of six (a seventh link starts a new column to the right).
+  // Dropdown: links in columns of six (or the count set in Admin > Menus, 1-12), extra links start a new
+  // column to the right, and the photo sits on the right.
   // A sub-link with its own photo swaps the panel photo on hover.
   function menuItem(it) {
     var kids = it.children && it.children.length;
     if (!kids) return '<li><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a></li>";
     var img = it.image || "";
+    var per = Math.min(12, Math.max(1, parseInt(it.perColumn, 10) || 6));
     return '<li class="has-sub"><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a>" +
       '<div class="nav__sub' + (img ? " has-img" : "") + '">' +
-        (img ? '<figure class="nav__sub-img"><img src="' + esc(img) + '" data-base="' + esc(img) + '" alt="" loading="lazy" decoding="async"></figure>' : "") +
-        '<ul class="nav__sub-list" style="--rows:' + Math.min(6, it.children.length) + '">' + it.children.map(function (c) {
+        '<ul class="nav__sub-list" style="--rows:' + Math.min(per, it.children.length) + '">' + it.children.map(function (c) {
           return '<li><a href="' + esc(c.url) + '"' + (c.image ? ' data-img="' + esc(c.image) + '"' : "") + ">" + esc(c.label) + "</a></li>";
-        }).join("") + "</ul></div></li>";
+        }).join("") + "</ul>" +
+        (img ? '<figure class="nav__sub-img"><img src="' + esc(img) + '" data-base="' + esc(img) + '" alt="" loading="lazy" decoding="async"></figure>' : "") +
+      "</div></li>";
   }
   document.addEventListener("mouseover", function (e) {
     var a = e.target.closest && e.target.closest(".nav__sub-list a");
