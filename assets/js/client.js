@@ -12,6 +12,8 @@
   var DB_KEY = "ravelle:demo-db:v26";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
+  // The server stamps the current asset version on the page (cache busting); the demo uses the fixed one
+  function assetV(fallback) { var m = document.querySelector('meta[name="rv-v"]'); return (m && m.content) || fallback; }
   function loadScript(src) {
     return new Promise(function (resolve, reject) {
       var s = document.createElement("script");
@@ -225,8 +227,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1170"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1168"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=" + assetV("1171")))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=" + assetV("1168")); })
       .then(function () { startDemo(); return m; });
   });
 

@@ -1769,6 +1769,18 @@
       out.lowStock = +$("#lowStock").value || 0;
       try { await api("PUT", "/api/settings", { settings: out }); toast("Settings saved"); store = null; } catch (err) { fail(err); }
     };
+    view.insertAdjacentHTML("beforeend", `<div class="card" style="margin-top:16px"><h2 class="h2">Site cache</h2>
+      <p class="muted small" style="margin:0 0 12px">Browsers keep a saved copy of the site's design and scripts so pages open fast. The store already gives every update a new version, so visitors get it straight away. If someone still sees an old look after an update, click <b>Clear cache</b>: every browser then downloads fresh files on its next visit. Your products, orders and settings are not touched.</p>
+      <div class="flex" style="gap:12px;align-items:center;flex-wrap:wrap"><button class="btn btn--ghost btn--sm" type="button" id="clearCache">Clear cache</button><span class="muted small" id="cacheNote">${s.cacheClearedAt ? "Last cleared " + esc(new Date(s.cacheClearedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })) : ""}</span></div></div>`);
+    $("#clearCache").onclick = async (e) => {
+      if (!confirm("Clear the site cache? Visitors will download fresh design files on their next visit.")) return;
+      busy(e.target, true);
+      try {
+        await api("POST", "/api/cache/clear", {});
+        $("#cacheNote").textContent = "Cleared. Reloading the admin with fresh files…";
+        setTimeout(() => location.reload(), 900);
+      } catch (err) { busy(e.target, false); fail(err); }
+    };
   }
 
   // ---------------------------------------------------------------------------

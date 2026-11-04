@@ -494,12 +494,41 @@ function api(req, res, u, p) {
 var TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml", ".pdf": "application/pdf",
   ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".md": "text/plain; charset=utf-8" };
+// Cache busting: every CSS/JS link in the pages gets ?v=<fingerprint of the asset files>-<admin "Clear cache" version>,
+// so after an update (or a click on Clear cache) browsers fetch the new files instead of an old saved copy.
+var assetFp = { at: 0, v: "" };
+function assetVersion() {
+  if (Date.now() - assetFp.at > 5000) {
+    var hash = crypto.createHash("sha1");
+    ["assets/js", "assets/css", "assets/admin"].forEach(function (dir) {
+      var d = path.join(ROOT, dir);
+      (fs.existsSync(d) ? fs.readdirSync(d) : []).sort().forEach(function (n) {
+        if (!/\.(js|css)$/.test(n)) return;
+        var st = fs.statSync(path.join(d, n)); hash.update(dir + "/" + n + ":" + st.size + ":" + st.mtimeMs + ";");
+      });
+    });
+    assetFp = { at: Date.now(), v: hash.digest("hex").slice(0, 10) };
+  }
+  return assetFp.v + (db.settings.cacheVersion ? "-" + db.settings.cacheVersion : "");
+}
+function versioned(html) {
+  var v = assetVersion();
+  return html.replace(/(assets\/[\w\/.-]+\.(?:js|css))\?v=[\w-]+/g, "$1?v=" + v)
+    .replace("</head>", '<meta name="rv-v" content="' + v + '">\n</head>');
+}
+function serveAdmin(req, res) {
+  fs.readFile(path.join(ROOT, "admin.html"), "utf8", function (err, html) {
+    if (err) return text(res, 500, "Could not read the page.");
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
+    res.end(req.method === "HEAD" ? "" : versioned(html));
+  });
+}
 // The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
 function serveIndex(req, res) {
   fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
     var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
-    html = html.replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+    html = versioned(html).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
       .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
     res.end(req.method === "HEAD" ? "" : html);
@@ -510,7 +539,7 @@ function serveStatic(req, res, p) {
   var file;
   if (p === "/" || p === "/index.html") return serveIndex(req, res);
   else if (p === "/admin/") { res.writeHead(301, { Location: "/admin" }); return res.end(); }
-  else if (p === "/admin" || p === "/admin.html") file = path.join(ROOT, "admin.html");
+  else if (p === "/admin" || p === "/admin.html") return serveAdmin(req, res);
   else if (p === "/robots.txt") return text(res, 200, "User-agent: *\nDisallow: /admin\nDisallow: /api/\n");
   else if (p.indexOf("/assets/") === 0) file = path.join(ROOT, p);
   else if (p.indexOf("/uploads/") === 0) file = path.join(UPLOADS, p.slice(9));
@@ -529,7 +558,9 @@ function serveStatic(req, res, p) {
     if (err || !st.isFile()) return text(res, 404, "Not found");
     var ext = path.extname(file).toLowerCase();
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };
-    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 ? "public, max-age=31536000, immutable" : "public, max-age=3600";
+    // Uploads never change name; CSS/JS with ?v= are cached for a year (a new version = a new URL); anything else is re-checked each time
+    var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
+    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }
     res.writeHead(200, headers);

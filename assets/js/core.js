@@ -1718,6 +1718,13 @@
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
+    // "Clear cache": a new asset version, so every browser downloads fresh CSS and JS
+    route("POST", "/api/cache/clear", "settings", function (c) {
+      c.db.settings.cacheVersion = now().toString(36);
+      c.db.settings.cacheClearedAt = now();
+      if (host.clearCache) host.clearCache();
+      return { ok: true, version: c.db.settings.cacheVersion, clearedAt: c.db.settings.cacheClearedAt };
+    });
     route("PUT", "/api/settings", "settings", function (c) {
       var s = c.db.settings, b = c.body.settings || {};
       ["store", "social", "seo", "chat"].forEach(function (k) {
