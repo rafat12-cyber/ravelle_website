@@ -89,7 +89,7 @@
   // API keys reach the store data, never users, settings or other keys.
   var KEY_AREAS = ["orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "dashboard"];
 
-  var ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"];
+  var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   var PAYMENT_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   var EVENTS = ["order.created", "order.updated", "product.created", "product.updated", "product.deleted", "stock.updated", "stock.low",
     "customer.created", "chat.message.created", "contact.created", "coupon.used"];
@@ -785,6 +785,7 @@
       order.ga = { cid: str(gm.gaCid, 60), sid: str(gm.gaSid, 30), vid: str(gm.sid, 40) };
       emit(db, "order.created", order);
       gaServer(c, order, "purchase");
+      acoreSync(c, order);
       capi(c, "Purchase", order.number, {
         content_ids: order.items.map(function (it) { return baseSku(db, it); }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
         contents: order.items.map(function (it) { return { id: baseSku(db, it), quantity: it.qty, item_price: it.price }; }), order_id: order.number
@@ -796,7 +797,8 @@
       return { number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
         customer: { name: o.customer.name, phone: o.customer.phone.replace(/^(\d{3})\d{5}/, "$1•••••"), address: o.customer.address, city: o.customer.city },
         shippingZone: o.shippingZone, items: o.items, subtotal: o.subtotal, discount: o.discount, coupon: o.coupon, shipping: o.shipping, total: o.total,
-        tracking: o.tracking || "", history: o.history.filter(function (h) { return !h.internal; }).map(function (h) { return { at: h.at, status: h.status, note: h.public || "" }; }) };
+        tracking: o.tracking || "", courier: o.courier ? { name: o.courier.name || "", code: o.courier.trackingCode || o.courier.consignmentId || "", url: o.courier.trackingUrl || "",
+          rider: o.status === "shipped" ? o.courier.riderName || "" : "", riderPhone: o.status === "shipped" ? o.courier.riderPhone || "" : "" } : null, history: o.history.filter(function (h) { return !h.internal; }).map(function (h) { return { at: h.at, status: h.status, note: h.public || "" }; }) };
     }
     route("POST", "/api/orders/track", null, function (c) {
       var number = str(c.body.number, 20).toUpperCase().replace(/^#/, ""), phone = normPhone(c.body.phone);
@@ -1108,21 +1110,7 @@
       if (!o) fail(404, "Order not found.");
       var changes = [];
       if (b.status && b.status !== o.status) {
-        if (ORDER_STATUSES.indexOf(b.status) < 0) fail(400, "Unknown status.");
-        var was = o.status;
-        o.status = b.status;
-        if ((b.status === "cancelled" || b.status === "returned") && !o.restocked) restock(db, o);
-        if ((b.status === "cancelled" || b.status === "returned") && was !== "cancelled" && was !== "returned") gaServer(c, o, "refund");
-        if ((was === "cancelled" || was === "returned") && o.restocked) {
-          // Reopening takes the stock back out.
-          o.items.forEach(function (it) {
-            var p = findProduct(db, it.productId);
-            if (!p || !p.trackStock) return;
-            var v = it.variantId ? p.variants.filter(function (x) { return x.id === it.variantId; })[0] : null;
-            if (v) v.stock = Math.max(0, v.stock - it.qty); else p.stock = Math.max(0, int(p.stock) - it.qty);
-          });
-          o.restocked = false;
-        }
+        setStatus(c, o, b.status);
         changes.push("Status: " + b.status);
       }
       if (b.paymentStatus && b.paymentStatus !== o.paymentStatus) {
@@ -1137,7 +1125,136 @@
       o.updatedAt = now();
       o.history.push({ at: now(), status: o.status, note: changes.concat(note ? [note] : []).join(" · "), public: b.notifyCustomer ? note : "", by: c.auth ? c.auth.name : "System", internal: !b.notifyCustomer && !changes.length });
       emit(db, "order.updated", o);
+      if (changes.length) acoreSync(c, o);
       return { order: o };
+    });
+    function setStatus(c, o, status) {
+      var db = c.db;
+      if (ORDER_STATUSES.indexOf(status) < 0) fail(400, "Unknown status.");
+      var was = o.status;
+      if (status === was) return false;
+      o.status = status;
+      if ((status === "cancelled" || status === "returned") && !o.restocked) restock(db, o);
+      if ((status === "cancelled" || status === "returned") && was !== "cancelled" && was !== "returned") gaServer(c, o, "refund");
+      if ((was === "cancelled" || was === "returned") && status !== "cancelled" && status !== "returned" && o.restocked) {
+        // Reopening takes the stock back out.
+        o.items.forEach(function (it) {
+          var p = findProduct(db, it.productId);
+          if (!p || !p.trackStock) return;
+          var v = it.variantId ? p.variants.filter(function (x) { return x.id === it.variantId; })[0] : null;
+          if (v) v.stock = Math.max(0, v.stock - it.qty); else p.stock = Math.max(0, int(p.stock) - it.qty);
+        });
+        o.restocked = false;
+      }
+      return true;
+    }
+
+    // --- Acore: orders go to Acore, and Acore sends status and courier updates back --------------------
+    function acoreSettings(db) {
+      var a = db.settings.acore || {};
+      return { enabled: !!a.enabled, url: a.url || "", apiKey: a.apiKey || "", webhookSecret: a.webhookSecret || "", since: a.since || 0 };
+    }
+    // What Acore receives for an order (docs: acore-website-integration-prompt.md). Sent when the order is placed and
+    // again on every change; Acore treats it as an upsert keyed on externalId.
+    function acorePayload(db, o) {
+      return {
+        source: "ravelle-website", externalId: o.id, number: o.number, createdAt: o.createdAt, status: o.status,
+        paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus, codAmount: o.paymentStatus === "paid" ? 0 : o.total,
+        customer: { name: o.customer.name, phone: o.customer.phone, email: o.customer.email || "", address: o.customer.address, city: o.customer.city || "" },
+        shippingZone: o.shippingZone ? { id: o.shippingZone.id, name: o.shippingZone.name } : null,
+        items: o.items.map(function (it) {
+          var p = findProduct(db, it.productId);
+          return { sku: it.sku, productSku: (p && p.sku) || it.sku, name: it.name, color: it.color || "", options: it.options || {}, qty: it.qty, price: it.price, lineTotal: it.lineTotal };
+        }),
+        subtotal: o.subtotal, discount: o.discount || 0, coupon: o.coupon || null, shipping: o.shipping || 0, total: o.total, note: o.note || ""
+      };
+    }
+    function acoreSync(c, o) {
+      var a = acoreSettings(c.db);
+      if (!host.acoreSend || !a.enabled || !a.url || !a.apiKey) return;
+      o.acore = o.acore || {};
+      o.acore.pending = true;
+      host.acoreSend({ orderId: o.id, url: a.url, apiKey: a.apiKey, payload: acorePayload(c.db, o) });
+    }
+    // The server reports how a send went
+    route("POST", "/api/internal/acore-sent", "internal", function (c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.body.orderId; })[0];
+      if (!o) fail(404, "Order not found.");
+      o.acore = o.acore || {};
+      o.acore.pending = false;
+      o.acore.tries = int(o.acore.tries) + 1;
+      o.acore.lastTry = now();
+      if (c.body.ok) { o.acore.id = str(c.body.acoreId, 80) || o.acore.id || ""; o.acore.sentAt = now(); o.acore.error = ""; o.acore.tries = 0; }
+      else o.acore.error = str(c.body.error, 300) || "Could not reach Acore.";
+      return { ok: true };
+    });
+    // Orders that still need sending (new, changed, or failed); the server retries these every few minutes
+    route("GET", "/api/internal/acore-due", "internal", function (c) {
+      var a = acoreSettings(c.db), t = now(), wait = [60e3, 5 * 60e3, 30 * 60e3, 2 * 36e5];
+      if (!a.enabled || !a.url || !a.apiKey) return { orders: [] };
+      var due = c.db.orders.filter(function (o) {
+        if (o.createdAt < a.since || t - o.createdAt > 14 * 864e5) return false;
+        var s = o.acore || {};
+        if (s.sentAt && !s.error && !s.dirty) return false;
+        if (!s.lastTry) return true;
+        return t - s.lastTry > wait[Math.min(wait.length - 1, Math.max(0, int(s.tries) - 1))];
+      }).slice(0, 20);
+      return { orders: due.map(function (o) { return { orderId: o.id, url: a.url, apiKey: a.apiKey, payload: acorePayload(c.db, o) }; }) };
+    });
+    // Admin: send one order again now
+    route("POST", "/api/orders/:id/acore", "orders", function (c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      var a = acoreSettings(c.db);
+      if (!a.enabled || !a.url || !a.apiKey) fail(400, "Turn on Acore and add its address and API key in Admin › Acore first.");
+      if (!host.acoreSend) fail(400, "Orders go to Acore from the live server. The demo can't send them.");
+      acoreSync(c, o);
+      return { order: o };
+    });
+    // A signed update from Acore (the server checks the signature first)
+    var ACORE_STATUS = { pending: "pending", confirmed: "confirmed", hold: "hold", on_hold: "hold", processing: "processing", packed: "processing",
+      sent_to_courier: "shipped", picked_up: "shipped", in_transit: "shipped", out_for_delivery: "shipped", shipped: "shipped", delivered: "delivered",
+      cancelled: "cancelled", canceled: "cancelled", returned: "returned", return: "returned" };
+    var ACORE_PUBLIC = { pending: "Order received", confirmed: "Order confirmed", hold: "Order on hold. We'll contact you.", processing: "Packing your order",
+      sent_to_courier: "Handed to the courier", picked_up: "Picked up by the courier", in_transit: "On the way", out_for_delivery: "Out for delivery", shipped: "On the way",
+      delivered: "Delivered", cancelled: "Order cancelled", canceled: "Order cancelled", returned: "Returned to us", return: "Returned to us" };
+    route("POST", "/api/internal/acore", "internal", function (c) {
+      var b = c.body || {}, db = c.db, d = b.data || {};
+      if (typeof d.courier === "object" && d.courier) d.courier = d.courier.name;
+      var o = db.orders.filter(function (x) { return (d.externalId && x.id === d.externalId) || (d.number && x.number === String(d.number).toUpperCase()); })[0];
+      if (!o) fail(404, "Order not found.");
+      o.acore = o.acore || {};
+      var seen = o.acore.seen = (o.acore.seen || []);
+      var did = str(b.id, 80);
+      if (did && seen.indexOf(did) > -1) return { ok: true, duplicate: true };
+      if (did) { seen.push(did); if (seen.length > 40) seen.splice(0, seen.length - 40); }
+      if (d.acoreId) o.acore.id = str(d.acoreId, 80);
+      var raw = str(d.status, 40).toLowerCase().replace(/[\s-]+/g, "_"), mapped = ACORE_STATUS[raw];
+      var parts = [];
+      if (d.courier || d.consignmentId || d.trackingCode || d.trackingUrl || d.riderName) {
+        o.courier = o.courier || {};
+        if (d.courier) o.courier.name = str(d.courier, 40);
+        if (d.consignmentId) o.courier.consignmentId = str(d.consignmentId, 80);
+        if (d.trackingCode) o.courier.trackingCode = str(d.trackingCode, 80);
+        if (d.trackingUrl && /^https?:\/\//.test(d.trackingUrl)) o.courier.trackingUrl = str(d.trackingUrl, 300);
+        if (d.riderName) o.courier.riderName = str(d.riderName, 60);
+        if (d.riderPhone) o.courier.riderPhone = str(d.riderPhone, 20);
+        var tr = [o.courier.name, o.courier.trackingCode || o.courier.consignmentId].filter(Boolean).join(" ");
+        if (tr && tr !== o.tracking) { o.tracking = tr; parts.push("Courier: " + tr); }
+      }
+      if (mapped) {
+        if (setStatus(c, o, mapped)) parts.unshift("Status: " + mapped);
+        if (mapped === "delivered" && o.paymentMethod === "cod" && o.paymentStatus !== "paid" && d.codCollected !== false && d.codCollected !== 0) {
+          o.paymentStatus = "paid"; parts.push("Payment: paid (cash collected" + (num(d.codCollected, 0) > 1 ? " ৳" + num(d.codCollected, 0) : "") + ")");
+        }
+      } else if (raw) parts.push("Acore status: " + raw);
+      var at = num(d.at, 0) || now();
+      var pub = str(d.note, 200) || ACORE_PUBLIC[raw] || "";
+      o.updatedAt = now();
+      o.acore.lastUpdate = now();
+      o.history.push({ at: Math.min(at, now()), status: o.status, note: (parts.length ? parts.join(" · ") : "Update from Acore") + (d.note ? " · " + str(d.note, 200) : ""), public: pub, by: "Acore", acoreStep: raw || "" });
+      emit(db, "order.updated", o);
+      return { ok: true, status: o.status, order_number: o.number };
     });
     // Payment callbacks from the server's SSLCOMMERZ handler
     route("POST", "/api/internal/payment", "internal", function (c) {
@@ -1151,6 +1268,7 @@
       if (!paid && o.status === "pending") { o.status = "cancelled"; if (!o.restocked) restock(c.db, o); }
       o.history.push({ at: now(), status: o.status, note: paid ? "Paid online · " + o.paymentRef : "Online payment " + str(c.body.status, 20), public: paid ? "Payment received" : "Payment didn't go through", by: "SSLCOMMERZ" });
       emit(c.db, "order.updated", o);
+      acoreSync(c, o);
       return { order: o };
     });
 
@@ -1247,6 +1365,8 @@
       s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
       s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
       s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
+      var ac = acoreSettings(c.db);
+      s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: ac.webhookSecret, since: ac.since };
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -1288,6 +1408,19 @@
           });
         });
         s.layout = cur;
+      }
+      if (b.acore && typeof b.acore === "object") {
+        var ac = s.acore = s.acore || {}, ba = b.acore;
+        if (ba.enabled !== undefined) { var on = bool(ba.enabled); if (on && !ac.enabled) ac.since = now(); ac.enabled = on; }
+        if (ba.url !== undefined) {
+          var u = String(ba.url || "").trim().replace(/\/+$/, "");
+          if (u && !/^https?:\/\/[^\s]+$/.test(u)) fail(400, "The Acore address should start with https://");
+          ac.url = u.slice(0, 300);
+        }
+        if (ba.apiKey) ac.apiKey = String(ba.apiKey).trim().slice(0, 300);
+        if (ba.apiKeyClear) ac.apiKey = "";
+        if (ba.newSecret) ac.webhookSecret = "whsec_" + host.random(16);
+        if (!ac.webhookSecret) ac.webhookSecret = "whsec_" + host.random(16);
       }
       if (b.code && typeof b.code === "object") {
         var code = siteCode(s), bc = b.code;

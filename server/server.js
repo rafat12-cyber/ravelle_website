@@ -125,6 +125,68 @@ function metaEvent(job) {
   req.on("error", function (e) { capiStatus = { at: Date.now(), ok: false, event: job.event.event_name, message: e.message }; });
   req.end(body);
 }
+// Acore: send orders to Acore, retry the ones that failed, and take signed status updates back
+var acoreLast = { send: null, webhook: null };
+function acoreSend(job) {
+  // Called from inside a request; send after it finishes so the order is saved first
+  setImmediate(function () {
+    var body = JSON.stringify(job.payload);
+    var url = job.url + "/api/integrations/website/orders";
+    var u;
+    try { u = new URL(url); } catch (e) { return acoreDone(job, false, "", "The Acore address isn't valid."); }
+    var req = (u.protocol === "https:" ? https : http).request(u, { method: "POST", timeout: 10000, headers: {
+      "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "Authorization": "Bearer " + job.apiKey, "User-Agent": "Ravelle-Website/1.0" } }, function (res) {
+      var text = "";
+      res.on("data", function (d) { if (text.length < 4000) text += d; });
+      res.on("end", function () {
+        var j = {};
+        try { j = JSON.parse(text || "{}"); } catch (e) {}
+        var ok = res.statusCode >= 200 && res.statusCode < 300;
+        var errText = j.error && typeof j.error === "object" ? j.error.message || JSON.stringify(j.error) : j.error;
+        acoreDone(job, ok, ok ? String(j.id || j.acore_order_id || (j.order && j.order.id) || (j.data && j.data.id) || "") : "", ok ? "" : (errText || j.message || "Acore answered " + res.statusCode));
+      });
+    });
+    req.on("timeout", function () { req.destroy(new Error("Acore didn't answer in time.")); });
+    req.on("error", function (e) { acoreDone(job, false, "", e.message); });
+    req.end(body);
+  });
+}
+function acoreDone(job, ok, acoreId, error) {
+  acoreLast.send = { at: Date.now(), ok: ok, order: job.payload.number, message: ok ? "Sent" + (acoreId ? " · Acore id " + acoreId : "") : String(error).slice(0, 200) };
+  if (!ok) console.warn("Acore: order " + job.payload.number + " not sent: " + error);
+  try { run({ method: "POST", path: "/api/internal/acore-sent", internal: true, body: { orderId: job.orderId, ok: ok, acoreId: acoreId, error: error } }); } catch (e) { console.error(e); }
+}
+setInterval(function () {
+  var out = core.handle({ method: "GET", path: "/api/internal/acore-due", internal: true }, db);
+  ((out.body || {}).orders || []).forEach(acoreSend);
+}, 2 * 60e3).unref();
+function acoreWebhook(req, raw, body, res) {
+  var secret = ((db.settings || {}).acore || {}).webhookSecret || "";
+  var sent = String(req.headers["x-acore-signature"] || "").replace(/^sha256=/, "");
+  var want = secret ? crypto.createHmac("sha256", secret).update(raw || "").digest("hex") : "";
+  var good = !!(secret && sent.length === want.length && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(want)));
+  if (!good) {
+    acoreLast.webhook = { at: Date.now(), ok: false, message: "Rejected: the signature didn't match the webhook secret." };
+    return sendJson(res, 401, { error: "Bad signature." });
+  }
+  if (!((db.settings.acore || {}).enabled)) return sendJson(res, 409, { error: "The Acore connection is turned off on the website." });
+  // A timestamp more than 10 minutes off is a replayed or delayed message
+  var ts = req.headers["x-acore-timestamp"];
+  if (ts) {
+    var tms = /^\d+$/.test(ts) ? (+ts < 1e12 ? +ts * 1000 : +ts) : Date.parse(ts);
+    if (!tms || Math.abs(Date.now() - tms) > 10 * 60e3) {
+      acoreLast.webhook = { at: Date.now(), ok: false, message: "Rejected: the timestamp is too old. Check the clock on the Acore server." };
+      return sendJson(res, 401, { error: "Stale timestamp." });
+    }
+  }
+  if (!body.id) body.id = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 40);
+  var out;
+  try { out = run({ method: "POST", path: "/api/internal/acore", internal: true, body: body }); } catch (e) { console.error(e); return sendJson(res, 500, { error: "Something went wrong on the server." }); }
+  var d = body.data || {};
+  acoreLast.webhook = { at: Date.now(), ok: out.status < 400, message: (d.number || d.externalId || "?") + " · " + (d.status || body.event || "update") + (out.status < 400 ? "" : " · " + ((out.body || {}).error || out.status)) };
+  return sendJson(res, out.status, out.body);
+}
+
 // Google Analytics 4 Measurement Protocol, straight from this server
 var gaStatus = null;
 function gaEvent(job) {
@@ -177,8 +239,8 @@ function deleteMedia(url) {
 
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } },
-  metaEvent: metaEvent, gaEvent: gaEvent
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
+  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend
 });
 
 // ---------------------------------------------------------------------------
@@ -241,7 +303,7 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
   if (method === "GET") return false;
@@ -288,6 +350,7 @@ function api(req, res, u, p) {
       else if (/urlencoded/.test(type)) body = querystring.parse(raw);
     } catch (e) { return sendJson(res, 400, { error: "The request body isn't valid JSON." }); }
 
+    if (p === "/api/acore/webhook" && req.method === "POST") return acoreWebhook(req, raw, body, res);
     var ssl = /^\/api\/payments\/sslcommerz\/(success|fail|cancel|ipn)$/.exec(p);
     if (ssl) return paymentCallback(ssl[1], Object.assign({}, Object.fromEntries(u.searchParams), body), res);
 

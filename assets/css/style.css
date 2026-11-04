@@ -1123,3 +1123,10 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
 #shopGrid .card__sizes { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 8px; }
 #shopGrid .card__sizes i { font: 500 10px/1 var(--f-mono); font-style: normal; letter-spacing: .04em; padding: 4px 6px; border: 1px solid rgba(17,18,20,.18); border-radius: 6px; color: var(--ink-2); }
 #shopGrid .card__go { display: none; }
+
+/* Track order: courier updates, newest first */
+.order__log { list-style: none; margin: 14px 0 0; padding: 0 0 0 14px; border-left: 2px solid rgba(17,18,20,.12); display: grid; gap: 10px; }
+.order__log li { position: relative; display: grid; gap: 2px; font-size: 13px; }
+.order__log li::before { content: ""; position: absolute; left: -19px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+.order__log li + li::before { background: rgba(17,18,20,.3); }
+.order__log .mono { font-size: 10.5px; color: var(--ink-2); }

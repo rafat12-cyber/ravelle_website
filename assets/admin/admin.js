@@ -105,7 +105,7 @@
     }).join(",")).join("\n");
   }
   const pill = (s) => `<span class="pill pill--${esc(s)}">${esc(human(s))}</span>`;
-  const STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"];
+  const STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   const PAY_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   const PAY_LABEL = { cod: "Cash on delivery", sslcommerz: "SSLCOMMERZ" };
 
@@ -516,10 +516,23 @@
             ${o.customer.email ? `<dt>Email</dt><dd><a href="mailto:${esc(o.customer.email)}">${esc(o.customer.email)}</a></dd>` : ""}<dt>Address</dt><dd>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</dd>
             ${o.shippingZone ? `<dt>Area</dt><dd>${esc(o.shippingZone.name)} · ${esc(o.shippingZone.days)}</dd>` : ""}</dl>
             ${o.customerId && can("customers") ? `<a class="btn btn--ghost btn--sm" href="#/customers/${esc(o.customerId)}">Customer profile</a>` : ""}</div>
+          ${(() => {
+            const a = o.acore || {}, cr = o.courier || {};
+            const state = a.pending ? "Sending…" : a.error ? `<span style="color:var(--danger)">Not sent: ${esc(a.error)}</span>` : a.sentAt ? `Sent ${dateTime(a.sentAt)}${a.id ? ` · Acore id <span class="mono">${esc(a.id)}</span>` : ""}` : "Not sent yet";
+            return `<div class="card"><h2 class="h2">Acore and courier</h2><dl class="kv"><dt>Acore</dt><dd>${state}</dd>
+              ${a.lastUpdate ? `<dt>Last update</dt><dd>${dateTime(a.lastUpdate)}</dd>` : ""}
+              ${cr.name ? `<dt>Courier</dt><dd>${esc(cr.name)}</dd>` : ""}${cr.consignmentId ? `<dt>Consignment</dt><dd class="mono">${esc(cr.consignmentId)}</dd>` : ""}
+              ${cr.trackingUrl ? `<dt>Tracking</dt><dd><a href="${esc(cr.trackingUrl)}" target="_blank" rel="noopener">Open courier page</a></dd>` : ""}
+              ${cr.riderName ? `<dt>Rider</dt><dd>${esc(cr.riderName)}${cr.riderPhone ? ` · <a href="tel:${esc(cr.riderPhone)}">${esc(cr.riderPhone)}</a>` : ""}</dd>` : ""}</dl>
+              <button class="btn btn--ghost btn--sm" type="button" id="acoreSend">${a.sentAt ? "Send again" : "Send to Acore"}</button></div>`;
+          })()}
           <div class="card"><h2 class="h2">Payment</h2><dl class="kv"><dt>Method</dt><dd>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</dd><dt>Status</dt><dd>${pill(o.paymentStatus)}</dd>${o.paymentRef ? `<dt>Reference</dt><dd class="mono">${esc(o.paymentRef)}</dd>` : ""}</dl></div>
           ${o.note ? `<div class="card"><h2 class="h2">Customer note</h2><p style="margin:0">${esc(o.note)}</p></div>` : ""}
         </div>
       </div>`;
+    $("#acoreSend").onclick = async () => {
+      try { await api("POST", "/api/orders/" + o.id + "/acore"); toast("Sending to Acore"); setTimeout(() => viewOrder(id), 1500); } catch (err) { fail(err); }
+    };
     $("#ordForm").onsubmit = async (e) => {
       e.preventDefault();
       const b = formData(e.target), btn = $("button[type=submit]", e.target);
@@ -1489,6 +1502,52 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Acore: website orders go to Acore; Acore sends status and courier updates back
+  // ---------------------------------------------------------------------------
+  async function viewAcore() {
+    setTitle("Acore");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const a = s.acore || {}, demo = window.Ravelle.mode === "demo";
+    const hookUrl = a.webhookUrl || (location.origin + "/api/acore/webhook");
+    const last = (x, none) => x ? `<span style="color:${x.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">${esc(x.message)}</span> <small class="muted">${dateTime(x.at)}</small>` : `<span class="muted">${none}</span>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Acore</h1><p class="muted">Every website order goes to Acore by itself. When you hold, cancel or send an order to the courier in Acore, the order here updates by itself, and customers see it on Track order.</p></div></div>
+      <form class="stack" id="acForm">
+        <div class="card"><h2 class="h2">Connection</h2>
+          <label class="switch"><input type="checkbox" name="enabled" ${a.enabled ? "checked" : ""}> Connect to Acore</label>
+          <div class="row row--2"><label class="field"><span>Acore address</span><input class="input" name="url" value="${esc(a.url || "")}" placeholder="https://acore.example.com"><small>The web address of your Acore app, without /api.</small></label>
+          <label class="field"><span>Store API key</span><input class="input" type="password" autocomplete="off" name="apiKey" value="" placeholder="${a.apiKeySet ? "Saved. Paste a new one to replace it." : "From Acore › Stores › your store"}"><small>Acore makes this key when you add the store there.</small></label></div>
+          ${demo ? `<p class="small" style="margin:0;color:var(--warn)">This demo has no server, so it can't talk to Acore. This page works on the live store.</p>` : ""}</div>
+        <div class="card"><h2 class="h2">Paste these into Acore</h2><p class="muted small" style="margin:0">In Acore, open your store's settings and fill in its webhook with these two.</p>
+          <div class="row row--2"><label class="field"><span>Webhook URL</span><input class="input mono" readonly value="${esc(hookUrl)}" data-copy></label>
+          <label class="field"><span>Webhook secret</span><input class="input mono" readonly value="${esc(a.webhookSecret || "Save once to create it")}" data-copy></label></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="newSecret">Make a new secret</button><small class="muted">Making a new one stops the old one working, so update Acore too.</small></div></div>
+        <div class="card"><h2 class="h2">Status</h2><dl class="kv">
+          <dt>Last order sent</dt><dd>${last(a.lastSend, "Nothing sent since the server started.")}</dd>
+          <dt>Last update from Acore</dt><dd>${last(a.lastWebhook, "No updates received since the server started.")}</dd>
+          <dt>Connected since</dt><dd>${a.enabled && a.since ? dateTime(a.since) : "—"}</dd></dl>
+          <p class="muted small" style="margin:0">Orders placed while connected are sent. If Acore can't be reached, the website keeps trying for two weeks. To send an older order, open it and press Send to Acore.</p></div>
+        <div class="card"><h2 class="h2">How statuses match</h2>
+          <div class="table-wrap"><table class="t"><thead><tr><th>In Acore</th><th>On the website</th><th>Customer sees</th></tr></thead><tbody>
+          ${[["confirmed", "Confirmed", "Order confirmed"], ["hold", "On hold", "Order on hold. We'll contact you."], ["cancelled", "Cancelled (stock goes back)", "Order cancelled"],
+            ["processing", "Processing", "Packing your order"], ["sent_to_courier", "Shipped", "Handed to the courier, with the parcel number"], ["in_transit", "Shipped", "On the way"], ["delivered", "Delivered (cash on delivery marked paid)", "Delivered"], ["returned", "Returned (stock goes back)", "Returned to us"]]
+            .map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody></table></div></div>
+        <div class="sticky-save"><span class="small">Saved settings take effect right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    $$("[data-copy]").forEach((el) => { el.onclick = () => { el.select(); try { navigator.clipboard.writeText(el.value); toast("Copied"); } catch (_) {} }; });
+    let renew = false;
+    $("#newSecret").onclick = (e) => { renew = true; e.target.textContent = "A new secret is made when you save"; };
+    $("#acForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, out = { enabled: f.enabled.checked, url: f.url.value.trim() };
+      if (f.apiKey.value.trim()) out.apiKey = f.apiKey.value.trim();
+      if (renew) out.newSecret = true;
+      if (out.enabled && (!out.url || !(out.apiKey || a.apiKeySet))) return toast("Add the Acore address and API key to connect.", "warn");
+      try { await api("PUT", "/api/settings", { settings: { acore: out } }); toast("Acore settings saved"); viewAcore(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Analytics: traffic, sources, devices, funnel, sales, products and customers
   // ---------------------------------------------------------------------------
   let anDays = 30;
@@ -1738,7 +1797,7 @@
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"]]],
-    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"]]]
+    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
   ];
   const counts = { orders: 0, chat: 0, messages: 0 };
   function drawSide() {
@@ -1776,7 +1835,7 @@
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"],
     [/^chat$/, viewChat, "chat"], [/^chat\/([^/]+)$/, viewChat, "chat"], [/^messages$/, viewMessages, "messages"],
-    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"],
+    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"], [/^acore$/, viewAcore, "settings"],
     [/^account$/, viewAccount, null]
   ];
   let leaveGuard = null, cleanup = null, lastHash = location.hash;

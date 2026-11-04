@@ -138,6 +138,7 @@ textarea.input--md { font-family: var(--f-mono); font-size: 12.5px; min-height: 
 .pill--pending { background: var(--warn-bg); color: var(--warn); }
 .pill--confirmed, .pill--processing { background: #e3eefb; color: #1f5ea8; }
 .pill--shipped { background: #ece6fb; color: #5a3fa8; }
+.pill--hold { background: #fdf0d8; color: #8a5a00; }
 .pill--delivered, .pill--paid, .pill--published, .pill--open, .pill--active { background: var(--ok-bg); color: var(--ok); }
 .pill--cancelled, .pill--failed, .pill--returned, .pill--refunded { background: var(--danger-bg); color: var(--danger); }
 .pill--draft, .pill--closed, .pill--unpaid, .pill--inactive { background: var(--panel); color: var(--ink-2); }
