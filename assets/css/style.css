@@ -397,11 +397,12 @@ button { font: inherit; color: inherit; }
   font-size: clamp(56px, 9vw, 130px); line-height: 1; color: var(--ghost);
   will-change: transform; pointer-events: none;
 }
-.marquee--a { position: absolute; top: 12%; left: 0; z-index: 0; }
+.poster__frame { position: relative; width: 100%; display: grid; justify-items: center; }
+.marquee--a { position: absolute; top: 9%; left: 0; z-index: 0; }
 .marquee--b { position: absolute; bottom: 9%; left: -30%; z-index: 2; color: rgba(255,255,255,.5); }
 .poster__card {
   position: relative; z-index: 1; overflow: hidden;
-  width: min(390px, 84vw); aspect-ratio: 4 / 5; border-radius: var(--r-md);
+  width: min(470px, 88vw); aspect-ratio: 4 / 5; border-radius: var(--r-md);
   color: var(--paper); text-align: center;
   display: grid; justify-items: center; align-content: start; padding-top: 20px;
 }
