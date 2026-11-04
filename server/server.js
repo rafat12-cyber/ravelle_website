@@ -10,6 +10,8 @@
 
 var http = require("http");
 var https = require("https");
+var tls = require("tls");
+var net = require("net");
 var fs = require("fs");
 var path = require("path");
 var crypto = require("crypto");
@@ -246,10 +248,116 @@ function deleteMedia(url) {
   if (file.indexOf(UPLOADS) === 0 && fs.existsSync(file)) fs.unlinkSync(file);
 }
 
+// ---------------------------------------------------------------------------
+// Email: a small SMTP client (Gmail: smtp.gmail.com, port 465 with an app password)
+// ---------------------------------------------------------------------------
+function b64(s) { return Buffer.from(String(s), "utf8").toString("base64"); }
+function wrap76(s) { return s.replace(/.{1,76}/g, "$&\r\n").trim(); }
+function mimeWord(s) { return /^[\x20-\x7e]*$/.test(s) ? s : "=?UTF-8?B?" + b64(s) + "?="; }
+function buildMessage(job) {
+  var boundary = "rv_" + random(8), domain = String(job.from.email).split("@")[1] || "localhost";
+  return [
+    "From: " + mimeWord(String(job.from.name || "").replace(/["\r\n]/g, "")) + " <" + job.from.email + ">",
+    "To: <" + job.to + ">",
+    job.replyTo ? "Reply-To: <" + job.replyTo + ">" : null,
+    "Subject: " + mimeWord(String(job.subject).replace(/[\r\n]/g, " ")),
+    "Date: " + new Date().toUTCString(),
+    "Message-ID: <" + random(12) + "@" + domain + ">",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/alternative; boundary="' + boundary + '"',
+    "",
+    "--" + boundary, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64(job.text || "")),
+    "--" + boundary, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64(job.html || "")),
+    "--" + boundary + "--", ""
+  ].filter(function (l) { return l !== null; }).join("\r\n");
+}
+function smtpSend(job, cb) {
+  var cfg = job.smtp, port = +cfg.port || 465, done = false, buf = "", step = 0, sock;
+  var finish = function (err) { if (done) return; done = true; try { sock.end(); } catch (e) {} cb(err); };
+  var plainOk = /^(localhost|127\.0\.0\.1)$/.test(cfg.host) && process.env.SMTP_ALLOW_PLAIN === "1"; // tests only
+  var steps;
+  var send = function (line) { sock.write(line + "\r\n"); };
+  var onLine = function (code, text, last) {
+    if (!last) return;
+    var want = steps[step];
+    if (!want) return;
+    if (want.expect.indexOf(code) < 0) return finish(new Error("SMTP " + code + " " + text.slice(0, 160)));
+    step++;
+    if (want.then) want.then(text);
+  };
+  var attach = function (s) {
+    sock = s;
+    s.setEncoding("utf8");
+    s.setTimeout(20000, function () { finish(new Error("The mail server didn't answer in time.")); });
+    s.on("error", function (e) { finish(e); });
+    s.on("data", function (d) {
+      buf += d;
+      var i;
+      while ((i = buf.indexOf("\r\n")) > -1) {
+        var line = buf.slice(0, i); buf = buf.slice(i + 2);
+        onLine(+line.slice(0, 3), line.slice(4), line.charAt(3) !== "-");
+      }
+    });
+  };
+  var ehloText = "";
+  var auth = [
+    { expect: [250], then: function () { send("AUTH LOGIN"); } },
+    { expect: [334], then: function () { send(b64(cfg.user)); } },
+    { expect: [334], then: function () { send(b64(cfg.password)); } },
+    { expect: [235], then: function () { send("MAIL FROM:<" + job.from.email + ">"); } },
+    { expect: [250], then: function () { send("RCPT TO:<" + job.to + ">"); } },
+    { expect: [250, 251], then: function () { send("DATA"); } },
+    { expect: [354], then: function () { sock.write(buildMessage(job) + "\r\n.\r\n"); } },
+    { expect: [250], then: function () { send("QUIT"); finish(null); } }
+  ];
+  if (port === 465) {
+    steps = [{ expect: [220], then: function () { send("EHLO ravelle"); } }].concat(auth);
+    attach(tls.connect({ host: cfg.host, port: port, servername: cfg.host }));
+  } else {
+    // 587: start plain, then switch to TLS with STARTTLS
+    steps = [
+      { expect: [220], then: function () { send("EHLO ravelle"); } },
+      { expect: [250], then: function (t) {
+        if (plainOk) { step = 1; steps = [null].concat(auth); send("EHLO ravelle"); return; }
+        send("STARTTLS");
+      } },
+      { expect: [220], then: function () {
+        var raw = sock; raw.removeAllListeners("data");
+        buf = ""; step = 0;
+        steps = [null].concat(auth); step = 1;
+        attach(tls.connect({ socket: raw, servername: cfg.host }, function () { send("EHLO ravelle"); }));
+      } }
+    ];
+    attach(net.connect(port, cfg.host));
+  }
+}
+var emailQueue = [], emailBusy = false;
+function sendEmail(job) {
+  emailQueue.push(job);
+  if (!emailBusy) nextEmail();
+}
+function nextEmail() {
+  var job = emailQueue.shift();
+  if (!job) { emailBusy = false; return; }
+  emailBusy = true;
+  smtpSend(job, function (err) {
+    var e = (db.emailLog || []).filter(function (x) { return x.id === job.id; })[0];
+    if (e) {
+      e.ok = !err;
+      e.status = err ? "Failed: " + (/535|534|Username and Password/i.test(err.message) ? "Gmail refused the login. Check the address and the 16-letter app password." : err.message) : "Sent";
+      e.sentAt = Date.now();
+      save();
+    }
+    if (err) console.error("Email to " + job.to + " failed:", err.message);
+    setTimeout(nextEmail, 300);
+  });
+}
+setInterval(function () { run({ method: "POST", path: "/api/internal/cart-reminders", internal: true, headers: {}, body: {}, query: {} }); }, +process.env.CART_SWEEP_MS || 60e3).unref();
+
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
   describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
-  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend
+  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });
 
 // ---------------------------------------------------------------------------
@@ -312,7 +420,7 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
   if (method === "GET") return false;

@@ -1432,6 +1432,142 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Abandoned carts: checkouts that stopped before the order was placed
+  // ---------------------------------------------------------------------------
+  async function viewCarts() {
+    setTitle("Abandoned carts");
+    let r;
+    try { r = await api("GET", "/api/carts"); } catch (err) { return fail(err); }
+    let tab = "open";
+    const cs = r.settings;
+    const remState = (x) => {
+      const auto = (n) => x.reminders.find((m) => m.auto && m.n === n);
+      const cell = (n, label) => { const m = auto(n); return `<span class="cart-rem${m ? (m.ok === false ? " is-bad" : " is-ok") : ""}" title="${esc(m ? m.status + " · " + dateTime(m.at) : x.customer.email ? "Not sent yet" : "No email")}">${m ? (m.ok === false ? "✕" : "✓") : "○"} ${label}</span>`; };
+      return x.customer.email ? cell(1, cs.delay1 + " min") + cell(2, cs.delay2 + " h") : `<small class="muted">No email · call or WhatsApp</small>`;
+    };
+    const statusPill = (x) => x.status === "open" ? (x.abandoned ? `<span class="pill pill--pending">Abandoned</span>` : `<span class="pill pill--confirmed">At checkout now</span>`)
+      : x.status === "recovered" ? `<span class="pill pill--delivered">Recovered · ${esc(x.orderNumber)}</span>` : x.status === "ordered" ? `<span class="pill pill--paid">Ordered · ${esc(x.orderNumber)}</span>` : `<span class="pill pill--draft">Dismissed</span>`;
+    const draw = () => {
+      const list = r.carts.filter((x) => tab === "all" || (tab === "open" ? x.status === "open" : x.status === tab));
+      view.innerHTML = `<div class="head"><div><h1 class="h1">Abandoned carts</h1><p class="muted">People who typed their phone or email at checkout but didn't place the order. Reminder emails go out ${cs.delay1} minutes and ${cs.delay2} hours later${cs.enabled ? "" : " (reminders are off)"}.</p></div>
+          <div class="flex"><a class="btn btn--ghost" href="#/email">Reminder settings</a><button class="btn btn--ghost" id="caCsv">Export CSV</button></div></div>
+        ${r.emailReady ? "" : `<div class="card" style="background:var(--warn-bg)"><p class="small" style="margin:0">Reminder emails can't go out yet. ${window.Ravelle.mode === "demo" ? "The demo has no email server; on the live store, " : ""}connect your company Gmail in <a href="#/email">Email & reminders</a>. You can still call or WhatsApp people from here.</p></div>`}
+        <div class="kpis"><div class="kpi"><span class="kpi__label">Abandoned now</span><span class="kpi__value">${r.stats.open}</span><span class="kpi__delta">${taka(r.stats.openValue)} in bags</span></div>
+          <div class="kpi"><span class="kpi__label">Reminders sent</span><span class="kpi__value">${r.stats.reminders}</span><span class="kpi__delta">emails and calls</span></div>
+          <div class="kpi"><span class="kpi__label">Recovered</span><span class="kpi__value">${r.stats.recovered}</span><span class="kpi__delta">${taka(r.stats.recoveredValue)} in orders</span></div></div>
+        <div class="tabs" id="caTabs">${[["open", "Open"], ["recovered", "Recovered"], ["ordered", "Ordered"], ["dismissed", "Dismissed"], ["all", "All"]].map(([k, l]) => `<button class="tab${tab === k ? " is-on" : ""}" data-t="${k}">${l} <span class="muted">${r.carts.filter((x) => k === "all" || x.status === k).length}</span></button>`).join("")}</div>
+        <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Last active</th><th>Customer</th><th>Bag</th><th>Value</th><th>Reminders</th><th>Status</th><th></th></tr></thead><tbody>${list.map((x) => `
+          <tr><td>${ago(x.updatedAt)}<br><small class="muted">${dateTime(x.updatedAt)}</small></td>
+          <td><b>${esc(x.customer.name || "No name yet")}</b>${x.customer.phone ? `<br><a href="tel:${esc(x.customer.phone)}">${esc(x.customer.phone)}</a>` : ""}${x.customer.email ? `<br><small><a href="mailto:${esc(x.customer.email)}">${esc(x.customer.email)}</a></small>` : ""}</td>
+          <td><small>${x.items.map((i) => `${i.qty} × ${esc(i.name)}${Object.keys(i.options || {}).length ? " (" + esc(Object.values(i.options).join(", ")) + ")" : ""}`).join("<br>")}</small></td>
+          <td>${taka(x.total)}</td><td>${remState(x)}</td><td>${statusPill(x)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-open="${x.id}">Open</button></td></tr>`).join("") || `<tr><td colspan="7"><p class="empty">${tab === "open" ? "No abandoned carts right now." : "Nothing here."}</p></td></tr>`}</tbody></table></div></div>`;
+      $("#caTabs").onclick = (e) => { const b = e.target.closest("[data-t]"); if (b) { tab = b.dataset.t; draw(); } };
+      $("#caCsv").onclick = () => download("ravelle-abandoned-carts.csv", csv([["Last active", "Name", "Phone", "Email", "Address", "City", "Items", "Value", "Reminders", "Status", "Order"]]
+        .concat(r.carts.map((x) => [new Date(x.updatedAt).toISOString(), x.customer.name, x.customer.phone, x.customer.email, x.customer.address, x.customer.city, x.items.map((i) => i.qty + " x " + i.name).join("; "), x.total, x.reminders.length, x.status, x.orderNumber || ""]))));
+    };
+    draw();
+    view.onclick = async (e) => {
+      const b = e.target.closest("[data-open]");
+      if (!b) return;
+      const x = r.carts.find((y) => y.id === b.dataset.open);
+      const first = (x.customer.name || "").split(" ")[0];
+      const wa = x.customer.phone ? x.customer.phone.replace(/^0/, "880") : "";
+      const msg = `Hi${first ? " " + first : ""}, this is Ravelle. You left ${x.items.map((i) => i.name).join(", ")} in your bag. Complete your order here: ${x.link}`;
+      const body = modal(x.customer.name || "Abandoned cart", `<div class="stack">
+        <div class="flex">${x.customer.phone ? `<a class="btn btn--dark btn--sm" href="tel:${esc(x.customer.phone)}" data-contact="phone">Call ${esc(x.customer.phone)}</a><a class="btn btn--ghost btn--sm" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" data-contact="whatsapp">WhatsApp</a>` : ""}
+          ${x.customer.email ? `<button class="btn btn--ghost btn--sm" type="button" id="caRemind">Send reminder email now</button>` : ""}</div>
+        <dl class="row row--2" style="margin:0;gap:12px 20px"><div><dt class="mono muted small">Email</dt><dd style="margin:2px 0 0">${esc(x.customer.email || "—")}</dd></div><div><dt class="mono muted small">Address</dt><dd style="margin:2px 0 0">${esc([x.customer.address, x.customer.city].filter(Boolean).join(", ") || "—")}</dd></div>
+          <div><dt class="mono muted small">Started</dt><dd style="margin:2px 0 0">${dateTime(x.createdAt)}</dd></div><div><dt class="mono muted small">Came from</dt><dd style="margin:2px 0 0">${esc(x.source || "—")}</dd></div></dl>
+        <div class="card" style="padding:12px 14px">${x.items.map((i) => `<div class="flex flex--between small"><span>${i.qty} × ${esc(i.name)} ${Object.keys(i.options || {}).length ? `<span class="muted">(${esc(Object.values(i.options).join(", "))})</span>` : ""}</span><b>${taka(i.lineTotal)}</b></div>`).join("")}<div class="flex flex--between" style="margin-top:6px"><span>Total</span><b>${taka(x.total)}</b></div></div>
+        <label class="field"><span>Link that puts their bag back</span><div class="flex" style="flex-wrap:nowrap"><input class="input grow" value="${esc(x.link)}" readonly id="caLink"><button class="btn btn--ghost btn--sm" type="button" id="caCopy">Copy</button></div><small>Paste it in a message. It refills their bag and opens checkout.</small></label>
+        <div><p class="mono muted small" style="margin:0 0 6px">Follow-up</p>${x.reminders.length ? `<ul class="small" style="margin:0;padding-left:18px">${x.reminders.map((m) => `<li>${dateTime(m.at)} · ${m.channel === "email" ? (m.auto ? "Automatic email " + m.n : "Email sent by " + esc(m.by || "staff")) : esc(m.status)}${m.channel === "email" ? ` · <span style="color:${m.ok === false ? "var(--danger)" : "inherit"}">${esc(m.status)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="small muted" style="margin:0">Nothing sent yet.</p>`}${x.clickedAt ? `<p class="small" style="margin:6px 0 0">✓ Opened the link ${ago(x.clickedAt)}.</p>` : ""}</div>
+        <div class="modal__foot"><button class="btn btn--danger" type="button" id="caDel" style="margin-right:auto">Delete</button>${x.status === "open" ? `<button class="btn btn--ghost" type="button" id="caDismiss">Dismiss</button>` : x.status === "dismissed" ? `<button class="btn btn--ghost" type="button" id="caReopen">Reopen</button>` : ""}<button class="btn btn--dark" type="button" data-modal-close>Close</button></div></div>`, { wide: true, noFocus: true });
+      const reload = async () => { r = await api("GET", "/api/carts"); draw(); };
+      $("#caCopy", body).onclick = () => { $("#caLink").select(); try { navigator.clipboard.writeText(x.link); } catch (err) { document.execCommand("copy"); } toast("Link copied"); };
+      $$("[data-contact]", body).forEach((a) => a.addEventListener("click", () => { api("POST", "/api/carts/" + x.id + "/contacted", { channel: a.dataset.contact }).then(reload, () => {}); }));
+      if ($("#caRemind", body)) $("#caRemind", body).onclick = async (ev) => { busy(ev.target, true); try { const o = await api("POST", "/api/carts/" + x.id + "/remind"); toast(o.status === "sending" ? "Reminder email is on its way" : o.status, o.status !== "sending"); closeModal(); reload(); } catch (err) { fail(err); busy(ev.target, false); } };
+      const setStatus = async (s) => { try { await api("PATCH", "/api/carts/" + x.id, { status: s }); closeModal(); toast(s === "dismissed" ? "Dismissed. No more reminders for this cart." : "Reopened"); reload(); } catch (err) { fail(err); } };
+      if ($("#caDismiss", body)) $("#caDismiss", body).onclick = () => setStatus("dismissed");
+      if ($("#caReopen", body)) $("#caReopen", body).onclick = () => setStatus("open");
+      $("#caDel", body).onclick = async () => { if (!(await confirmBox("Delete this cart?", "This can't be undone.", "Delete", true))) return; try { await api("DELETE", "/api/carts/" + x.id); toast("Deleted"); reload(); } catch (err) { fail(err); } };
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Email & reminders: company Gmail, order invoices, abandoned-cart reminders, email log
+  // ---------------------------------------------------------------------------
+  async function viewEmail() {
+    setTitle("Email & reminders");
+    let r;
+    try { r = await api("GET", "/api/email-settings"); } catch (err) { return fail(err); }
+    const e = r.email, c = r.carts, demo = window.Ravelle.mode === "demo";
+    const steps = (list) => `<ol class="trk__steps">${list.map((x) => `<li>${x}</li>`).join("")}</ol>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Email & reminders</h1><p class="muted">Send order invoices and abandoned-cart reminders from your company Gmail, automatically.</p></div></div>
+      <form class="stack" id="emForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Company Gmail</h2><span class="trk__state ${e.enabled && e.passwordSet ? "is-on" : ""}">${e.enabled && e.passwordSet ? "● Connected" : "○ Not connected"}</span></div>
+          ${demo ? `<p class="small muted" style="margin:0">The demo has no email server, so emails are listed in the log below but not sent. On the live store they go out for real.</p>` : ""}
+          <div class="row row--2"><label class="field"><span>Gmail address</span><input class="input" name="user" type="email" value="${esc(e.user)}" placeholder="orders@gmail.com or you@ravellebd.com"><small>Emails come from this address.</small></label>
+          <label class="field"><span>App password</span><input class="input" name="password" type="password" autocomplete="new-password" placeholder="${e.passwordSet ? "Saved. Paste a new one to replace it." : "16 letters from Google, like abcd efgh ijkl mnop"}"><small>Not your normal Gmail password. Kept on your server only.${e.passwordSet ? ` <a href="#" id="emPwClear">Remove</a>` : ""}</small></label></div>
+          <div class="row row--3"><label class="field"><span>Sender name</span><input class="input" name="fromName" value="${esc(e.fromName)}"></label><label class="field"><span>Replies go to (optional)</span><input class="input" name="replyTo" type="email" value="${esc(e.replyTo)}" placeholder="Same as the Gmail address"></label>
+          <label class="field"><span>Mail server</span><select class="input" name="server"><option value="smtp.gmail.com:465"${e.host === "smtp.gmail.com" ? " selected" : ""}>Gmail / Google Workspace</option><option value="custom"${e.host !== "smtp.gmail.com" ? " selected" : ""}>Other (${esc(e.host)}:${esc(e.port)})</option></select></label></div>
+          <div class="row row--2" id="emCustom" ${e.host === "smtp.gmail.com" ? "hidden" : ""}><label class="field"><span>SMTP host</span><input class="input" name="host" value="${esc(e.host)}"></label><label class="field"><span>Port</span><input class="input" name="port" type="number" value="${esc(e.port)}"><small>465 (SSL) or 587 (STARTTLS)</small></label></div>
+          <label class="switch"><input type="checkbox" name="enabled" ${e.enabled ? "checked" : ""}> Send emails from this address</label>
+          <div class="flex"><input class="input" id="emTestTo" type="email" placeholder="Send a test to…" value="${esc(e.user)}" style="max-width:280px"><button class="btn btn--ghost btn--sm" type="button" id="emTest">Send test email</button><span class="small" id="emTestOut"></span></div>
+          <details class="trk__guide"><summary>How to get a Gmail app password</summary>${steps([
+            `Sign in to the Gmail account you want to send from, then open <a href="https://myaccount.google.com/security" target="_blank" rel="noopener">Google Account › Security</a>.`,
+            `Turn on <b>2-Step Verification</b> if it's off. Google only gives app passwords to accounts with it on.`,
+            `Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App passwords</a>, type the name "Ravelle store" and press <b>Create</b>.`,
+            `Copy the 16-letter password into <b>App password</b> above, tick <b>Send emails from this address</b> and press Save.`,
+            `Press <b>Send test email</b>. It should arrive within a minute. Check Spam the first time and mark it "Not spam".`])}
+            <p class="muted small">A free Gmail account can send about 500 emails a day; Google Workspace about 2,000. Some hosting companies block outgoing mail ports (465/587) on new servers. If the test fails with a timeout, ask your host to open them.</p></details></div>
+        <div class="card"><h2 class="h2">Order invoice</h2>
+          <label class="switch"><input type="checkbox" name="invoice" ${e.invoice ? "checked" : ""}> Email an invoice to the customer the moment they place an order</label>
+          <p class="small muted" style="margin:0">It lists the items, prices, delivery charge, total, payment method, delivery address and a Track order button. Customers who leave the email empty don't get one.</p>
+          <label class="field"><span>Also send a copy of every new order to (optional)</span><input class="input" name="copyTo" value="${esc(e.copyTo)}" placeholder="you@ravellebd.com"><small>Separate several addresses with commas.</small></label></div>
+        <div class="card"><h2 class="h2">Abandoned cart reminders</h2>
+          <label class="switch"><input type="checkbox" name="cEnabled" ${c.enabled ? "checked" : ""}> Email people who left checkout without ordering</label>
+          <div class="row row--2"><label class="field"><span>First reminder after (minutes)</span><input class="input" type="number" min="5" max="1440" name="delay1" value="${esc(c.delay1)}"></label><label class="field"><span>Second reminder after (hours)</span><input class="input" type="number" min="1" max="168" name="delay2" value="${esc(c.delay2)}"></label></div>
+          <div class="row row--2"><label class="field"><span>First email subject</span><input class="input" name="subject1" value="${esc(c.subject1)}"></label><label class="field"><span>Second email subject</span><input class="input" name="subject2" value="${esc(c.subject2)}"></label></div>
+          <div class="row row--2"><label class="field"><span>First email message</span><textarea class="input" rows="3" name="text1">${esc(c.text1)}</textarea></label><label class="field"><span>Second email message</span><textarea class="input" rows="3" name="text2">${esc(c.text2)}</textarea></label></div>
+          <label class="field"><span>Coupon in the second email (optional)</span><input class="input" name="coupon" value="${esc(c.coupon)}" placeholder="e.g. COMEBACK5" style="max-width:240px"><small>Create the coupon in <a href="#/coupons">Coupons</a> first.</small></label>
+          <p class="small muted" style="margin:0">Each email shows their bag and a "Complete your order" button that refills it. Reminders stop as soon as they order. People who only gave a phone number appear in <a href="#/carts">Abandoned carts</a> for a call or WhatsApp.</p></div>
+        <div class="sticky-save"><span class="small">Changes apply right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>
+      <div class="card card--flush"><div class="card__head" style="padding:16px 18px 0"><h2 class="h2">Email log</h2><span class="muted small">Last ${r.log.length}</span></div><div class="table-wrap"><table class="t"><thead><tr><th>Time</th><th>To</th><th>Email</th><th>Result</th></tr></thead><tbody>${r.log.map((l) => `
+        <tr><td>${dateTime(l.at)}</td><td>${esc(l.to)}</td><td>${esc(l.subject)}<br><small class="muted">${esc({ invoice: "Invoice", "invoice-copy": "Order copy", "cart-reminder-1": "Cart reminder 1", "cart-reminder-2": "Cart reminder 2", test: "Test" }[l.kind] || l.kind)}${l.ref ? " · " + esc(l.ref) : ""}</small></td>
+        <td style="color:${l.ok === false ? "var(--danger)" : l.ok ? "var(--ok)" : "inherit"}">${esc(l.status)}</td></tr>`).join("") || `<tr><td colspan="4"><p class="empty">No emails yet.</p></td></tr>`}</tbody></table></div></div>`;
+    const form = $("#emForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.server.onchange = () => { $("#emCustom").hidden = form.server.value !== "custom"; if (form.server.value !== "custom") { form.host.value = "smtp.gmail.com"; form.port.value = 465; } };
+    if ($("#emPwClear")) $("#emPwClear").onclick = (ev) => { ev.preventDefault(); form.dataset.pwClear = "1"; dirty = true; ev.target.textContent = "Will be removed when you save"; };
+    $("#emTest").onclick = async () => {
+      if (dirty) return toast("Save first, then test.", true);
+      const out = $("#emTestOut"); out.textContent = "Sending…"; out.style.color = "";
+      try {
+        const t = await api("POST", "/api/email/test", { to: $("#emTestTo").value.trim() });
+        if (t.status !== "sending") { out.textContent = t.status; out.style.color = "var(--danger)"; return; }
+        for (let i = 0; i < 15; i++) {
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const l = (await api("GET", "/api/email/log/" + t.id)).email;
+          if (l.ok !== null) { out.textContent = l.ok ? "✓ Sent. Check the inbox (and Spam)." : l.status; out.style.color = l.ok ? "var(--ok)" : "var(--danger)"; return; }
+        }
+        out.textContent = "Still sending… check the log below in a minute.";
+      } catch (err) { out.textContent = err.message; out.style.color = "var(--danger)"; }
+    };
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const email = { user: f.user.value.trim(), fromName: f.fromName.value.trim(), replyTo: f.replyTo.value.trim(), host: f.host.value.trim() || "smtp.gmail.com", port: +f.port.value || 465, enabled: f.enabled.checked, invoice: f.invoice.checked, copyTo: f.copyTo.value.trim() };
+      if (f.password.value.trim()) email.password = f.password.value.trim();
+      if (form.dataset.pwClear) email.passwordClear = true;
+      const carts = { enabled: f.cEnabled.checked, delay1: +f.delay1.value, delay2: +f.delay2.value, subject1: f.subject1.value, subject2: f.subject2.value, text1: f.text1.value, text2: f.text2.value, coupon: f.coupon.value };
+      try { await api("PUT", "/api/email-settings", { email, carts }); dirty = false; toast("Saved"); viewEmail(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Popup banner on the home page
   // ---------------------------------------------------------------------------
   async function viewPopup() {
@@ -1521,9 +1657,9 @@
   // Users
   // ---------------------------------------------------------------------------
   // Each area is one module (or a few related ones) in the menu on the left
-  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders (and Acore order sync)", customers: "Customers", products: "Products & Stock", catalog: "Categories & Variations",
+  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders & Abandoned carts", customers: "Customers", products: "Products & Stock", catalog: "Categories & Variations",
     coupons: "Coupons", content: "Pages, Menus & Media library", chat: "Live chat", messages: "Messages", franchise: "Franchise requests", users: "Users",
-    settings: "Settings, Header & footer, Pixel & Analytics, Acore", integrations: "API & webhooks" };
+    settings: "Settings, Header & footer, Pixel & Analytics, Email & reminders, Acore", integrations: "API & webhooks" };
   async function viewUsers() {
     setTitle("Users");
     const r = (await api("GET", "/api/users").catch(fail)) || { users: [], roles: {} };
@@ -2103,13 +2239,13 @@
   // ---------------------------------------------------------------------------
   const NAV = [
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
-    ["Sales", [["orders", "Orders", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
+    ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
-    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
+    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
   ];
-  const counts = { orders: 0, chat: 0, messages: 0, franchise: 0 };
+  const counts = { orders: 0, chat: 0, messages: 0, franchise: 0, carts: 0 };
   function drawSide() {
     const cur = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "dashboard";
     $("#sideNav").innerHTML = NAV.map(([g, items]) => {
@@ -2124,6 +2260,7 @@
     if (can("orders")) jobs.push(api("GET", "/api/orders?status=pending").then((r) => { counts.orders = r.total; }, () => {}));
     if (can("chat")) jobs.push(api("GET", "/api/chats?status=open").then((r) => { counts.chat = r.chats.reduce((s, c) => s + (c.unread ? 1 : 0), 0); }, () => {}));
     if (can("messages")) jobs.push(api("GET", "/api/messages").then((r) => { counts.messages = r.messages.filter((m) => !m.read).length; }, () => {}));
+    if (can("orders")) jobs.push(api("GET", "/api/carts").then((r) => { counts.carts = r.stats.open; }, () => {}));
     if (can("franchise")) jobs.push(api("GET", "/api/franchise").then((r) => { counts.franchise = r.requests.filter((m) => !m.read).length; }, () => {}));
     await Promise.all(jobs);
     drawSide();
@@ -2141,7 +2278,7 @@
     [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"], [/^popup$/, viewPopup, "content"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
-    [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"],
+    [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"],
@@ -2155,6 +2292,7 @@
     if (leaveGuard && !leaveGuard()) { history.replaceState(null, "", lastHash); return; }
     leaveGuard = null;
     if (cleanup) { cleanup(); cleanup = null; }
+    if (!$("#modal").hidden) closeModal();
     lastHash = location.hash;
     const raw = location.hash.replace(/^#\/?/, ""), path = raw.split("?")[0], query = raw.split("?")[1] || "";
     const first = NAV.flatMap((g) => g[1]).find((i) => can(i[2]));

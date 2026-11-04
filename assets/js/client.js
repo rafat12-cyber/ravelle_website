@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v25";
+  var DB_KEY = "ravelle:demo-db:v26";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   function loadScript(src) {
@@ -71,6 +71,8 @@
     demo = {
       call: function (method, path, body, token) {
         var db = readDb() || buildDemoDb();
+        // the server sends cart reminders every minute; the demo checks on each request
+        if (engine.handle({ method: "POST", path: "/api/internal/cart-reminders", internal: true, body: {}, query: {}, headers: {} }, db).body.sent) writeDb(db);
         var q = {}, parts = path.split("?");
         if (parts[1]) parts[1].split("&").forEach(function (kv) { var p = kv.split("="); q[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ""); });
         var out = engine.handle({ method: method, path: parts[0], query: q, body: body ? JSON.parse(JSON.stringify(body)) : {}, headers: token ? { authorization: "Bearer " + token } : {} }, db);
@@ -96,6 +98,16 @@
     var s2 = hex(8);
     db.users.push({ id: "usr_demo2", name: "Sadia (orders)", email: "orders@ravellebd.com", role: "custom", areas: ["orders", "customers", "chat", "messages"], salt: s2, passwordHash: demoHash("orders-demo", s2), createdAt: Date.now() - 3 * 864e5 });
     var day = function (n) { return new Date(Date.now() + n * 864e5).toISOString().slice(0, 10); };
+    var P = db.products, line = function (p, n) { var v = (p.variants || [])[1] || null; return { productId: p.id, variantId: v ? v.id : null, name: p.name, options: v ? v.options : {}, image: p.images[0] || "", price: p.price, qty: n, lineTotal: p.price * n }; };
+    var cartOf = function (id, mins, cu, items, extra) { var t = Date.now() - mins * 60e3, tot = items.reduce(function (s, i) { return s + i.lineTotal; }, 0);
+      return Object.assign({ id: id, token: hex(12), cid: "c" + hex(6), createdAt: t - 4 * 60e3, updatedAt: t, status: "open", reminders: [], customer: cu, items: items, total: tot, zone: "inside-dhaka", source: "Facebook ads" }, extra || {}); };
+    db.carts = [
+      cartOf("crt_demo1", 35, { name: "Nusrat Jahan", phone: "01712000111", email: "nusrat@example.com", address: "Road 4, Mirpur 10", city: "Dhaka" }, [line(P[0], 1), line(P[5], 1)]),
+      cartOf("crt_demo2", 26 * 60, { name: "Fahim Karim", phone: "01812000222", email: "", address: "", city: "Chattogram" }, [line(P[2], 2)], { source: "Instagram" }),
+      cartOf("crt_demo3", 3 * 60, { name: "Tasnim Ahmed", phone: "01912000333", email: "tasnim@example.com", address: "Sector 11, Uttara", city: "Dhaka" }, [line(P[8], 1)],
+        { status: "recovered", orderNumber: "RV1003", orderTotal: P[8].price + 60, orderedAt: Date.now() - 2 * 3600e3, reminders: [{ n: 1, at: Date.now() - 160 * 60e3, auto: true, channel: "email", status: "Sent", ok: true }], clickedAt: Date.now() - 130 * 60e3 }),
+      cartOf("crt_demo4", 2, { name: "Rakib", phone: "01612000444", email: "", address: "", city: "" }, [line(P[3], 1)])
+    ];
     db.franchise = [
       { id: "frq_demo1", name: "Mahfuz Alam", phone: "01811000111", email: "mahfuz@example.com", district: "Rajshahi", area: "Shaheb Bazar", space: "I have a shop space", investment: "৳10 – 20 lakh",
         experience: "I run a mobile accessories shop in the same market for 6 years.", meetingType: "At the Ravelle office", meetingDate: day(3), meetingTime: "2pm – 4pm", message: "", status: "new", note: "", read: false, createdAt: Date.now() - 5 * 36e5 },
@@ -213,8 +225,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1167"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1167"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1168"))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1168"); })
       .then(function () { startDemo(); return m; });
   });
 

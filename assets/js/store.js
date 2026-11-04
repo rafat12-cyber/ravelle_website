@@ -1490,6 +1490,51 @@
     if (fee !== null && (free || (ship.freeOver && sub - discount >= ship.freeOver))) fee = 0;
     return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z };
   }
+  // Abandoned-cart follow-up: the checkout details are saved (once a phone or email is typed) so the store can remind the customer
+  function cartId() {
+    var id = store.get("cid", "");
+    if (!id) { id = "c" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store.set("cid", id); }
+    return id;
+  }
+  var captureTimer = null, lastCapture = "";
+  function captureCart(form) {
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(function () {
+      if (!form.isConnected || !cart.length) return;
+      var cu = { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value };
+      var okPhone = /^(?:\+?88)?01[3-9]\d{8}$/.test(cu.phone.replace(/[\s-]/g, "")), okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cu.email.trim());
+      if (!okPhone && !okEmail) return;
+      var body = { cid: cartId(), customer: cu, items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }), zone: checkoutState.zone, source: trafficSource() };
+      var key = JSON.stringify(body);
+      if (key === lastCapture) return;
+      lastCapture = key;
+      api("POST", "/api/carts/capture", body).catch(function () {});
+    }, 1200);
+  }
+  // "Complete your order" link from a reminder email: puts the bag back and opens checkout
+  function restoreCart(token) {
+    homeView.hidden = true; pageView.hidden = false;
+    head("Your bag", '<em class="alt">Welcome back</em>', "Getting your bag ready…");
+    page.innerHTML = "";
+    api("GET", "/api/carts/restore/" + encodeURIComponent(token)).then(function (r) {
+      var added = 0;
+      r.items.forEach(function (it) {
+        var p = BY_ID[it.productId];
+        if (!p) return;
+        var v = it.variantId ? variantOf(p, it.variantId) : null;
+        if (it.variantId && !v) return;
+        var max = maxQty(p, v), have = cart.filter(function (l) { return l.productId === p.id && l.variantId === (v ? v.id : null); })[0];
+        if (have || max < 1) return;
+        cart.push({ productId: p.id, variantId: v ? v.id : null, qty: Math.min(it.qty, max) }); added++;
+      });
+      saveCart();
+      var cu = store.get("customer", {});
+      if (!cu.phone && r.customer) store.set("customer", r.customer);
+      if (r.zone) checkoutState.zone = r.zone;
+      if (!added && !cart.length) toast("Those pieces have sold out. Have a look at what's new.", "warn");
+      location.replace("#" + (cart.length ? "checkout" : "shop"));
+    }, function () { toast("That link has expired. Your bag is empty.", "warn"); location.replace("#shop"); });
+  }
   function viewCheckout() {
     head('<a href="#home">Home</a> / Checkout', '<em class="alt" data-scramble>Checkout</em>', "Cash on delivery or pay online. We'll call to confirm your order.");
     if (!cart.length) {
@@ -1506,7 +1551,8 @@
           '<fieldset class="panel"><legend class="panel__title">Contact</legend>' +
             field("co-name", "Full name", '<input id="co-name" name="name" required autocomplete="name" value="' + esc(saved.name || "") + '">') +
             '<div class="field-row">' + field("co-phone", "Mobile number", '<input id="co-phone" name="phone" type="tel" required autocomplete="tel" inputmode="numeric" placeholder="01XXXXXXXXX" value="' + esc(saved.phone || "") + '">') +
-            field("co-email", "Email (optional)", '<input id="co-email" name="email" type="email" autocomplete="email" value="' + esc(saved.email || "") + '">') + "</div></fieldset>" +
+            field("co-email", "Email (optional)", '<input id="co-email" name="email" type="email" autocomplete="email" value="' + esc(saved.email || "") + '">') + "</div>" +
+            '<p class="checkout__hint">Add your email to get the invoice. We keep these details so we can help if your order doesn\'t go through.</p></fieldset>' +
           '<fieldset class="panel"><legend class="panel__title">Delivery</legend>' +
             field("co-address", "Full address", '<textarea id="co-address" name="address" required rows="2" autocomplete="street-address" placeholder="House, road, area">' + esc(saved.address || "") + "</textarea>") +
             field("co-city", "District / city", '<input id="co-city" name="city" autocomplete="address-level2" placeholder="Dhaka" value="' + esc(saved.city || "") + '">') +
@@ -1553,15 +1599,18 @@
         msg.className = "coupon__msg mono is-bad";
       }).then(function () { btn.disabled = false; });
     });
+    form.addEventListener("input", function () { captureCart(form); });
+    captureCart(form);
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       clearErrors(form);
+      clearTimeout(captureTimer);
       var payInput = $('input[name="pay"]:checked', form);
       var body = {
         customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value },
         items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }),
         zone: checkoutState.zone, couponCode: checkoutState.coupon ? checkoutState.coupon.code : "",
-        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo()
+        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo(), cartId: cartId()
       };
       var errs = {};
       if (!body.customer.name.trim()) errs.name = "Enter your name.";
@@ -1688,6 +1737,7 @@
     else if (parts[0] === "search") viewSearch(parts.slice(1).join("/"));
     else if (parts[0] === "order") viewOrder(parts[1], query);
     else if (h === "checkout") viewCheckout();
+    else if (parts[0] === "restore") return restoreCart(parts[1]);
     else if (h === "track") viewTrack();
     else if (h === "saved") viewSaved();
     else if (h === "about") viewAbout();

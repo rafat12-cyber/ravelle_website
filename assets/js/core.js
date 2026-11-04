@@ -813,6 +813,8 @@
       emit(db, "order.created", order);
       gaServer(c, order, "purchase");
       acoreSync(c, order);
+      cartsOrdered(db, order, str(b.cartId, 40));
+      invoiceEmail(db, order);
       capi(c, "Purchase", order.number, {
         content_ids: order.items.map(function (it) { return baseSku(db, it); }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
         contents: order.items.map(function (it) { return { id: baseSku(db, it), quantity: it.qty, item_price: it.price }; }), order_id: order.number
@@ -848,6 +850,236 @@
       emit(c.db, "contact.created", m);
       return { ok: true };
     }, { status: 201 });
+
+    // =========================================================================
+    // Email (company Gmail over SMTP) and abandoned carts
+    // =========================================================================
+    var EMAIL_DEFAULTS = { enabled: false, host: "smtp.gmail.com", port: 465, user: "", password: "", fromName: "Ravelle", replyTo: "", invoice: true, copyTo: "" };
+    var CART_DEFAULTS = { enabled: true, delay1: 20, delay2: 24, subject1: "You left something in your bag", text1: "Your pieces are still waiting. Sizes sell out fast, so finish your order while they're in stock.",
+      subject2: "Still thinking it over?", text2: "Your bag is saved. Complete your order today with cash on delivery all over Bangladesh.", coupon: "" };
+    function emailSettings(db) { return Object.assign({}, EMAIL_DEFAULTS, (db.settings || {}).email || {}); }
+    function cartSettings(db) { return Object.assign({}, CART_DEFAULTS, (db.settings || {}).carts || {}); }
+    function siteUrl(db) { return String(host.publicUrl || ((db.settings.store || {}).website ? "https://" + String(db.settings.store.website).replace(/^https?:\/\//, "") : "")).replace(/\/+$/, ""); }
+    function money(n) { return "৳" + Number(n || 0).toLocaleString("en-IN"); }
+    function h(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]; }); }
+    function absImg(db, u) { if (!u || /^data:/.test(u)) return ""; return /^https?:/.test(u) ? u : siteUrl(db) ? siteUrl(db) + "/" + u.replace(/^\//, "") : ""; }
+    // Sends one email, and keeps a line in the email log (Admin › Email & reminders)
+    function sendEmail(db, to, subject, html, text, kind, ref) {
+      var es = emailSettings(db);
+      db.emailLog = db.emailLog || [];
+      var entry = { id: newId("eml"), at: now(), to: to, subject: subject, kind: kind, ref: ref || "", status: "sending", ok: null };
+      db.emailLog.push(entry);
+      if (db.emailLog.length > 300) db.emailLog = db.emailLog.slice(-300);
+      if (!host.sendEmail) { entry.status = "Demo: not sent (the demo has no email server)"; entry.ok = false; return entry; }
+      if (!es.enabled || !es.user || !es.password) { entry.status = "Not sent: turn on email in Admin › Email & reminders"; entry.ok = false; return entry; }
+      host.sendEmail({ id: entry.id, smtp: { host: es.host, port: int(es.port, 465), user: es.user, password: es.password },
+        from: { name: es.fromName || (db.settings.store || {}).name || "Ravelle", email: es.user }, replyTo: es.replyTo || "", to: to, subject: subject, html: html, text: text });
+      return entry;
+    }
+    function emailShell(db, title, body) {
+      var st = db.settings.store || {}, site = siteUrl(db);
+      return '<!doctype html><html><body style="margin:0;background:#eef0f1;font-family:Arial,Helvetica,sans-serif;color:#111214">' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef0f1;padding:24px 12px"><tr><td align="center">' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">' +
+        '<tr><td style="background:#111214;padding:22px 28px;color:#ffffff;font-size:20px;letter-spacing:6px;font-weight:bold">' + h((st.name || "Ravelle").toUpperCase()) + "</td></tr>" +
+        '<tr><td style="padding:28px">' + (title ? '<h1 style="margin:0 0 14px;font-size:22px;text-transform:uppercase">' + h(title) + "</h1>" : "") + body + "</td></tr>" +
+        '<tr><td style="padding:18px 28px;background:#f6f7f8;font-size:12px;color:#5f6368;line-height:1.6">' + h(st.legalName || st.name || "Ravelle") +
+          (st.address ? "<br>" + h(st.address) : "") + (st.phone ? "<br>Phone: " + h(st.phone) : "") + (st.email ? " · " + h(st.email) : "") + (site ? '<br><a href="' + h(site) + '" style="color:#5f6368">' + h(site.replace(/^https?:\/\//, "")) + "</a>" : "") +
+        "</td></tr></table></td></tr></table></body></html>";
+    }
+    function itemsTable(db, items) {
+      return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px">' + items.map(function (it) {
+        var img = absImg(db, it.image), opts = Object.keys(it.options || {}).map(function (k) { return k + ": " + it.options[k]; }).join(", ");
+        return '<tr><td style="padding:10px 0;border-bottom:1px solid #e3e5e8;width:64px">' + (img ? '<img src="' + h(img) + '" width="56" height="70" style="display:block;border-radius:8px;object-fit:cover" alt="">' : "") + "</td>" +
+          '<td style="padding:10px 12px;border-bottom:1px solid #e3e5e8"><b>' + h(it.name) + '</b><br><span style="color:#5f6368;font-size:12px">' + h(opts) + (opts ? " · " : "") + "Qty " + it.qty + "</span></td>" +
+          '<td align="right" style="padding:10px 0;border-bottom:1px solid #e3e5e8;white-space:nowrap">' + money(it.lineTotal != null ? it.lineTotal : it.price * it.qty) + "</td></tr>";
+      }).join("") + "</table>";
+    }
+    function button(url, label) { return url ? '<p style="margin:22px 0 6px"><a href="' + h(url) + '" style="display:inline-block;background:#111214;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:999px;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">' + h(label) + "</a></p>" : ""; }
+    // Invoice email, sent the moment an order is placed
+    function invoiceEmail(db, o) {
+      var es = emailSettings(db), site = siteUrl(db);
+      if (!es.invoice) return;
+      var to = [o.customer.email].filter(function (e) { return e && isEmail(e); });
+      var copy = String(es.copyTo || "").split(/[,\s]+/).filter(isEmail);
+      if (!to.length && !copy.length) return;
+      var pay = o.paymentMethod === "cod" ? "Cash on delivery" : "Online payment (SSLCOMMERZ)";
+      var row = function (l, v, b) { return '<tr><td style="padding:4px 0;color:#5f6368">' + l + '</td><td align="right" style="padding:4px 0' + (b ? ";font-weight:bold;font-size:16px" : "") + '">' + v + "</td></tr>"; };
+      var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h(o.customer.name.split(" ")[0]) + ", thanks for your order. We'll call you on " + h(o.customer.phone) + " to confirm it.</p>" +
+        '<table role="presentation" width="100%" style="font-size:13px;margin-bottom:16px"><tr><td><b>Invoice / Order ' + h(o.number) + "</b></td><td align=\"right\" style=\"color:#5f6368\">" + h(new Date(o.createdAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Dhaka" })) + "</td></tr></table>" +
+        itemsTable(db, o.items) +
+        '<table role="presentation" width="100%" style="font-size:14px;margin-top:12px">' + row("Subtotal", money(o.subtotal)) + (o.discount ? row("Discount" + (o.coupon ? " (" + h(o.coupon) + ")" : ""), "−" + money(o.discount)) : "") +
+          row("Delivery" + (o.shippingZone ? " · " + h(o.shippingZone.name) : ""), money(o.shipping)) + row("Total", money(o.total), true) + row("Payment", pay) + "</table>" +
+        '<table role="presentation" width="100%" style="font-size:13px;margin-top:20px;background:#f6f7f8;border-radius:12px"><tr><td style="padding:14px 16px;line-height:1.6"><b>Delivery to</b><br>' + h(o.customer.name) + "<br>" + h(o.customer.address) + (o.customer.city ? ", " + h(o.customer.city) : "") + "<br>" + h(o.customer.phone) +
+          (o.shippingZone && o.shippingZone.days ? '<br><span style="color:#5f6368">Delivery in ' + h(o.shippingZone.days) + "</span>" : "") + (o.note ? '<br><span style="color:#5f6368">Note: ' + h(o.note) + "</span>" : "") + "</td></tr></table>" +
+        button(site ? site + "/#track" : "", "Track your order");
+      var text = "Thanks for your order " + o.number + ".\n\n" + o.items.map(function (it) { return it.qty + " × " + it.name + " – " + money(it.lineTotal); }).join("\n") +
+        "\n\nTotal: " + money(o.total) + " (" + pay + ")\nDelivery to: " + o.customer.name + ", " + o.customer.address + (o.customer.city ? ", " + o.customer.city : "") + "\n" + (site ? "\nTrack your order: " + site + "/#track\n" : "");
+      var subject = "Your order " + o.number + " · invoice from " + ((db.settings.store || {}).name || "Ravelle");
+      if (to.length) sendEmail(db, to[0], subject, emailShell(db, "Order received", body), text, "invoice", o.number);
+      copy.forEach(function (e) { sendEmail(db, e, "New order " + o.number + " · " + money(o.total) + " · " + o.customer.name, emailShell(db, "New order", body), text, "invoice-copy", o.number); });
+    }
+    function reminderEmail(db, cart, n) {
+      var cs = cartSettings(db), site = siteUrl(db), link = site ? site + "/#restore/" + cart.token : "";
+      var subject = n === 1 ? cs.subject1 : cs.subject2, intro = n === 1 ? cs.text1 : cs.text2;
+      var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h((cart.customer.name || "there").split(" ")[0]) + ", " + h(intro) + "</p>" + itemsTable(db, cart.items) +
+        '<p style="margin:12px 0 0;font-size:15px;text-align:right"><b>' + money(cart.total) + "</b></p>" +
+        (n === 2 && cs.coupon ? '<p style="margin:18px 0 0;padding:14px 16px;background:#f6f7f8;border-radius:12px;font-size:14px">Use code <b style="letter-spacing:1px">' + h(cs.coupon) + "</b> at checkout.</p>" : "") +
+        button(link, "Complete your order");
+      var text = intro + "\n\n" + cart.items.map(function (it) { return it.qty + " × " + it.name; }).join("\n") + (n === 2 && cs.coupon ? "\n\nUse code " + cs.coupon + " at checkout." : "") + (link ? "\n\nComplete your order: " + link : "");
+      return sendEmail(db, cart.customer.email, subject, emailShell(db, "", body), text, "cart-reminder-" + n, cart.id);
+    }
+    function restoreLink(db, cart) { var site = siteUrl(db); return (site || "") + "/#restore/" + cart.token; }
+
+    // Checkout details are saved as the customer types, so an unfinished checkout can be followed up
+    route("POST", "/api/carts/capture", null, function (c) {
+      var db = c.db, b = c.body || {}, cu = b.customer || {};
+      var info = { name: str(cu.name, 80), phone: str(cu.phone, 20), email: str(cu.email, 120).toLowerCase(), address: str(cu.address, 300), city: str(cu.city, 60) };
+      var okPhone = isPhone(info.phone), okEmail = info.email && isEmail(info.email);
+      if (!okPhone && !okEmail) return { ok: false };
+      if (okPhone) info.phone = normPhone(info.phone); else info.phone = "";
+      if (!okEmail) info.email = "";
+      var lines;
+      try { lines = priceCart(db, (b.items || []).slice(0, 30)); } catch (e) { return { ok: false }; }
+      if (!lines.lines.length) return { ok: false };
+      db.carts = db.carts || [];
+      var cid = str(b.cid, 40), t = now();
+      var cart = db.carts.filter(function (x) { return x.cid === cid && x.status === "open"; })[0];
+      if (!cart) { cart = { id: newId("crt"), token: host.random(12), cid: cid, createdAt: t, status: "open", reminders: [] }; db.carts.push(cart); }
+      cart.customer = info;
+      cart.items = lines.lines.map(function (l) { return { productId: l.productId, variantId: l.variantId, name: l.name, options: l.options, image: l.image, price: l.price, qty: l.qty, lineTotal: l.lineTotal }; });
+      cart.total = lines.subtotal;
+      cart.zone = str(b.zone, 40);
+      cart.updatedAt = t;
+      cart.source = str(b.source, 40) || cart.source || "";
+      if (db.carts.length > 3000) db.carts = db.carts.slice(-3000);
+      return { ok: true };
+    });
+    // The "Complete your order" link puts the bag back
+    route("GET", "/api/carts/restore/:token", null, function (c) {
+      var cart = (c.db.carts || []).filter(function (x) { return x.token === c.params.token; })[0];
+      if (!cart) fail(404, "This link has expired.");
+      cart.clickedAt = now();
+      return { items: cart.items.map(function (i) { return { productId: i.productId, variantId: i.variantId, qty: i.qty }; }), customer: { name: cart.customer.name, phone: cart.customer.phone, email: cart.customer.email, address: cart.customer.address, city: cart.customer.city }, zone: cart.zone };
+    });
+    function cartsOrdered(db, order, cid) {
+      (db.carts || []).forEach(function (x) {
+        if (x.status !== "open" && x.status !== "dismissed") return;
+        if (!((cid && x.cid === cid) || (x.customer.phone && x.customer.phone === order.customer.phone))) return;
+        x.status = x.reminders.length || x.clickedAt ? "recovered" : "ordered";
+        x.orderNumber = order.number; x.orderTotal = order.total; x.orderedAt = order.createdAt;
+      });
+    }
+    function cartDue(db, x, t) {
+      var cs = cartSettings(db);
+      if (x.status !== "open" || !x.customer.email) return 0;
+      var sent = x.reminders.filter(function (r) { return r.auto; }).map(function (r) { return r.n; });
+      if (sent.indexOf(1) < 0 && t - x.updatedAt >= num(cs.delay1, 20) * 60e3 && t - x.updatedAt < 7 * 864e5) return 1;
+      if (sent.indexOf(2) < 0 && t - x.updatedAt >= num(cs.delay2, 24) * 36e5 && t - x.updatedAt < 9 * 864e5) return 2;
+      return 0;
+    }
+    // Runs every minute on the server: sends the 20-minute and 24-hour reminders
+    route("POST", "/api/internal/cart-reminders", "internal", function (c) {
+      var db = c.db, cs = cartSettings(db), t = now(), sent = 0;
+      if (!cs.enabled) return { sent: 0 };
+      (db.carts || []).forEach(function (x) {
+        var n = cartDue(db, x, t);
+        if (!n || sent >= 20) return;
+        var e = reminderEmail(db, x, n);
+        x.reminders.push({ n: n, at: t, auto: true, channel: "email", status: e.status, emailId: e.id });
+        sent++;
+      });
+      return { sent: sent };
+    });
+    route("GET", "/api/carts", "orders", function (c) {
+      var db = c.db, list = (db.carts || []).slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; }), t = now();
+      var log = {};
+      (db.emailLog || []).forEach(function (e) { log[e.id] = e; });
+      var abandoned = function (x) { return x.status === "open" && t - x.updatedAt >= num(cartSettings(db).delay1, 20) * 60e3; };
+      return {
+        carts: list.map(function (x) {
+          var o = clone(x);
+          o.abandoned = abandoned(x);
+          o.reminders = x.reminders.map(function (r) { var e = log[r.emailId]; return Object.assign({}, r, { status: e ? e.status : r.status, ok: e ? e.ok : null }); });
+          o.link = restoreLink(db, x);
+          return o;
+        }),
+        stats: { open: list.filter(abandoned).length, openValue: list.filter(abandoned).reduce(function (s, x) { return s + x.total; }, 0),
+          recovered: list.filter(function (x) { return x.status === "recovered"; }).length, recoveredValue: list.filter(function (x) { return x.status === "recovered"; }).reduce(function (s, x) { return s + (x.orderTotal || 0); }, 0),
+          reminders: list.reduce(function (s, x) { return s + x.reminders.length; }, 0) },
+        settings: cartSettings(db), emailReady: !!(host.sendEmail && emailSettings(db).enabled && emailSettings(db).user && emailSettings(db).password)
+      };
+    }, { readonly: true });
+    route("POST", "/api/carts/:id/remind", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      if (!x.customer.email) fail(400, "This customer didn't give an email. Call or WhatsApp them instead.");
+      var n = x.reminders.length ? 2 : 1, e = reminderEmail(c.db, x, n);
+      x.reminders.push({ n: n, at: now(), auto: false, channel: "email", status: e.status, emailId: e.id, by: c.auth.name });
+      return { ok: true, status: e.status };
+    });
+    route("POST", "/api/carts/:id/contacted", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      x.reminders.push({ n: 0, at: now(), auto: false, channel: str(c.body.channel, 20) || "phone", status: "Contacted by " + (c.auth.name || "staff"), by: c.auth.name });
+      return { ok: true };
+    });
+    route("PATCH", "/api/carts/:id", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      if (c.body.status !== undefined) { if (["open", "dismissed"].indexOf(c.body.status) < 0) fail(400, "Unknown status."); x.status = c.body.status; }
+      if (c.body.note !== undefined) x.note = str(c.body.note, 1000);
+      return { cart: x };
+    });
+    route("DELETE", "/api/carts/:id", "orders", function (c) {
+      c.db.carts = (c.db.carts || []).filter(function (y) { return y.id !== c.params.id; });
+      return { ok: true };
+    });
+    // Email settings (Admin › Email & reminders). The app password is never sent back.
+    route("GET", "/api/email-settings", "settings", function (c) {
+      var es = emailSettings(c.db);
+      es.passwordSet = !!es.password; es.password = "";
+      return { email: es, carts: cartSettings(c.db), log: (c.db.emailLog || []).slice(-60).reverse(), server: !!host.sendEmail };
+    }, { readonly: true });
+    route("PUT", "/api/email-settings", "settings", function (c) {
+      var s = c.db.settings, b = c.body || {};
+      if (b.email) {
+        var e = emailSettings(c.db), x = b.email;
+        ["host", "user", "fromName", "replyTo", "copyTo"].forEach(function (k) { if (x[k] !== undefined) e[k] = str(x[k], 300).trim(); });
+        if (x.port !== undefined) e.port = int(x.port, 465);
+        ["enabled", "invoice"].forEach(function (k) { if (x[k] !== undefined) e[k] = bool(x[k]); });
+        if (x.password) e.password = str(x.password, 200).replace(/\s+/g, "");
+        if (x.passwordClear) e.password = "";
+        e.user = e.user.toLowerCase();
+        if (e.user && !isEmail(e.user)) fail(400, "The Gmail address doesn't look right.");
+        if (e.replyTo && !isEmail(e.replyTo)) fail(400, "The reply-to address doesn't look right.");
+        if (e.copyTo && String(e.copyTo).split(/[,\s]+/).some(function (a) { return a && !isEmail(a); })) fail(400, "Check the copy-to address.");
+        if (e.enabled && (!e.user || !e.password)) fail(400, "Add the Gmail address and app password before turning email on.");
+        s.email = e;
+      }
+      if (b.carts) {
+        var cs = cartSettings(c.db), y = b.carts;
+        if (y.enabled !== undefined) cs.enabled = bool(y.enabled);
+        if (y.delay1 !== undefined) cs.delay1 = Math.max(5, Math.min(1440, int(y.delay1, 20)));
+        if (y.delay2 !== undefined) cs.delay2 = Math.max(1, Math.min(168, num(y.delay2, 24)));
+        ["subject1", "text1", "subject2", "text2"].forEach(function (k) { if (y[k] !== undefined) cs[k] = str(y[k], k.indexOf("text") === 0 ? 1000 : 150) || CART_DEFAULTS[k]; });
+        if (y.coupon !== undefined) cs.coupon = str(y.coupon, 40).toUpperCase();
+        s.carts = cs;
+      }
+      return { ok: true };
+    });
+    route("POST", "/api/email/test", "settings", function (c) {
+      var to = str(c.body.to, 120);
+      if (!isEmail(to)) fail(400, "Enter the address to send the test to.");
+      var e = sendEmail(c.db, to, "Test email from your store", emailShell(c.db, "It works", '<p style="margin:0;font-size:15px;line-height:1.6">Your store can send emails from this address. Invoices and cart reminders will come from here.</p>'),
+        "Your store can send emails from this address.", "test", "");
+      return { ok: true, id: e.id, status: e.status };
+    });
+    route("GET", "/api/email/log/:id", "settings", function (c) {
+      var e = (c.db.emailLog || []).filter(function (x) { return x.id === c.params.id; })[0];
+      if (!e) fail(404, "Not found.");
+      return { email: e };
+    }, { readonly: true });
 
     // Franchise request form
     route("POST", "/api/franchise", null, function (c) {
@@ -1448,6 +1680,7 @@
       s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
       s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
       s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
+      if (s.email) { s.email.passwordSet = !!s.email.password; s.email.password = ""; }
       var ac = acoreSettings(c.db);
       s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: ac.webhookSecret, since: ac.since };
       if (host.describeSettings) host.describeSettings(s);
@@ -1738,7 +1971,7 @@
   // ---------------------------------------------------------------------------
   function freshDb(seed) {
     var db = clone(seed);
-    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise"].forEach(function (k) { if (!db[k]) db[k] = []; });
+    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
     db.upgrades = ["stores-franchise", "popup"];
@@ -1748,6 +1981,8 @@
   function upgradeDb(db, seed) {
     var done = db.upgrades = db.upgrades || [], changed = false;
     if (!db.franchise) db.franchise = [];
+    if (!db.carts) db.carts = [];
+    if (!db.emailLog) db.emailLog = [];
     if (done.indexOf("stores-franchise") < 0) {
       ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
       var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];

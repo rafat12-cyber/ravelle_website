@@ -1247,3 +1247,5 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
   .popup__title { font-size: 28px; }
 }
 .fr__guide .contact__note { padding-right: 56px; }
+
+.checkout__hint { margin: -4px 0 0; color: var(--ink-2); font-size: 12px; }
