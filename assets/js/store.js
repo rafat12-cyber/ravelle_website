@@ -453,7 +453,7 @@
     var w = tlStage.clientWidth;
     // Phones show three looks (one either side), wider screens show five
     TL.edge = w < 700 ? 1.15 : 2.2;
-    TL.unit = w < 700 ? w * 0.34 : Math.max(96, Math.min(270, w * 0.215));
+    TL.unit = w < 700 ? w * 0.34 : Math.max(96, Math.min(300, w * 0.245));
   }
   function tlWrapD(d) { var n = TL.n; d = ((d % n) + n) % n; return d > n / 2 ? d - n : d; }
   // Place every model from the current position
@@ -462,7 +462,7 @@
     tlModels.forEach(function (m, k) {
       var d = tlWrapD(k - TL.pos), a = Math.abs(d), sg = d < 0 ? -1 : 1;
       // Each step back adds less sideways distance, so the rows tuck in behind
-      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * 0.86 + Math.max(0, Math.min(a, 4) - 2) * u * 0.6);
+      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * (TL.edge > 2 ? 0.74 : 0.86) + Math.max(0, Math.min(a, 4) - 2) * u * 0.6);
       var sc = 1 - Math.min(a, 4) * 0.13;
       var y = -Math.min(a, 4) * 16;
       // Five on stage: the middle one and two either side; the rest fade out behind
