@@ -459,8 +459,10 @@
       m.style.zIndex = String(100 - Math.round(a * 10));
       m.style.opacity = op.toFixed(3);
       m.style.visibility = op <= 0.01 ? "hidden" : "visible";
-      m.style.setProperty("--blur", blur.toFixed(2) + "px");
-      m.style.setProperty("--shade", Math.min(a, 3) * 0.06);
+      // Only filter models that need it; a filter on the front model can
+      // flash white on iPhone while it moves
+      var sh = Math.min(a, 3) * 0.06, img = m._img || (m._img = m.querySelector(".tl__img"));
+      img.style.filter = blur < 0.05 && sh < 0.01 ? "none" : "blur(" + blur.toFixed(2) + "px) brightness(" + (1 + sh).toFixed(3) + ") saturate(" + (1 - sh).toFixed(3) + ")";
     });
   }
   function tlSelect(i) {
@@ -549,6 +551,14 @@
     if (now > g.lt) { g.v = 0.8 * g.v + 0.2 * ((e.clientX - g.lx) / (now - g.lt)); g.lx = e.clientX; g.lt = now; }
     TL.pos = TL.target = g.p0 - dx / TL.unit;
     tlLayout();
+  });
+  // A vertical scroll on a phone cancels the drag: settle where it is
+  window.addEventListener("pointercancel", function () {
+    if (!TL.drag) return;
+    TL.drag = null;
+    tlStage.classList.remove("is-grabbing");
+    TL.target = Math.round(TL.pos);
+    tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
   });
   window.addEventListener("pointerup", function (e) {
     var g = TL.drag;

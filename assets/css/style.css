@@ -217,7 +217,7 @@ button { font: inherit; color: inherit; }
 
 /* 2. Try the look --------------------------------------------------------- */
 .tl { display: grid; grid-template-columns: minmax(0, 1fr) 400px; background: #fff; border-block: 1px solid #e7e7e5; margin: 70px 0 110px; }
-.tl__stage { position: relative; min-width: 0; height: min(760px, 88vh); min-height: 620px; overflow: hidden; overflow: clip; background: linear-gradient(180deg, #fafaf9 0%, #f3f3f1 62%, #ebebe8 100%); cursor: none; touch-action: pan-y; user-select: none; }
+.tl__stage { position: relative; min-width: 0; height: min(760px, 88vh); min-height: 620px; overflow: hidden; overflow: clip; background: linear-gradient(180deg, #fafaf9 0%, #f3f3f1 62%, #ebebe8 100%); cursor: none; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .tl__head { position: absolute; top: 34px; left: 40px; z-index: 5; cursor: auto; }
 .tl__title { margin: 0; font-size: clamp(30px, 3vw, 44px); font-weight: 400; letter-spacing: -.02em; line-height: 1.05; color: #2a2b2d; }
 .tl__sub { margin: 10px 0 0; font-size: 12px; color: #8a8d91; }
@@ -227,8 +227,12 @@ button { font: inherit; color: inherit; }
 .tl__view { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
 .tl__model { --h: clamp(340px, 54vh, 460px); --blur: 0px; --shade: 0; position: absolute; left: 50%; bottom: 0; height: var(--h); padding: 0; border: 0; background: none; cursor: none;
   transform-origin: 50% 100%; will-change: transform, opacity; -webkit-tap-highlight-color: transparent; }
-.tl__img { position: relative; z-index: 2; display: block; height: 100%; width: auto; max-width: none; filter: blur(var(--blur)) brightness(calc(1 + var(--shade))) saturate(calc(1 - var(--shade))); transition: translate .5s var(--ease); }
-.tl__model:hover .tl__img { translate: 0 -6px; }
+/* Photos never take the touch themselves: on iPhone a held image shows a
+   white selection box, so the button underneath handles every tap and drag */
+.tl__model { -webkit-appearance: none; appearance: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; outline: 0; }
+.tl__model img { pointer-events: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+.tl__img { position: relative; z-index: 2; display: block; height: 100%; width: auto; max-width: none; transition: translate .5s var(--ease); }
+@media (hover: hover) { .tl__model:hover .tl__img { translate: 0 -6px; } }
 .tl__tag { position: absolute; left: 50%; bottom: -40px; z-index: 3; transform: translate(-50%, 6px); white-space: nowrap; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #2a2b2d;
   opacity: 0; transition: opacity .5s, transform .5s var(--ease); pointer-events: none; }
 .tl__tag::before { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a2b2d; margin-right: 8px; vertical-align: 1px; }
