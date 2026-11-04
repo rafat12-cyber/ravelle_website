@@ -225,7 +225,7 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1168"))
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1169"))
       .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1168"); })
       .then(function () { startDemo(); return m; });
   });

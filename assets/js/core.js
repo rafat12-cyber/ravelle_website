@@ -906,7 +906,7 @@
       var pay = o.paymentMethod === "cod" ? "Cash on delivery" : "Online payment (SSLCOMMERZ)";
       var row = function (l, v, b) { return '<tr><td style="padding:4px 0;color:#5f6368">' + l + '</td><td align="right" style="padding:4px 0' + (b ? ";font-weight:bold;font-size:16px" : "") + '">' + v + "</td></tr>"; };
       var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h(o.customer.name.split(" ")[0]) + ", thanks for your order. We'll call you on " + h(o.customer.phone) + " to confirm it.</p>" +
-        '<table role="presentation" width="100%" style="font-size:13px;margin-bottom:16px"><tr><td><b>Invoice / Order ' + h(o.number) + "</b></td><td align=\"right\" style=\"color:#5f6368\">" + h(new Date(o.createdAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Dhaka" })) + "</td></tr></table>" +
+        '<table role="presentation" width="100%" style="font-size:13px;margin-bottom:16px"><tr><td><b>Invoice / Order ' + h(o.number) + "</b></td><td align=\"right\" style=\"color:#5f6368\">" + h(new Date(o.createdAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Dhaka" })) + "</td></tr></table>" +
         itemsTable(db, o.items) +
         '<table role="presentation" width="100%" style="font-size:14px;margin-top:12px">' + row("Subtotal", money(o.subtotal)) + (o.discount ? row("Discount" + (o.coupon ? " (" + h(o.coupon) + ")" : ""), "−" + money(o.discount)) : "") +
           row("Delivery" + (o.shippingZone ? " · " + h(o.shippingZone.name) : ""), money(o.shipping)) + row("Total", money(o.total), true) + row("Payment", pay) + "</table>" +
