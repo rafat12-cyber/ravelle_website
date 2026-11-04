@@ -335,6 +335,13 @@
     var soc = S.settings.social || {};
     var socials = [["facebook", "Facebook"], ["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]].filter(function (s) { return soc[s[0]]; });
     if (st.whatsapp) socials.push(["whatsapp", "WhatsApp"]);
+    // Hero corner: Facebook, Instagram and WhatsApp as round icons
+    var ICON = { facebook: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.6-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.9v3h2.6V21z"/></svg>', instagram: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6" fill="currentColor" stroke="none"/></svg>', whatsapp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2a8.7 8.7 0 0 0-7.5 13.2L3.3 20.8l4.5-1.2A8.7 8.7 0 1 0 12 3.2zm0 15.9c-1.3 0-2.6-.4-3.7-1l-.3-.2-2.6.7.7-2.6-.2-.3A7.2 7.2 0 1 1 12 19.1zm4-5.4c-.2-.1-1.3-.7-1.5-.7s-.4-.1-.5.1-.6.7-.7.9-.3.2-.5.1a5.9 5.9 0 0 1-2.9-2.6c-.2-.4.2-.4.6-1.2.1-.1 0-.3 0-.4l-.7-1.6c-.2-.4-.4-.4-.5-.4h-.4c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.3c.1.2 1.6 2.5 4 3.5 1.5.6 2 .7 2.8.6.4-.1 1.3-.5 1.5-1.1.2-.5.2-1 .1-1.1l-.4-.2z"/></svg>' };
+    var heroSoc = $("#heroSocial");
+    if (heroSoc) heroSoc.innerHTML = [["facebook", "Facebook", soc.facebook], ["instagram", "Instagram", soc.instagram],
+      ["whatsapp", "WhatsApp", st.whatsapp ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : ""]].filter(function (s) { return s[2]; }).map(function (s) {
+      return '<a href="' + esc(s[2]) + '" target="_blank" rel="noopener" aria-label="' + s[1] + '">' + ICON[s[0]] + "</a>";
+    }).join("");
     $("#footerCols").innerHTML = (S.menus.footer || []).map(function (col) {
       return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
     }).join("") +

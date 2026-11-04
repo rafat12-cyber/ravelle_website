@@ -169,8 +169,7 @@
       hero: {
         line1: "Designed for presence,", lead: "not", accent: "attention!",
         cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
-        image: "assets/img/home/h-hero-fearless.webp", imageAlt: "Two models in the Fearless tee in black and in ocean blue",
-        avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"]
+        image: "assets/img/home/h-hero-fearless.webp", imageAlt: "Two models in the Fearless tee in black and in ocean blue"
       },
       tryLook: {
         title: "Try the Look.", sub: "Eleven looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
