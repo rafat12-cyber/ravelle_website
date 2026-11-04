@@ -41,6 +41,7 @@ else {
   db = Core.freshDb(SEED);
   console.log("Created a new store database at " + DB_FILE);
 }
+var upgraded = Core.upgradeDb(db, SEED);
 if (!db.users.length) {
   var email = (process.env.ADMIN_EMAIL || "admin@ravellebd.com").toLowerCase();
   var pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString("base64url");
@@ -48,7 +49,7 @@ if (!db.users.length) {
   db.users.push({ id: "usr_" + random(6), name: "Owner", email: email, role: "owner", salt: salt, passwordHash: hashPassword(pw, salt), createdAt: Date.now() });
   console.log("\n  Admin login: " + email + " / " + pw + "\n  Change this password after you sign in.\n");
   saveNow();
-}
+} else if (upgraded) saveNow();
 
 var saveTimer = null;
 function save() {
@@ -229,7 +230,7 @@ function postJson(url, body, headers, cb) {
 // ---------------------------------------------------------------------------
 // Media: uploads are saved as files under DATA_DIR/uploads
 // ---------------------------------------------------------------------------
-var EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+var EXT = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
 function saveMedia(name, dataUrl, type) {
   var buf = Buffer.from(dataUrl.split(",")[1], "base64");
   var d = new Date(), dir = path.join(UPLOADS, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, "0"));
@@ -311,7 +312,7 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
   if (method === "GET") return false;
@@ -383,7 +384,7 @@ function api(req, res, u, p) {
 }
 
 var TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml", ".pdf": "application/pdf",
   ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".md": "text/plain; charset=utf-8" };
 // The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
 function serveIndex(req, res) {

@@ -211,7 +211,12 @@
     [/^sizeGuide$/, 1200, 0, "width", 120],
     [/^image$/, 900, 1200, "3:4 photo", 150],
     [/^product$/, 690, 862, "4:5 photo", 80],
-    [/^logo$/, 360, 120, "wide logo with a see-through background", 30]
+    [/^logo$/, 360, 120, "wide logo with a see-through background", 30],
+    [/^popupImage$/, 1000, 1250, "4:5 photo or poster", 220],
+    [/^popupMobile$/, 800, 1000, "4:5 photo or poster for phones", 160],
+    [/^shops\.\d+\.image$/, 1200, 900, "4:3 photo of the shop", 180],
+    [/^stories\.\d+\.storeImage$/, 1200, 900, "4:3 photo of the store", 180],
+    [/^stories\.\d+\.ownerImage$/, 400, 400, "square photo of the owner's face", 60]
   ];
   function imgSpec(name) {
     const s = IMG_SPECS.find((x) => x[0].test(name)) || [null, 1200, 0, "longest side", 200];
@@ -1035,10 +1040,35 @@
     home: { title: "Home page", route: "home", sections: { hero: "Hero", tryLook: "Try the look", house: "Oversized items", poster: "Offer poster", arrivals: "Product showcase", lookbook: "Lookbook", categories: "Shop by category", footer: "Footer" } },
     about: { title: "About us", route: "about" },
     contact: { title: "Contact us", route: "contact" },
+    stores: { title: "Store locations", route: "store-locations" },
+    franchise: { title: "Franchise", route: "franchise" },
     terms: { title: "Terms & conditions", route: "terms" },
     privacy: { title: "Privacy policy", route: "privacy" },
     refund: { title: "Return & refund policy", route: "refund" },
     delivery: { title: "Delivery policy", route: "delivery" }
+  };
+  const DISTRICTS = ["Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria", "Chandpur", "Chapai Nawabganj", "Chattogram", "Chuadanga",
+    "Cox's Bazar", "Cumilla", "Dhaka", "Dinajpur", "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj", "Habiganj", "Jamalpur", "Jashore", "Jhalokati", "Jhenaidah",
+    "Joypurhat", "Khagrachhari", "Khulna", "Kishoreganj", "Kurigram", "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur", "Magura", "Manikganj", "Meherpur",
+    "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon", "Narail", "Narayanganj", "Narsingdi", "Natore", "Netrokona", "Nilphamari", "Noakhali", "Pabna", "Panchagarh",
+    "Patuakhali", "Pirojpur", "Rajbari", "Rajshahi", "Rangamati", "Rangpur", "Satkhira", "Shariatpur", "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon"];
+  // Pages with cards you can add, edit, move and remove
+  const CARDS = {
+    stores: { list: "shops", label: "Shops", add: "Add shop", skip: ["shops", "districtOrder"],
+      help: "Each shop needs a name and a district. Mark it as a Ravelle own shop or a franchise shop; the page shows which one it is.",
+      empty: "No shops. The page shows the “no shops yet” message.",
+      title: (s) => s.name, sub: (s) => [s.district || "No district", s.type === "franchise" ? "Franchise" : "Ravelle own shop"].join(" · "),
+      blank: () => ({ name: "", type: "own", district: "", image: "", address: "", phone: "", email: "", hours: "", map: "" }),
+      fields: [["name", "Shop name", "text", "Ravelle Banani"], ["type", "Shop type", "select", [["own", "Ravelle own shop"], ["franchise", "Franchise shop"]]], ["district", "District", "district"],
+        ["image", "Shop photo", "image"], ["address", "Shop address", "textarea"], ["phone", "Shop number", "text", "01XXX-XXXXXX"], ["email", "Shop email", "text", "shop@ravellebd.com"],
+        ["hours", "Opening hours (optional)", "text", "Every day, 11am – 10pm"], ["map", "Google Maps link (optional)", "text", "Leave empty to search the address"]] },
+    franchise: { list: "stories", label: "Franchise partner cards", add: "Add partner card", skip: ["stories", "pdf"],
+      help: "Stories from franchise store owners. If you remove every card, the whole section is hidden on the page.",
+      empty: "No cards. The partner section is hidden on the page.",
+      title: (s) => s.ownerName, sub: (s) => s.storeName || "",
+      blank: () => ({ storeName: "", storeImage: "", address: "", ownerName: "", ownerImage: "", opinion: "", experience: "" }),
+      fields: [["storeName", "Store name", "text", "Ravelle GEC Circle"], ["storeImage", "Store photo", "image"], ["address", "Store address", "textarea"], ["ownerName", "Owner name", "text"],
+        ["ownerImage", "Owner photo", "image"], ["opinion", "Owner's opinion (short quote)", "textarea"], ["experience", "Owner's experience", "textarea"]] }
   };
   const isImageKey = (k, v) => /(^|[a-z])(image|Image|avatars?|logo)/.test(k) || (typeof v === "string" && /\.(png|jpe?g|webp|gif|avif)(\?|$)|^data:image\//i.test(v));
   const isMdKey = (k) => k === "body" || k === "story";
@@ -1085,6 +1115,7 @@
     };
     const build = (obj, path, depth) => Object.keys(obj).map((k) => {
       const v = obj[k], p = path ? path + "." + k : k;
+      if (!path && CARDS[key] && CARDS[key].skip.indexOf(k) > -1) return "";
       if (typeof v === "string") return fieldFor(k, v, p);
       if (Array.isArray(v)) {
         return `<details class="group"${depth ? "" : " open"}><summary>${human(k)}</summary><div class="group__body">${v.map((item, i) =>
@@ -1094,7 +1125,7 @@
       if (v && typeof v === "object") return `<details class="group"${depth === 0 && key !== "home" ? " open" : ""} data-group="${esc(p)}"><summary>${esc((meta.sections && meta.sections[k]) || human(k))}</summary><div class="group__body">${build(v, p, depth + 1)}</div></details>`;
       return "";
     }).join("");
-    $("#peForm").innerHTML = build(draft, "", 0) + `<datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#lookbook", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
+    $("#peForm").innerHTML = build(draft, "", 0) + `<div class="stack" id="peCards"></div><datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#lookbook", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
     // opening a section scrolls it into view, so its fields are not hidden below the fold
     if (!$("#peForm")._tog && ($("#peForm")._tog = true)) $("#peForm").addEventListener("toggle", (e) => { if (e.target.open) setTimeout(() => e.target.scrollIntoView({ block: "start", behavior: "smooth" }), 40); }, true);
     $("#peForm").addEventListener("input", (e) => {
@@ -1105,6 +1136,91 @@
       post();
     });
     wireImgFields($("#peForm"), (path, u) => { setPath(path, u); setDirty(); post(path); });
+    // Card lists (shops, franchise partners): add, edit, move and remove cards
+    const spec = CARDS[key];
+    const drawCards = (openId) => {
+      const box = $("#peCards");
+      if (!spec || !box) return;
+      const list = draft[spec.list] = draft[spec.list] || [];
+      const fieldHtml = (item, i, f) => {
+        const [k, label, type, extra] = f, p = spec.list + "." + i + "." + k, v = item[k] || "";
+        if (type === "image") return imgField(p, v, label, extra || "");
+        if (type === "select") return `<label class="field"><span>${label}</span><select class="input" data-cp="${p}">${extra.map(([val, l]) => `<option value="${val}"${v === val ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+        if (type === "district") return `<label class="field"><span>${label} <b style="color:var(--danger)">*</b></span><select class="input" data-cp="${p}" required><option value="">Choose a district</option>${DISTRICTS.map((x) => `<option${v === x ? " selected" : ""}>${esc(x)}</option>`).join("")}</select><small>Shops are grouped and sorted by district.</small></label>`;
+        if (type === "textarea") return `<label class="field"><span>${label}</span><textarea class="input" rows="3" data-cp="${p}">${esc(v)}</textarea></label>`;
+        return `<label class="field"><span>${label}</span><input class="input" data-cp="${p}" value="${esc(v)}" ${extra ? `placeholder="${esc(extra)}"` : ""}></label>`;
+      };
+      let html = `<details class="group" open><summary>${esc(spec.label)} (${list.length})</summary><div class="group__body">
+        <p class="muted small" style="margin:0">${spec.help}</p>
+        ${list.map((item, i) => `<details class="group pe-card"${item.id === openId ? " open" : ""}><summary><span class="pe-card__title">${esc(spec.title(item) || "New card")}</span><small class="muted">${esc(spec.sub(item))}</small></summary>
+          <div class="group__body">${spec.fields.map((f) => fieldHtml(item, i, f)).join("")}
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-cact="up" data-i="${i}" ${i ? "" : "disabled"}>↑ Move up</button><button class="btn btn--ghost btn--sm" type="button" data-cact="down" data-i="${i}" ${i < list.length - 1 ? "" : "disabled"}>↓ Move down</button>
+          <button class="btn btn--danger btn--sm" type="button" data-cact="del" data-i="${i}" style="margin-left:auto">Remove card</button></div></div></details>`).join("") || `<p class="muted small" style="margin:0">${spec.empty}</p>`}
+        <button class="btn btn--dark btn--sm" type="button" data-cact="add" style="justify-self:start">+ ${esc(spec.add)}</button></div></details>`;
+      if (key === "stores") {
+        const order = (draft.districtOrder || []).slice();
+        list.forEach((s) => { if (s.district && order.indexOf(s.district) < 0) order.push(s.district); });
+        draft.districtOrder = order.filter((d, i) => order.indexOf(d) === i && list.some((s) => s.district === d));
+        html += `<details class="group" open><summary>District order</summary><div class="group__body"><p class="muted small" style="margin:0">The district at the top shows first on the page.</p>
+          ${draft.districtOrder.map((d, i) => `<div class="pe-dist"><span class="mono muted">${i + 1}</span><b>${esc(d)}</b><small class="muted">${list.filter((s) => s.district === d).length} shop(s)</small>
+            <button class="icon" type="button" data-dact="up" data-i="${i}" ${i ? "" : "disabled"} aria-label="Move up">↑</button><button class="icon" type="button" data-dact="down" data-i="${i}" ${i < draft.districtOrder.length - 1 ? "" : "disabled"} aria-label="Move down">↓</button></div>`).join("") || `<p class="muted small" style="margin:0">Add a shop and choose its district first.</p>`}</div></details>`;
+      }
+      if (key === "franchise") {
+        html += `<details class="group" open><summary>Franchise guide PDF</summary><div class="group__body">
+          <p class="small" style="margin:0">${draft.pdf ? `✓ A PDF is attached. <a href="${esc(draft.pdf)}" target="_blank" rel="noopener">Open it</a>` : `<span class="muted">No PDF yet. The page shows “PDF coming soon”.</span>`}</p>
+          <div class="flex"><label class="btn btn--ghost btn--sm" style="cursor:pointer">${draft.pdf ? "Replace PDF" : "Upload PDF"}<input type="file" accept="application/pdf" id="pePdf" hidden></label>
+          ${draft.pdf ? `<button class="btn btn--ghost btn--sm" type="button" id="pePdfDel">Remove PDF</button>` : ""}</div><small class="muted">Up to 10 MB.${demo ? " In this demo keep it under 3 MB." : ""}</small></div></details>`;
+      }
+      box.innerHTML = html;
+      wireImgFields(box, (path, u) => { setPath(path, u); setDirty(); post(); });
+      if ($("#pePdf")) $("#pePdf").onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.type !== "application/pdf") return toast("Choose a PDF file.", true);
+        if (file.size > (demo ? 3 : 10) * 1048576) return toast("That PDF is too big.", true);
+        const fr = new FileReader();
+        fr.onload = async () => {
+          try {
+            const url = demo ? fr.result : (await api("POST", "/api/files", { name: file.name, dataUrl: fr.result })).url;
+            draft.pdf = url; setDirty(); post(); drawCards(); toast("PDF attached. Press Save to publish.");
+          } catch (err) { fail(err); }
+        };
+        fr.readAsDataURL(file);
+      };
+      if ($("#pePdfDel")) $("#pePdfDel").onclick = () => { draft.pdf = ""; setDirty(); post(); drawCards(); };
+    };
+    if (spec) {
+      $("#peCards").addEventListener("input", (e) => {
+        const el = e.target.closest("[data-cp]");
+        if (!el) return;
+        setPath(el.dataset.cp, el.value); setDirty(); post();
+        const det = el.closest(".pe-card"), i = +el.dataset.cp.split(".")[1], item = draft[spec.list][i];
+        if (det) { $(".pe-card__title", det).textContent = spec.title(item) || "New card"; $("summary small", det).textContent = spec.sub(item); }
+        if (el.tagName === "SELECT" && key === "stores") drawCards(item.id);
+      });
+      $("#peCards").addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-cact], [data-dact]");
+        if (!b) return;
+        const list = draft[spec.list], i = +b.dataset.i;
+        if (b.dataset.dact) {
+          const o = draft.districtOrder, j = b.dataset.dact === "up" ? i - 1 : i + 1;
+          [o[i], o[j]] = [o[j], o[i]];
+        } else if (b.dataset.cact === "add") {
+          const item = Object.assign({ id: (key === "stores" ? "shp_" : "fst_") + Math.random().toString(36).slice(2, 8) }, spec.blank());
+          list.push(item); setDirty(); post(); return drawCards(item.id);
+        } else if (b.dataset.cact === "del") {
+          if (!(await confirmBox("Remove this card?", (spec.title(list[i]) || "This card") + " will be removed from the page when you save.", "Remove", true))) return;
+          list.splice(i, 1);
+        } else {
+          const j = b.dataset.cact === "up" ? i - 1 : i + 1;
+          [list[i], list[j]] = [list[j], list[i]];
+          setDirty(); post(); return drawCards(list[j].id);
+        }
+        setDirty(); post(); drawCards();
+      });
+      drawCards();
+    }
+
     const onMsg = (e) => {
       const m = e.data || {};
       if (e.source !== frame.contentWindow) return;
@@ -1151,7 +1267,7 @@
     let dirty = false;
     const links = [["Shop", [["All products", "#shop"], ["New in", "#new-in"], ["On sale", "#on-sale"], ["Search", "#search"]]],
       ["Categories", catTree(store.categories).map(({ c, depth }) => ["— ".repeat(depth) + c.name, "#category/" + c.slug])],
-      ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
+      ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Store locations", "#store-locations"], ["Franchise", "#franchise"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
     const linkSelect = `<select class="input input--sm" data-pick-link><option value="">Link to…</option>${links.map(([g, l]) => `<optgroup label="${g}">${l.map(([n, u]) => `<option value="${esc(u)}" data-label="${esc(n.replace(/^(— )+/, ""))}">${esc(n)}</option>`).join("")}</optgroup>`).join("")}</select>`;
     view.innerHTML = `<div class="head"><div><h1 class="h1">Menus</h1><p class="muted">The header menu (with dropdowns) and the footer columns. Link to categories, sub-categories, pages or any web address.</p></div><button class="btn btn--dark" id="mnSave" disabled>Saved</button></div>
       <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop all links sit left of the logo. A link with dropdown links opens a panel: the links in columns (six per column unless you change it), then its photo on the right. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
@@ -1316,31 +1432,145 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Popup banner on the home page
+  // ---------------------------------------------------------------------------
+  async function viewPopup() {
+    setTitle("Popup banner");
+    let p;
+    try { p = (await api("GET", "/api/pages/popup")).page; } catch (err) { return fail(err); }
+    const demo = window.Ravelle.mode === "demo";
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Popup banner</h1><p class="muted">A banner that pops up on the home page for offers, events or news. It opens a moment after someone lands on the home page, shows once per visit, and closes with the ✕ in the corner.</p></div>
+        <a class="btn btn--ghost" href="./?popup${demo ? "&demo" : ""}#home" target="_blank" rel="noopener">Preview ↗</a></div>
+      <form class="stack" id="ppForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Show the popup</h2><span class="pill pill--${p.enabled ? "active" : "inactive"}">${p.enabled ? "On" : "Off"}</span></div>
+          <label class="switch"><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}> Show the popup banner on the home page</label>
+          <div class="row row--2"><label class="field"><span>Show after (seconds)</span><input class="input" type="number" min="0" max="30" step="0.5" name="delay" value="${esc(p.delay == null ? 2 : p.delay)}"></label>
+          <div class="field"><span>How often</span><p class="small muted" style="margin:0">Once per visit. If they close the site and come back later, they see it again.</p></div></div></div>
+        <div class="card"><h2 class="h2">Picture</h2><div class="row row--2">${imgField("popupImage", p.image, "Banner picture", "Shown on the left on computers and on top on phones.")}${imgField("popupMobile", p.mobileImage, "Phone picture (optional)", "Leave empty to use the same picture on phones.")}</div>
+          <label class="field"><span>Picture description (for screen readers)</span><input class="input" name="imageAlt" value="${esc(p.imageAlt || "")}"></label></div>
+        <div class="card"><h2 class="h2">Text and button</h2><p class="muted small" style="margin:0">Leave the text and button empty to show only the picture. The picture then links to the button link.</p>
+          <div class="row row--2"><label class="field"><span>Small heading</span><input class="input" name="eyebrow" value="${esc(p.eyebrow || "")}" placeholder="This week only"></label><label class="field"><span>Title</span><textarea class="input" name="title" rows="2" placeholder="Eid sale\nUp to 40% off">${esc(p.title || "")}</textarea></label></div>
+          <label class="field"><span>Text</span><textarea class="input" name="text" rows="3">${esc(p.text || "")}</textarea></label>
+          <div class="row row--2"><label class="field"><span>Button text</span><input class="input" name="buttonText" value="${esc(p.buttonText || "")}" placeholder="Shop now"></label>
+          <label class="field"><span>Button link</span><input class="input" name="buttonLink" value="${esc(p.buttonLink || "")}" placeholder="#on-sale, #category/men or https://…"></label></div></div>
+        <div class="sticky-save"><span class="small">Changes apply to the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#ppForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    form.addEventListener("change", () => { dirty = true; });
+    wireImgFields(form, () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, page = Object.assign({}, p, { enabled: f.enabled.checked, delay: Math.max(0, Math.min(30, +f.delay.value || 0)), image: f.popupImage.value, mobileImage: f.popupMobile.value,
+        imageAlt: f.imageAlt.value.trim(), eyebrow: f.eyebrow.value.trim(), title: f.title.value.trim(), text: f.text.value.trim(), buttonText: f.buttonText.value.trim(), buttonLink: f.buttonLink.value.trim(), version: (+p.version || 0) + 1 });
+      if (page.enabled && !page.image && !page.title && !page.text) return toast("Add a picture or a title before turning the popup on.", true);
+      try { await api("PUT", "/api/pages/popup", { page }); dirty = false; toast(page.enabled ? "Saved. The popup is on." : "Saved. The popup is off."); viewPopup(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Franchise requests (from the Franchise page form)
+  // ---------------------------------------------------------------------------
+  const FR_LABEL = { new: "New", contacted: "Contacted", meeting: "Meeting set", approved: "Approved", declined: "Declined" };
+  async function viewFranchise() {
+    setTitle("Franchise requests");
+    const r = (await api("GET", "/api/franchise").catch(fail)) || { requests: [], statuses: [] };
+    let filter = "";
+    const meet = (q) => q.meetingDate ? new Date(q.meetingDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + (q.meetingTime ? ", " + q.meetingTime : "") : q.meetingTime || "Any time";
+    const draw = () => {
+      const list = r.requests.filter((q) => !filter || q.status === filter);
+      view.innerHTML = `<div class="head"><div><h1 class="h1">Franchise requests</h1><p class="muted">Sent from the Franchise page. Call them, set the meeting, and keep notes here.</p></div><button class="btn btn--ghost" id="frCsv">Export CSV</button></div>
+        <div class="tabs" id="frTabs"><button class="tab${filter ? "" : " is-on"}" data-f="">All <span class="muted">${r.requests.length}</span></button>${r.statuses.map((s) => `<button class="tab${filter === s ? " is-on" : ""}" data-f="${s}">${FR_LABEL[s]} <span class="muted">${r.requests.filter((q) => q.status === s).length}</span></button>`).join("")}</div>
+        <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Received</th><th>Name</th><th>Phone</th><th>District</th><th>Budget</th><th>Meeting</th><th>Status</th><th></th></tr></thead><tbody>${list.map((q) => `
+          <tr${q.read ? "" : ' style="box-shadow:inset 3px 0 0 var(--accent)"'}><td>${dateTime(q.createdAt)}</td><td><b>${esc(q.name)}</b>${q.email ? `<br><small class="muted">${esc(q.email)}</small>` : ""}</td><td><a href="tel:${esc(q.phone)}">${esc(q.phone)}</a></td>
+          <td>${esc(q.district)}${q.area ? `<br><small class="muted">${esc(q.area)}</small>` : ""}</td><td>${esc(q.investment || "–")}</td><td>${esc(meet(q))}<br><small class="muted">${esc(q.meetingType || "")}</small></td>
+          <td><span class="pill pill--fr-${q.status}">${FR_LABEL[q.status] || q.status}</span></td><td class="right"><button class="btn btn--ghost btn--sm" data-open="${q.id}">Open</button></td></tr>`).join("") || `<tr><td colspan="8"><p class="empty">${r.requests.length ? "No requests with this status." : "No franchise requests yet. They appear here when someone sends the form on the Franchise page."}</p></td></tr>`}</tbody></table></div></div>`;
+      $("#frTabs").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; draw(); } };
+      $("#frCsv").onclick = () => download("ravelle-franchise-requests.csv", csv([["Date", "Name", "Phone", "Email", "District", "Area", "Shop space", "Investment", "Experience", "Meeting type", "Meeting date", "Meeting time", "Message", "Status", "Notes"]]
+        .concat(r.requests.map((q) => [new Date(q.createdAt).toISOString(), q.name, q.phone, q.email, q.district, q.area, q.space, q.investment, q.experience, q.meetingType, q.meetingDate, q.meetingTime, q.message, FR_LABEL[q.status], q.note]))));
+    };
+    draw();
+    view.onclick = async (e) => {
+      const b = e.target.closest("[data-open]");
+      if (!b) return;
+      const q = r.requests.find((x) => x.id === b.dataset.open);
+      if (!q.read) { q.read = true; api("PATCH", "/api/franchise/" + q.id, { read: true }).then(refreshCounts, () => {}); }
+      const row = (l, v) => v ? `<div><dt class="mono muted small">${l}</dt><dd style="margin:2px 0 0;white-space:pre-wrap">${esc(v)}</dd></div>` : "";
+      const wa = q.phone.replace(/^0/, "880");
+      const body = modal(q.name, `<div class="stack"><div class="flex"><a class="btn btn--dark btn--sm" href="tel:${esc(q.phone)}">Call ${esc(q.phone)}</a><a class="btn btn--ghost btn--sm" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>${q.email ? `<a class="btn btn--ghost btn--sm" href="mailto:${esc(q.email)}?subject=${encodeURIComponent("Your Ravelle franchise request")}">Email</a>` : ""}</div>
+        <dl class="row row--2" style="margin:0;gap:12px 20px">${row("District", q.district)}${row("Area or market", q.area)}${row("Shop space", q.space)}${row("Planned investment", q.investment)}${row("Meeting", q.meetingType)}${row("Preferred date and time", meet(q))}${row("Received", dateTime(q.createdAt))}${row("Email", q.email)}</dl>
+        ${row("Business experience", q.experience)}${row("Message", q.message)}
+        <form class="stack" id="frEdit"><label class="field"><span>Status</span><select class="input" name="status">${r.statuses.map((s) => `<option value="${s}"${s === q.status ? " selected" : ""}>${FR_LABEL[s]}</option>`).join("")}</select></label>
+        <label class="field"><span>Notes (only you see these)</span><textarea class="input" name="note" rows="3" placeholder="Meeting confirmed for Sunday 4pm…">${esc(q.note || "")}</textarea></label>
+        <div class="modal__foot"><button class="btn btn--danger" type="button" id="frDel" style="margin-right:auto">Delete</button><button class="btn btn--ghost" type="button" data-modal-close>Close</button><button class="btn btn--dark" type="submit">Save</button></div></form></div>`, { wide: true, noFocus: true });
+      $("#frEdit", body).onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { Object.assign(q, (await api("PATCH", "/api/franchise/" + q.id, formData(ev.target))).request); closeModal(); toast("Saved"); draw(); } catch (err) { fail(err); }
+      };
+      $("#frDel", body).onclick = async () => {
+        if (!(await confirmBox("Delete this request?", "This can't be undone.", "Delete", true))) return;
+        try { await api("DELETE", "/api/franchise/" + q.id); r.requests = r.requests.filter((x) => x !== q); toast("Deleted"); refreshCounts(); draw(); } catch (err) { fail(err); }
+      };
+      draw();
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Users
   // ---------------------------------------------------------------------------
+  // Each area is one module (or a few related ones) in the menu on the left
+  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders (and Acore order sync)", customers: "Customers", products: "Products & Stock", catalog: "Categories & Variations",
+    coupons: "Coupons", content: "Pages, Menus & Media library", chat: "Live chat", messages: "Messages", franchise: "Franchise requests", users: "Users",
+    settings: "Settings, Header & footer, Pixel & Analytics, Acore", integrations: "API & webhooks" };
   async function viewUsers() {
     setTitle("Users");
     const r = (await api("GET", "/api/users").catch(fail)) || { users: [], roles: {} };
-    const AREA = { dashboard: "Dashboard", orders: "Orders", customers: "Customers", products: "Products", catalog: "Categories & variations", coupons: "Coupons", content: "Pages, menus & media", chat: "Live chat", messages: "Messages", users: "Users", settings: "Settings", integrations: "API & webhooks" };
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Users</h1><p class="muted">People who can sign in to this admin panel, and what each role can open.</p></div><button class="btn btn--dark" id="usAdd">Add user</button></div>
-      <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead><tbody>${r.users.map((u) => `
-        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
-      <div class="grid-3">${Object.keys(r.roles).map((k) => `<div class="card"><h2 class="h2">${esc(r.roles[k].label)}</h2><p class="muted small" style="margin:0">${r.roles[k].areas.map((a) => AREA[a] || a).join(", ")}</p></div>`).join("")}</div>`;
+    const areaNames = (list) => list.map((a) => AREA[a] || a).join(", ");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Users</h1><p class="muted">People who can sign in to this admin panel with their email and password. Pick a role, or choose “Custom access” and tick exactly which modules they can open.</p></div><button class="btn btn--dark" id="usAdd">Add user</button></div>
+      <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead><tbody>${r.users.map((u) => `
+        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}${u.role === "custom" ? `<br><small class="muted">${esc(areaNames(u.areas || []))}</small>` : ""}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
+      <div class="grid-3">${Object.keys(r.roles).map((k) => `<div class="card"><h2 class="h2">${esc(r.roles[k].label)}</h2><p class="muted small" style="margin:0">${r.roles[k].custom ? "Only the modules you tick for that person." : areaNames(r.roles[k].areas)}</p></div>`).join("")}</div>`;
     const roleOpts = (sel) => Object.keys(r.roles).map((k) => `<option value="${k}"${k === sel ? " selected" : ""}>${esc(r.roles[k].label)}</option>`).join("");
+    const areaBoxes = (u) => `<fieldset class="us-areas" data-areas ${u.role === "custom" ? "" : "hidden"}><legend class="small">Modules this person can open</legend>
+      <div class="us-areas__grid">${Object.keys(AREA).map((a) => `<label class="switch"><input type="checkbox" value="${a}" ${(u.areas || []).indexOf(a) > -1 ? "checked" : ""}> ${esc(AREA[a])}</label>`).join("")}</div>
+      <div class="flex"><button class="btn btn--link btn--sm" type="button" data-all="1">Tick all</button><button class="btn btn--link btn--sm" type="button" data-all="0">Clear</button></div></fieldset>`;
+    const wire = (form, u) => {
+      const sel = $("[name=role]", form), box = $("[data-areas]", form);
+      const sync = () => {
+        box.hidden = sel.value !== "custom";
+        if (sel.value !== "custom") $$("input", box).forEach((c) => { c.checked = (r.roles[sel.value].areas || []).indexOf(c.value) > -1; });
+      };
+      sel.onchange = sync;
+      if (sel.value !== "custom") sync();
+      box.onclick = (e) => { const b = e.target.closest("[data-all]"); if (b) $$("input", box).forEach((c) => { c.checked = b.dataset.all === "1"; }); };
+    };
+    const payload = (form) => {
+      const d = formData(form);
+      $$("[data-areas] input", form).forEach((c) => delete d[c.name]);
+      if (d.role === "custom") d.areas = $$("[data-areas] input:checked", form).map((c) => c.value);
+      return d;
+    };
     $("#usAdd").onclick = () => {
-      modal("Add user", `<form class="stack" id="usForm"><label class="field"><span>Name</span><input class="input" name="name" required></label><label class="field"><span>Email</span><input class="input" name="email" type="email" required></label>
-        <div class="row row--2"><label class="field"><span>Role</span><select class="input" name="role">${roleOpts("manager")}</select></label><label class="field"><span>Password</span><input class="input" name="password" type="text" minlength="8" required value="${Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8)}"><small>Share it with them; they can change it later.</small></label></div>
-        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Add user</button></div></form>`);
-      $("#usForm").onsubmit = async (e) => { e.preventDefault(); try { await api("POST", "/api/users", formData(e.target)); closeModal(); toast("User added"); viewUsers(); } catch (err) { fail(err); } };
+      const u = { role: "custom", areas: ["orders", "customers"] };
+      modal("Add user", `<form class="stack" id="usForm"><div class="row row--2"><label class="field"><span>Name</span><input class="input" name="name" required></label><label class="field"><span>Email (they sign in with this)</span><input class="input" name="email" type="email" required></label></div>
+        <div class="row row--2"><label class="field"><span>Access</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>Password</span><input class="input" name="password" type="text" minlength="8" required value="${Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8)}"><small>At least 8 characters. Share it with them; they can change it later.</small></label></div>
+        ${areaBoxes(u)}
+        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Add user</button></div></form>`, { wide: true });
+      wire($("#usForm"), u);
+      $("#usForm").onsubmit = async (e) => { e.preventDefault(); try { await api("POST", "/api/users", payload(e.target)); closeModal(); toast("User added. They can sign in at /admin."); viewUsers(); } catch (err) { fail(err); } };
     };
     view.onclick = (e) => {
       const b = e.target.closest("[data-edit]");
       if (!b) return;
       const u = r.users.find((x) => x.id === b.dataset.edit);
-      modal("Edit " + u.name, `<form class="stack" id="usForm"><label class="field"><span>Name</span><input class="input" name="name" value="${esc(u.name)}"></label>
-        <label class="field"><span>Role</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>New password</span><input class="input" name="password" type="text" minlength="8" placeholder="Leave empty to keep"><small>Changing it signs them out everywhere.</small></label>
-        <div class="modal__foot">${u.id === me.id ? "" : `<button class="btn btn--danger" type="button" id="usDel" style="margin-right:auto">Remove</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save</button></div></form>`);
-      $("#usForm").onsubmit = async (ev) => { ev.preventDefault(); const d = formData(ev.target); if (!d.password) delete d.password; try { await api("PATCH", "/api/users/" + u.id, d); closeModal(); toast("Saved"); viewUsers(); } catch (err) { fail(err); } };
+      modal("Edit " + u.name, `<form class="stack" id="usForm"><div class="row row--2"><label class="field"><span>Name</span><input class="input" name="name" value="${esc(u.name)}"></label><label class="field"><span>Email</span><input class="input" value="${esc(u.email)}" disabled></label></div>
+        <div class="row row--2"><label class="field"><span>Access</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>New password</span><input class="input" name="password" type="text" minlength="8" placeholder="Leave empty to keep"><small>Changing it signs them out everywhere.</small></label></div>
+        ${areaBoxes(u)}
+        <div class="modal__foot">${u.id === me.id ? "" : `<button class="btn btn--danger" type="button" id="usDel" style="margin-right:auto">Remove</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save</button></div></form>`, { wide: true });
+      wire($("#usForm"), u);
+      $("#usForm").onsubmit = async (ev) => { ev.preventDefault(); const d = payload(ev.target); if (!d.password) delete d.password; try { await api("PATCH", "/api/users/" + u.id, d); closeModal(); toast("Saved"); viewUsers(); } catch (err) { fail(err); } };
       if ($("#usDel")) $("#usDel").onclick = async () => { if (!(await confirmBox("Remove " + u.name + "?", "They won't be able to sign in any more.", "Remove", true))) return; try { await api("DELETE", "/api/users/" + u.id); toast("Removed"); viewUsers(); } catch (err) { fail(err); } };
     };
   }
@@ -1875,11 +2105,11 @@
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
     ["Sales", [["orders", "Orders", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
-    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["media", "Media library", "content"]]],
-    ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"]]],
+    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
+    ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
     ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
   ];
-  const counts = { orders: 0, chat: 0, messages: 0 };
+  const counts = { orders: 0, chat: 0, messages: 0, franchise: 0 };
   function drawSide() {
     const cur = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "dashboard";
     $("#sideNav").innerHTML = NAV.map(([g, items]) => {
@@ -1894,6 +2124,7 @@
     if (can("orders")) jobs.push(api("GET", "/api/orders?status=pending").then((r) => { counts.orders = r.total; }, () => {}));
     if (can("chat")) jobs.push(api("GET", "/api/chats?status=open").then((r) => { counts.chat = r.chats.reduce((s, c) => s + (c.unread ? 1 : 0), 0); }, () => {}));
     if (can("messages")) jobs.push(api("GET", "/api/messages").then((r) => { counts.messages = r.messages.filter((m) => !m.read).length; }, () => {}));
+    if (can("franchise")) jobs.push(api("GET", "/api/franchise").then((r) => { counts.franchise = r.requests.filter((m) => !m.read).length; }, () => {}));
     await Promise.all(jobs);
     drawSide();
   }
@@ -1907,10 +2138,10 @@
   function notFound() { view.innerHTML = `<p class="empty">That page doesn't exist. <a href="#/dashboard">Go to the dashboard</a></p>`; }
 
   const ROUTES = [
-    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"],
+    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"], [/^popup$/, viewPopup, "content"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
-    [/^coupons$/, viewCoupons, "coupons"],
+    [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"],

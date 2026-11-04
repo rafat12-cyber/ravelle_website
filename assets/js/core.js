@@ -79,20 +79,27 @@
   // ---------------------------------------------------------------------------
   // Roles and permissions
   // ---------------------------------------------------------------------------
-  var AREAS = ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "users", "settings", "integrations"];
+  var AREAS = ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "franchise", "users", "settings", "integrations"];
   var ROLES = {
     owner: { label: "Owner", areas: AREAS },
-    manager: { label: "Manager", areas: ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "settings"] },
+    manager: { label: "Manager", areas: ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "franchise", "settings"] },
     editor: { label: "Content editor", areas: ["products", "catalog", "content"] },
-    support: { label: "Customer support", areas: ["dashboard", "orders", "customers", "chat", "messages"] }
+    support: { label: "Customer support", areas: ["dashboard", "orders", "customers", "chat", "messages"] },
+    custom: { label: "Custom access", areas: [], custom: true }
   };
+  // What a user can open: their role's areas, or the modules ticked for them when the role is "Custom access"
+  function userAreas(u) {
+    if (u.role === "custom") return (u.areas || []).filter(function (a) { return AREAS.indexOf(a) > -1; });
+    return (ROLES[u.role] || ROLES.support).areas;
+  }
+  var FRANCHISE_STATUSES = ["new", "contacted", "meeting", "approved", "declined"];
   // API keys reach the store data, never users, settings or other keys.
   var KEY_AREAS = ["orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "dashboard"];
 
   var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   var PAYMENT_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   var EVENTS = ["order.created", "order.updated", "product.created", "product.updated", "product.deleted", "stock.updated", "stock.low",
-    "customer.created", "chat.message.created", "contact.created", "coupon.used"];
+    "customer.created", "chat.message.created", "contact.created", "coupon.used", "franchise.created"];
 
   // ---------------------------------------------------------------------------
   // Shapes
@@ -115,7 +122,7 @@
     };
   }
   function publicUser(u) {
-    return { id: u.id, name: u.name, email: u.email, role: u.role, createdAt: u.createdAt, lastLogin: u.lastLogin || null };
+    return { id: u.id, name: u.name, email: u.email, role: u.role, areas: userAreas(u), createdAt: u.createdAt, lastLogin: u.lastLogin || null };
   }
   function orderSummary(o) {
     return { id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
@@ -202,7 +209,7 @@
       if (!s) return null;
       var user = db.users.filter(function (u) { return u.id === s.userId; })[0];
       if (!user) return null;
-      return { kind: "user", user: user, areas: (ROLES[user.role] || ROLES.support).areas, write: true, name: user.name };
+      return { kind: "user", user: user, areas: userAreas(user), write: true, name: user.name };
     }
     function canSee(auth, area) { return auth && auth.areas.indexOf(area) > -1; }
 
@@ -842,6 +849,26 @@
       return { ok: true };
     }, { status: 201 });
 
+    // Franchise request form
+    route("POST", "/api/franchise", null, function (c) {
+      var b = c.body || {}, e = {};
+      var r = { id: newId("frq"), name: str(b.name, 80), phone: str(b.phone, 20), email: str(b.email, 120), district: str(b.district, 40), area: str(b.area, 200),
+        space: str(b.space, 40), investment: str(b.investment, 60), experience: str(b.experience, 2000), meetingDate: str(b.meetingDate, 10),
+        meetingTime: str(b.meetingTime, 30), meetingType: str(b.meetingType, 40), message: str(b.message, 3000), status: "new", note: "", read: false, createdAt: now() };
+      if (!r.name) e.name = "Enter your name.";
+      if (!isPhone(r.phone)) e.phone = "Enter an 11-digit mobile number, like 01712345678.";
+      else r.phone = normPhone(r.phone);
+      if (r.email && !isEmail(r.email)) e.email = "That email doesn't look right.";
+      if (!r.district) e.district = "Choose your district.";
+      if (r.meetingDate && !/^\d{4}-\d{2}-\d{2}$/.test(r.meetingDate)) e.meetingDate = "Pick a date.";
+      if (Object.keys(e).length) fail(400, "Please check the highlighted fields.", e);
+      c.db.franchise = c.db.franchise || [];
+      c.db.franchise.push(r);
+      if (c.db.franchise.length > 2000) c.db.franchise = c.db.franchise.slice(-2000);
+      emit(c.db, "franchise.created", r);
+      return { ok: true };
+    }, { status: 201 });
+
     // --- Chat: visitor side ---------------------------------------------------------
     function visitorChat(c) {
       var ch = c.db.chats.filter(function (x) { return x.id === c.params.id; })[0];
@@ -906,7 +933,7 @@
       db.sessions = (db.sessions || []).filter(function (s) { return s.expiresAt > now(); });
       db.sessions.push({ hash: sha256(token), userId: u.id, createdAt: now(), expiresAt: now() + 7 * 864e5 });
       u.lastLogin = now();
-      return { token: token, user: publicUser(u), areas: (ROLES[u.role] || ROLES.support).areas };
+      return { token: token, user: publicUser(u), areas: userAreas(u) };
     });
     route("GET", "/api/auth/me", "*", function (c) {
       if (c.auth.kind !== "user") return { key: { name: c.auth.key.name, scope: c.auth.key.scope }, areas: c.auth.areas };
@@ -1329,9 +1356,45 @@
       if (!c.db.pages[c.params.key]) fail(404, "Page not found.");
       if (!c.body || typeof c.body.page !== "object") fail(400, "Send the page content as { page }.");
       if (JSON.stringify(c.body.page).length > 6e6) fail(413, "This page is too large. Use smaller images.");
+      if (c.params.key === "stores") cleanStores(c.body.page);
+      if (c.params.key === "franchise") cleanStories(c.body.page);
       c.db.pages[c.params.key] = c.body.page;
       return { page: c.db.pages[c.params.key] };
     });
+    // Store locations: every shop needs a name and a district; districts show in the order you set
+    function cleanStores(pg) {
+      pg.shops = (Array.isArray(pg.shops) ? pg.shops : []).map(function (s, i) {
+        s = s || {};
+        var o = { id: str(s.id, 40) || newId("shp"), name: str(s.name, 120), type: s.type === "franchise" ? "franchise" : "own", district: str(s.district, 40),
+          image: str(s.image, 4000000), address: str(s.address, 400), phone: str(s.phone, 40), email: str(s.email, 120), hours: str(s.hours, 120), map: str(s.map, 600) };
+        if (!o.name) fail(400, "Shop " + (i + 1) + " needs a name.");
+        if (!o.district) fail(400, "Choose a district for " + o.name + ".");
+        if (o.email && !isEmail(o.email)) fail(400, "The email for " + o.name + " doesn't look right.");
+        return o;
+      });
+      var order = (Array.isArray(pg.districtOrder) ? pg.districtOrder : []).map(function (d) { return str(d, 40); }).filter(Boolean);
+      pg.shops.forEach(function (s) { if (order.indexOf(s.district) < 0) order.push(s.district); });
+      pg.districtOrder = order.filter(function (d, i) { return order.indexOf(d) === i && pg.shops.some(function (s) { return s.district === d; }); });
+    }
+    function cleanStories(pg) {
+      pg.stories = (Array.isArray(pg.stories) ? pg.stories : []).map(function (s, i) {
+        s = s || {};
+        var o = { id: str(s.id, 40) || newId("fst"), storeName: str(s.storeName, 120), storeImage: str(s.storeImage, 4000000), address: str(s.address, 400),
+          ownerName: str(s.ownerName, 120), ownerImage: str(s.ownerImage, 4000000), opinion: str(s.opinion, 600), experience: str(s.experience, 2000) };
+        if (!o.ownerName) fail(400, "Franchise card " + (i + 1) + " needs the owner's name.");
+        return o;
+      });
+      pg.pdf = str(pg.pdf, 9000000);
+    }
+    // PDF files (franchise guide): saved next to uploaded images, not in the media library
+    route("POST", "/api/files", "content", function (c) {
+      var name = str(c.body.name, 120) || "file", data = String(c.body.dataUrl || "");
+      if (!/^data:application\/pdf;base64,/.test(data)) fail(400, "Upload a PDF file.");
+      if (data.length > 14e6) fail(413, "That PDF is over 10 MB.");
+      var saved = host.saveMedia(name, data, "application/pdf");
+      return { url: saved.url, size: saved.size };
+    }, { status: 201 });
+
     route("GET", "/api/menus", null, function (c) { return { menus: c.db.menus }; }, { readonly: true });
     route("PUT", "/api/menus", "content", function (c) {
       var clean = function (items, depth) {
@@ -1459,6 +1522,11 @@
     });
 
     // --- Users ---------------------------------------------------------------------------------------------------
+    function cleanAreas(list) {
+      var out = (Array.isArray(list) ? list : []).filter(function (a, i, all) { return AREAS.indexOf(a) > -1 && all.indexOf(a) === i; });
+      if (!out.length) fail(400, "Tick at least one module this person can open.");
+      return out;
+    }
     route("GET", "/api/users", "users", function (c) { return { users: c.db.users.map(publicUser), roles: ROLES }; }, { readonly: true });
     route("POST", "/api/users", "users", function (c) {
       var b = c.body, email = str(b.email, 120).toLowerCase();
@@ -1467,6 +1535,7 @@
       if (c.db.users.some(function (u) { return u.email === email; })) fail(400, "Someone already uses that email.");
       if (!ROLES[b.role]) fail(400, "Choose a role.");
       var u = { id: newId("usr"), name: str(b.name, 80), email: email, role: b.role, createdAt: now() };
+      if (b.role === "custom") u.areas = cleanAreas(b.areas);
       setPassword(u, b.password);
       c.db.users.push(u);
       return { user: publicUser(u) };
@@ -1480,6 +1549,9 @@
         if (u.role === "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
         u.role = b.role;
       }
+      if (u.role === "custom" && b.areas !== undefined) u.areas = cleanAreas(b.areas);
+      if (u.role !== "custom") delete u.areas;
+      if (c.auth.user && u.id === c.auth.user.id && userAreas(u).indexOf("users") < 0) fail(400, "Keep Users ticked for yourself, or you'll lock yourself out of this page.");
       if (b.name) u.name = str(b.name, 80);
       if (b.password) { setPassword(u, b.password); c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
       return { user: publicUser(u) };
@@ -1589,6 +1661,24 @@
     });
 
     // --- Contact messages --------------------------------------------------------------------------------------------------------
+    // --- Franchise requests (admin) ------------------------------------------------------------
+    route("GET", "/api/franchise", "franchise", function (c) {
+      return { requests: (c.db.franchise || []).slice().sort(function (a, b) { return b.createdAt - a.createdAt; }), statuses: FRANCHISE_STATUSES };
+    }, { readonly: true });
+    route("PATCH", "/api/franchise/:id", "franchise", function (c) {
+      var r = (c.db.franchise || []).filter(function (x) { return x.id === c.params.id; })[0];
+      if (!r) fail(404, "Request not found.");
+      if (c.body.status !== undefined) { if (FRANCHISE_STATUSES.indexOf(c.body.status) < 0) fail(400, "Unknown status."); r.status = c.body.status; }
+      if (c.body.note !== undefined) r.note = str(c.body.note, 3000);
+      if (c.body.read !== undefined) r.read = bool(c.body.read);
+      r.updatedAt = now();
+      return { request: r };
+    });
+    route("DELETE", "/api/franchise/:id", "franchise", function (c) {
+      c.db.franchise = (c.db.franchise || []).filter(function (x) { return x.id !== c.params.id; });
+      return { ok: true };
+    });
+
     route("GET", "/api/messages", "messages", function (c) {
       return { messages: c.db.messages.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }) };
     }, { readonly: true });
@@ -1648,12 +1738,35 @@
   // ---------------------------------------------------------------------------
   function freshDb(seed) {
     var db = clone(seed);
-    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons"].forEach(function (k) { if (!db[k]) db[k] = []; });
+    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
+    db.upgrades = ["stores-franchise", "popup"];
     return db;
   }
+  // Brings an older saved database up to date: new pages and lists, once
+  function upgradeDb(db, seed) {
+    var done = db.upgrades = db.upgrades || [], changed = false;
+    if (!db.franchise) db.franchise = [];
+    if (done.indexOf("stores-franchise") < 0) {
+      ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
+      var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];
+      var has = function (u) { return (db.menus.footer || []).some(function (f) { return (f.items || []).some(function (i) { return i.url === u; }); }); };
+      if (col) {
+        if (!has("#store-locations")) col.items.push({ id: "f_stores", label: "Store locations", url: "#store-locations", children: [] });
+        if (!has("#franchise")) col.items.push({ id: "f_franchise", label: "Franchise", url: "#franchise", children: [] });
+      }
+      done.push("stores-franchise");
+      changed = true;
+    }
+    if (done.indexOf("popup") < 0) {
+      if (!db.pages.popup && seed.pages.popup) { db.pages.popup = clone(seed.pages.popup); db.pages.popup.enabled = false; }
+      done.push("popup");
+      changed = true;
+    }
+    return changed;
+  }
 
-  return { create: create, freshDb: freshDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS, headCode: headCode, siteCode: siteCode,
+  return { create: create, freshDb: freshDb, upgradeDb: upgradeDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS, headCode: headCode, siteCode: siteCode,
     ORDER_STATUSES: ORDER_STATUSES, PAYMENT_STATUSES: PAYMENT_STATUSES, isPhone: isPhone, normPhone: normPhone };
 });

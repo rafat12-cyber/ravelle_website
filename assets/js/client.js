@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v23";
+  var DB_KEY = "ravelle:demo-db:v25";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   function loadScript(src) {
@@ -93,6 +93,15 @@
     db.demo = true;
     var salt = hex(8);
     db.users.push({ id: "usr_demo", name: "Rafat", email: DEMO_LOGIN.email, role: "owner", salt: salt, passwordHash: demoHash(DEMO_LOGIN.password, salt), createdAt: Date.now() });
+    var s2 = hex(8);
+    db.users.push({ id: "usr_demo2", name: "Sadia (orders)", email: "orders@ravellebd.com", role: "custom", areas: ["orders", "customers", "chat", "messages"], salt: s2, passwordHash: demoHash("orders-demo", s2), createdAt: Date.now() - 3 * 864e5 });
+    var day = function (n) { return new Date(Date.now() + n * 864e5).toISOString().slice(0, 10); };
+    db.franchise = [
+      { id: "frq_demo1", name: "Mahfuz Alam", phone: "01811000111", email: "mahfuz@example.com", district: "Rajshahi", area: "Shaheb Bazar", space: "I have a shop space", investment: "৳10 – 20 lakh",
+        experience: "I run a mobile accessories shop in the same market for 6 years.", meetingType: "At the Ravelle office", meetingDate: day(3), meetingTime: "2pm – 4pm", message: "", status: "new", note: "", read: false, createdAt: Date.now() - 5 * 36e5 },
+      { id: "frq_demo2", name: "Sumaiya Khan", phone: "01911000222", email: "", district: "Khulna", area: "KDA Avenue", space: "I will rent a space", investment: "৳20 – 40 lakh",
+        experience: "", meetingType: "Video call", meetingDate: day(1), meetingTime: "6pm – 8pm", message: "Can the store also sell women's pieces?", status: "meeting", note: "Video call booked.", read: true, createdAt: Date.now() - 2 * 864e5 }
+    ];
     var seed = 7;
     var rnd = function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
     var pick = function (a) { return a[Math.floor(rnd() * a.length)]; };
@@ -204,8 +213,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1165"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1165"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=1167"))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=1167"); })
       .then(function () { startDemo(); return m; });
   });
 

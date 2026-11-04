@@ -59,6 +59,7 @@
     return (
       '<a class="card' + (soldOut(p) ? " is-out" : "") + '" data-line="' + esc(p.line) + '" href="#product/' + p.slug + '" style="--tone:' + esc(p.hex || "#7b7e83") + '">' +
         (img ? '<img class="card__img" src="' + esc(img) + '" alt="' + esc(p.name) + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' : "") +
+        (shop && img && p.images[1] ? '<img class="card__img card__img--alt" src="' + esc(p.images[1]) + '" alt="" aria-hidden="true" loading="lazy">' : "") +
         '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
         '<span class="card__top">' + (soldOut(p) ? '<span class="chip chip--out">Sold out</span>' : off ? '<span class="chip">−' + off + "%</span>" : p.isNew ? '<span class="chip">New</span>' : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
@@ -1132,6 +1133,18 @@
         buildSlats(main);
       });
     });
+    // 3x zoom that follows the pointer (mouse and trackpad only)
+    if (window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      main.classList.add("is-zoom");
+      var zoomAt = function (e) {
+        var img = $("#pdMain"), r = main.getBoundingClientRect();
+        if (!img) return;
+        img.style.transformOrigin = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100)) + "% " + Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100)) + "%";
+      };
+      main.addEventListener("mouseenter", function (e) { if ($("#pdMain")) { zoomAt(e); main.classList.add("is-zooming"); } });
+      main.addEventListener("mousemove", zoomAt);
+      main.addEventListener("mouseleave", function () { main.classList.remove("is-zooming"); });
+    }
     refresh();
     setTimeout(function () { buildSlats(main); }, 120);
   }
@@ -1218,6 +1231,143 @@
         }, function (err) { showErrors(f, err); btn.disabled = false; });
     });
   }
+  // ---------------------------------------------------------------------------
+  // Store locations: shops grouped by district, in the order set in admin
+  // ---------------------------------------------------------------------------
+  var DISTRICTS = ["Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria", "Chandpur", "Chapai Nawabganj", "Chattogram", "Chuadanga",
+    "Cox's Bazar", "Cumilla", "Dhaka", "Dinajpur", "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj", "Habiganj", "Jamalpur", "Jashore", "Jhalokati", "Jhenaidah",
+    "Joypurhat", "Khagrachhari", "Khulna", "Kishoreganj", "Kurigram", "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur", "Magura", "Manikganj", "Meherpur",
+    "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon", "Narail", "Narayanganj", "Narsingdi", "Natore", "Netrokona", "Nilphamari", "Noakhali", "Pabna", "Panchagarh",
+    "Patuakhali", "Pirojpur", "Rajbari", "Rajshahi", "Rangamati", "Rangpur", "Satkhira", "Shariatpur", "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon"];
+  var LIVE = {}; // re-draws a page's cards while it is edited in the admin preview
+  function districtGroups(d) {
+    var shops = (d.shops || []).filter(function (s) { return s && s.name; });
+    var order = (d.districtOrder || []).slice();
+    shops.forEach(function (s) { if (order.indexOf(s.district) < 0) order.push(s.district); });
+    return order.map(function (name) { return { name: name, shops: shops.filter(function (s) { return s.district === name; }) }; })
+      .filter(function (g) { return g.shops.length; });
+  }
+  function shopCard(s) {
+    var tel = (s.phone || "").replace(/[^\d+]/g, "");
+    var map = s.map || "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(s.name + ", " + (s.address || s.district));
+    return '<article class="shopcard reveal">' +
+      '<div class="shopcard__img">' + (s.image ? '<img src="' + esc(s.image) + '" alt="' + esc(s.name) + '" loading="lazy">' : "") +
+        '<span class="shopcard__type' + (s.type === "franchise" ? " is-fr" : "") + '">' + (s.type === "franchise" ? "Franchise store" : "Ravelle store") + "</span></div>" +
+      '<div class="shopcard__body"><p class="mono shopcard__district">' + esc(s.district) + "</p><h3>" + esc(s.name) + "</h3>" +
+        (s.address ? '<p class="shopcard__addr">' + esc(s.address) + "</p>" : "") +
+        (s.hours ? '<p class="shopcard__hours mono">' + esc(s.hours) + "</p>" : "") +
+        '<div class="shopcard__links">' +
+          (s.phone ? '<a href="tel:' + esc(tel) + '"><span class="mono">Call</span>' + esc(s.phone) + "</a>" : "") +
+          (s.email ? '<a href="mailto:' + esc(s.email) + '"><span class="mono">Email</span>' + esc(s.email) + "</a>" : "") +
+        "</div>" +
+        '<a class="pill pill--sm pill--arrow shopcard__map" href="' + esc(map) + '" target="_blank" rel="noopener">Get directions <span class="pill__arrow" aria-hidden="true">↗</span></a>' +
+      "</div></article>";
+  }
+  function viewStores() {
+    var d = S.pages.stores || {};
+    head('<span data-c="eyebrow"></span>', '<span data-c="title"></span> <em class="alt" data-scramble data-c="accent"></em> <span data-c="titleEnd"></span>', '<span data-c="intro"></span>', "stores");
+    var only = "";
+    function draw() {
+      d = S.pages.stores || {};
+      var groups = districtGroups(d);
+      if (only && !groups.some(function (g) { return g.name === only; })) only = "";
+      page.innerHTML = '<section class="stores" data-page="stores">' + (groups.length ?
+        (groups.length > 1 ? '<div class="stores__filter" role="group" aria-label="District">' +
+          '<button class="stores__chip' + (only ? "" : " is-on") + '" type="button" data-district="">All<small>' + groups.reduce(function (n, g) { return n + g.shops.length; }, 0) + "</small></button>" +
+          groups.map(function (g) { return '<button class="stores__chip' + (only === g.name ? " is-on" : "") + '" type="button" data-district="' + esc(g.name) + '">' + esc(g.name) + "<small>" + g.shops.length + "</small></button>"; }).join("") + "</div>" : "") +
+        groups.filter(function (g) { return !only || g.name === only; }).map(function (g) {
+          return '<div class="stores__group"><div class="stores__head"><h2>' + esc(g.name) + '</h2><span class="mono">' + g.shops.length + (g.shops.length > 1 ? " stores" : " store") + "</span></div>" +
+            '<div class="stores__grid">' + g.shops.map(shopCard).join("") + "</div></div>";
+        }).join("")
+        : '<div class="empty stores__empty"><p data-c="emptyText"></p><a class="pill pill--dark pill--arrow" href="#shop">Shop online <span class="pill__arrow" aria-hidden="true">↗</span></a></div>') +
+        "</section>";
+      bind(page, d);
+      activate(page);
+      $$("[data-district]", page).forEach(function (b) { b.onclick = function () { only = b.dataset.district; draw(); }; });
+    }
+    LIVE.stores = draw;
+    bind(pagehead, d);
+    draw();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Franchise: why join, partner stories, the guide PDF and the request form
+  // ---------------------------------------------------------------------------
+  function viewFranchise() {
+    var d = S.pages.franchise || {};
+    head('<span data-c="eyebrow"></span>', '<span data-c="title"></span> <em class="alt" data-scramble data-c="accent"></em> <span data-c="titleEnd"></span>', '<span data-c="intro"></span>', "franchise");
+    var opt = function (list, ph) { return (ph ? '<option value="">' + ph + "</option>" : "") + list.map(function (x) { return '<option>' + esc(x) + "</option>"; }).join(""); };
+    var tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    page.innerHTML =
+      '<section class="fr" data-page="franchise">' +
+        '<div class="about__pillars about__pillars--row fr__points">' + (d.points || []).map(function (v, i) {
+          return '<div><p class="mono">0' + (i + 1) + '</p><h3 data-c="points.' + i + '.title"></h3><p data-c="points.' + i + '.text"></p></div>';
+        }).join("") + "</div>" +
+        '<div id="frStories"></div>' +
+        '<div class="fr__join" id="join">' +
+          '<aside class="fr__side">' +
+            '<div class="panel fr__guide"><span class="fr__pdf" aria-hidden="true">PDF</span><h2 class="panel__title" data-c="pdfTitle"></h2><p class="contact__note" data-c="pdfText"></p><div id="frPdf"></div></div>' +
+            '<div class="panel fr__steps"><h2 class="panel__title">How it works</h2><ol><li><b>Send a request</b><span>Fill in the form with your location and budget.</span></li>' +
+              "<li><b>Meet the team</b><span>We call you to confirm the meeting time you picked.</span></li><li><b>Site visit</b><span>We check the location and share the numbers.</span></li>" +
+              "<li><b>Open your store</b><span>Fit-out, stock, training and launch.</span></li></ol></div>" +
+          "</aside>" +
+          '<form class="panel fr__form" id="frForm" novalidate>' +
+            '<h2 class="panel__title" data-c="formTitle"></h2><p class="contact__note" data-c="formNote"></p>' +
+            '<p class="fr__label mono">About you</p>' +
+            field("fr-name", "Full name", '<input id="fr-name" name="name" required autocomplete="name">') +
+            '<div class="field-row">' + field("fr-phone", "Mobile number", '<input id="fr-phone" name="phone" type="tel" required autocomplete="tel" placeholder="01XXXXXXXXX">') +
+            field("fr-email", "Email (optional)", '<input id="fr-email" name="email" type="email" autocomplete="email">') + "</div>" +
+            '<p class="fr__label mono">Your store</p>' +
+            '<div class="field-row">' + field("fr-district", "District", '<select id="fr-district" name="district" required>' + opt(DISTRICTS, "Choose a district") + "</select>") +
+            field("fr-area", "Area or market", '<input id="fr-area" name="area" placeholder="e.g. Zindabazar, near the main road">') + "</div>" +
+            '<div class="field-row">' + field("fr-space", "Shop space", '<select id="fr-space" name="space">' + opt(["I have a shop space", "I will rent a space", "Still looking for a space"], "Choose one") + "</select>") +
+            field("fr-investment", "Planned investment", '<select id="fr-investment" name="investment">' + opt(["Under ৳10 lakh", "৳10 – 20 lakh", "৳20 – 40 lakh", "Over ৳40 lakh"], "Choose a range") + "</select>") + "</div>" +
+            field("fr-experience", "Business or retail experience", '<textarea id="fr-experience" name="experience" rows="3" placeholder="Tell us about any shop or business you have run."></textarea>') +
+            '<p class="fr__label mono">Meeting</p>' +
+            field("fr-mtype", "How would you like to meet?", '<select id="fr-mtype" name="meetingType">' + opt(["At the Ravelle office", "Video call", "Phone call"]) + "</select>") +
+            '<div class="field-row">' + field("fr-date", "Preferred date", '<input id="fr-date" name="meetingDate" type="date" min="' + tomorrow + '">') +
+            field("fr-time", "Preferred time", '<select id="fr-time" name="meetingTime">' + opt(["11am – 1pm", "2pm – 4pm", "4pm – 6pm", "6pm – 8pm"], "Any time") + "</select>") + "</div>" +
+            field("fr-message", "Anything else? (optional)", '<textarea id="fr-message" name="message" rows="3"></textarea>') +
+            '<button class="pill pill--dark" type="submit">Send request</button>' +
+          "</form>" +
+        "</div>" +
+      "</section>";
+    function draw() {
+      d = S.pages.franchise || {};
+      var list = (d.stories || []).filter(function (s) { return s && s.ownerName; });
+      $("#frStories").innerHTML = list.length ? '<div class="fr__stories"><div class="stores__head"><h2 data-c="storiesTitle"></h2><span class="mono">' + list.length + (list.length > 1 ? " partners" : " partner") + "</span></div>" +
+        '<div class="fr__grid">' + list.map(function (s) {
+          return '<article class="story reveal"><div class="story__img">' + (s.storeImage ? '<img src="' + esc(s.storeImage) + '" alt="' + esc(s.storeName || s.ownerName) + '" loading="lazy">' : "") +
+              '<span class="shopcard__type is-fr">Franchise store</span></div>' +
+            '<div class="story__body">' + (s.storeName ? "<h3>" + esc(s.storeName) + "</h3>" : "") + (s.address ? '<p class="shopcard__addr">' + esc(s.address) + "</p>" : "") +
+              (s.opinion ? '<blockquote class="story__quote">“' + esc(s.opinion) + "”</blockquote>" : "") +
+              (s.experience ? '<p class="story__exp">' + esc(s.experience) + "</p>" : "") +
+              '<div class="story__owner">' + (s.ownerImage ? '<img src="' + esc(s.ownerImage) + '" alt="" loading="lazy">' : '<span class="story__initial">' + esc(s.ownerName.charAt(0)) + "</span>") +
+                "<div><b>" + esc(s.ownerName) + '</b><span class="mono">Owner' + (s.storeName ? ", " + esc(s.storeName) : "") + "</span></div></div>" +
+            "</div></article>";
+        }).join("") + "</div></div>" : "";
+      $("#frPdf").innerHTML = d.pdf ? '<a class="pill pill--dark pill--arrow" href="' + esc(d.pdf) + '" download="Ravelle-franchise-guide.pdf" target="_blank" rel="noopener">Download PDF <span class="pill__arrow" aria-hidden="true">↓</span></a>'
+        : '<span class="pill fr__soon" aria-disabled="true">PDF coming soon</span>';
+      bind(page, d);
+      activate($("#frStories"));
+    }
+    LIVE.franchise = draw;
+    bind(pagehead, d);
+    draw();
+    $("#frForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var f = e.target, btn = $("button[type=submit]", f), body = {};
+      ["name", "phone", "email", "district", "area", "space", "investment", "experience", "meetingType", "meetingDate", "meetingTime", "message"].forEach(function (k) { body[k] = f[k].value; });
+      clearErrors(f);
+      btn.disabled = true;
+      api("POST", "/api/franchise", body).then(function () {
+        track("lead", "", { topic: "franchise" });
+        f.innerHTML = '<h2 class="panel__title">Request sent</h2><p class="contact__note">Thanks, ' + esc(body.name.split(" ")[0]) + ". We'll call you on " + esc(body.phone) +
+          " to confirm the meeting" + (body.meetingDate ? " on " + esc(new Date(body.meetingDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long" })) : "") + ".</p>";
+      }, function (err) { showErrors(f, err); btn.disabled = false; });
+    });
+  }
+
   function field(id, label, input) { return '<label class="field" for="' + id + '"><span>' + label + "</span>" + input + '<em class="field__err" data-err-for="' + id + '" hidden></em></label>'; }
   function clearErrors(f) { $$(".field__err", f).forEach(function (e) { e.hidden = true; }); $$(".is-invalid", f).forEach(function (e) { e.classList.remove("is-invalid"); }); }
   function showErrors(f, err) {
@@ -1468,6 +1618,47 @@
   // ---------------------------------------------------------------------------
   var HOME_ANCHORS = { house: 1, arrivals: 1, lookbook: 1, top: 1 };
   var LEGACY = { "men": "category/men", "women": "category/women", "t-shirt": "category/t-shirt", "the-house": "category/the-house", "account": "track" };
+  // ---------------------------------------------------------------------------
+  // Home page popup banner: 2 seconds after the home page opens, once per visit (browser tab session)
+  // ---------------------------------------------------------------------------
+  var popupTimer = null;
+  function popupSeen() { try { return sessionStorage.getItem("ravelle:popup") === popupKey(); } catch (e) { return false; } }
+  function popupKey() { var p = S.pages.popup || {}; return String(p.version || "") + "|" + (p.title || "") + "|" + (p.image || "").slice(-40); }
+  function schedulePopup(isHome) {
+    clearTimeout(popupTimer);
+    var p = S.pages.popup || {};
+    var force = /[?&]popup\b/.test(location.search); // admin "Preview" link
+    if (!isHome || EDIT || !(p.enabled || force) || (popupSeen() && !force) || $("#popup")) return;
+    popupTimer = setTimeout(function () {
+      var h = location.hash.replace(/^#/, "");
+      if ((h && h !== "home" && !HOME_ANCHORS[h]) || (popupSeen() && !force)) return;
+      showPopup(p);
+    }, Math.max(0, (+p.delay || 2)) * 1000);
+  }
+  function showPopup(p) {
+    try { sessionStorage.setItem("ravelle:popup", popupKey()); } catch (e) {}
+    var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '" alt="' + esc(p.imageAlt || p.title || "") + '"></picture>' : "";
+    var link = p.buttonLink || "", ext = /^https?:/i.test(link);
+    var wrap = document.createElement("div");
+    wrap.id = "popup";
+    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText ? " popup--image" : "");
+    wrap.innerHTML = '<div class="popup__scrim" data-popup-close></div>' +
+      '<div class="popup__box" role="dialog" aria-modal="true" aria-label="' + esc(p.title || "Offer") + '">' +
+        '<button class="popup__x" type="button" data-popup-close aria-label="Close">✕</button>' +
+        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(link) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
+        (p.title || p.text || p.buttonText ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
+          (p.title ? '<h2 class="popup__title">' + br(p.title) + "</h2>" : "") + (p.text ? '<p class="popup__text">' + br(p.text) + "</p>" : "") +
+          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(link) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
+      "</div>";
+    document.body.appendChild(wrap);
+    requestAnimationFrame(function () { wrap.classList.add("is-on"); });
+    var close = function () { wrap.classList.remove("is-on"); document.removeEventListener("keydown", onKey); setTimeout(function () { wrap.remove(); }, 300); };
+    var onKey = function (e) { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    wrap.addEventListener("click", function (e) { if (e.target.closest("[data-popup-close], [data-popup-go]")) close(); });
+    setTimeout(function () { var x = $(".popup__x", wrap); if (x) x.focus({ preventScroll: true }); }, 50);
+  }
+
   function route() {
     var raw = location.hash.replace(/^#/, ""), h = decodeURIComponent(raw.split("?")[0]), query = raw.split("?")[1] || "";
     if (LEGACY[h]) h = LEGACY[h];
@@ -1483,10 +1674,13 @@
       var target = HOME_ANCHORS[h] && h !== "top" ? document.getElementById(h) : null;
       if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
       onScroll();
+      schedulePopup(true);
       return;
     }
     homeView.hidden = true;
     pageView.hidden = false;
+    LIVE = {};
+    clearTimeout(popupTimer);
     var parts = h.split("/");
     if (SHOPS[h]) viewListing(SHOPS[h]());
     else if (parts[0] === "product") viewProduct(parts[1]);
@@ -1498,6 +1692,8 @@
     else if (h === "saved") viewSaved();
     else if (h === "about") viewAbout();
     else if (h === "contact") viewContact();
+    else if (h === "store-locations" || h === "stores") viewStores();
+    else if (h === "franchise") viewFranchise();
     else if (S.pages[h] && POLICIES.some(function (x) { return x[0] === h; })) viewPolicy(h);
     else viewMissing();
     var t = $("h1", pagehead) || $("h1", page);
@@ -2006,6 +2202,7 @@
         S.pages[m.key] = m.page;
         if (m.key === "home") { bind(homeView, m.page); bind($("#footer"), m.page); drawLook(current); editable(homeView); }
         else {
+          if (LIVE[m.key]) LIVE[m.key]();
           var root = document.querySelectorAll('[data-page="' + m.key + '"]');
           if (root.length) Array.prototype.forEach.call(root, function (r) { bind(r, m.page); editable(r); });
         }

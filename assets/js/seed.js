@@ -241,6 +241,52 @@
       formTitle: "Send a message", formNote: "We reply within one working day.",
       image: "assets/img/c-blue.webp"
     },
+    // Home page popup banner (Admin › Popup banner): shows 2 seconds after the home page opens, once per visit
+    popup: {
+      enabled: true, delay: 2, image: "assets/img/home/h-poster-fearless.webp", mobileImage: "", imageAlt: "Fearless oversized T-shirt",
+      eyebrow: "This week only", title: "Fearless drop\n25% off", text: "The new Fearless oversized tees in four washes. Cash on delivery all over Bangladesh.",
+      buttonText: "Shop the drop", buttonLink: "#on-sale", version: 1
+    },
+    // Store locations: shops are grouped by district, in the order set in districtOrder (Admin › Pages › Store locations)
+    stores: {
+      eyebrow: "Store locations", title: "Find a", accent: "Ravelle", titleEnd: "store.",
+      intro: "Try the fit in person. Every store carries the latest drops.",
+      emptyText: "We have no shops yet, you can order online.",
+      districtOrder: ["Dhaka", "Chattogram", "Sylhet"],
+      shops: [
+        { id: "shp_demo1", name: "Ravelle Banani", type: "own", district: "Dhaka", image: "assets/img/about.webp", address: "House 12, Road 11, Banani, Dhaka 1213",
+          phone: "01700-000001", email: "banani@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
+        { id: "shp_demo2", name: "Ravelle Dhanmondi", type: "own", district: "Dhaka", image: "assets/img/home/lb-2.webp", address: "Road 27, Dhanmondi, Dhaka 1209",
+          phone: "01700-000002", email: "dhanmondi@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
+        { id: "shp_demo3", name: "Ravelle GEC Circle", type: "franchise", district: "Chattogram", image: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram 4000",
+          phone: "01700-000003", email: "gec@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" },
+        { id: "shp_demo4", name: "Ravelle Zindabazar", type: "franchise", district: "Sylhet", image: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet 3100",
+          phone: "01700-000004", email: "sylhet@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" }
+      ]
+    },
+    franchise: {
+      eyebrow: "Franchise", title: "Open a", accent: "Ravelle", titleEnd: "store.",
+      intro: "Bring Ravelle to your city. We give you the brand, the stock and the support. You run the store.",
+      points: [
+        { title: "Proven products", text: "Our best-selling oversized tees, shirts and trousers, restocked every month." },
+        { title: "Full support", text: "Store design, staff training, launch marketing and our order system from day one." },
+        { title: "Shared growth", text: "Online orders from your area can be picked up and exchanged at your store." }
+      ],
+      pdfTitle: "Franchise guide", pdfText: "Rules, investment, store requirements and how the franchise system works.", pdf: "",
+      formTitle: "Request a franchise", formNote: "Tell us about you and your location, and pick a time to meet. We reply within two working days.",
+      storiesTitle: "From our franchise partners",
+      stories: [
+        { id: "fst_demo1", storeName: "Ravelle GEC Circle", storeImage: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram",
+          ownerName: "Tanvir Hossain", ownerImage: "assets/img/demo/owner-1.webp", opinion: "The products sell themselves. Customers come in already knowing the designs from Instagram.",
+          experience: "We opened in March with a 400 sq ft space. Ravelle's team set up the store and trained our staff, and we broke even in the fifth month." },
+        { id: "fst_demo2", storeName: "Ravelle Zindabazar", storeImage: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet",
+          ownerName: "Arif Rahman", ownerImage: "assets/img/demo/owner-2.webp", opinion: "Restocks arrive on time and the margins are clear from the start.",
+          experience: "I ran a small clothing shop before. Moving to Ravelle gave me a brand people trust, and weekend sales doubled within three months." },
+        { id: "fst_demo3", storeName: "Ravelle Uttara", storeImage: "assets/img/home/lb-2.webp", address: "Sector 7, Uttara, Dhaka",
+          ownerName: "Nabil Ahmed", ownerImage: "assets/img/demo/owner-3.webp", opinion: "Support is one call away. They helped with everything from the shop sign to the first drop.",
+          experience: "We started as a pop-up during Eid and turned it into a full store a month later." }
+      ]
+    },
     terms: {
       title: "Terms & conditions", updated: "28 October 2026",
       intro: "Please read these terms carefully before using ravellebd.com. By using the website or placing an order, you agree to them.",
@@ -290,7 +336,8 @@
       ] },
       { id: "fc_company", title: "Company", items: [
         { id: "f6", label: "About us", url: "#about", children: [] }, { id: "f7", label: "Contact us", url: "#contact", children: [] },
-        { id: "f8", label: "Track order", url: "#track", children: [] }, { id: "f9", label: "Saved items", url: "#saved", children: [] }
+        { id: "f8", label: "Track order", url: "#track", children: [] }, { id: "f9", label: "Saved items", url: "#saved", children: [] },
+        { id: "f_stores", label: "Store locations", url: "#store-locations", children: [] }, { id: "f_franchise", label: "Franchise", url: "#franchise", children: [] }
       ] },
       { id: "fc_policies", title: "Policies", items: [
         { id: "f10", label: "Terms & conditions", url: "#terms", children: [] }, { id: "f11", label: "Privacy policy", url: "#privacy", children: [] },
