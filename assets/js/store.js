@@ -691,12 +691,14 @@
   // Page header
   // ---------------------------------------------------------------------------
   function head(crumb, title, sub, key) {
+    pagehead.classList.remove("has-tools");
     pagehead.innerHTML = '<div class="hero__panel pagehead__panel"' + (key ? ' data-page="' + key + '"' : "") + ">" + navHTML() +
       '<div class="pagehead__copy"><p class="eyebrow">' + crumb + '</p><h1 class="display display--page">' + title + "</h1>" +
       (sub ? '<p class="pagehead__sub">' + sub + "</p>" : "") + "</div></div>";
     syncCount();
   }
   function miniHead() {
+    pagehead.classList.remove("has-tools");
     pagehead.innerHTML = '<div class="hero__panel pagehead__panel pagehead__panel--mini">' + navHTML() + "</div>";
     syncCount();
   }
@@ -720,6 +722,21 @@
   }
   function accent(name) { return esc(name).replace(/(\S+)$/, '<em class="alt" data-scramble>$1</em>'); }
 
+  // Colour groups for the shop filter. Admin can set a product's group; otherwise it is guessed from the colour name.
+  var COLOR_GROUPS = [
+    ["Black", "#1f2022", /black|jet|onyx/], ["White", "#f2f1ec", /white|ivory|mono bloom/], ["Grey", "#8a8d91", /grey|gray|charcoal|ash|silver/],
+    ["Blue", "#3b6279", /blue|navy|denim|teal/], ["Green", "#3f8a68", /green|olive|sage|mint/], ["Yellow", "#c3ae62", /yellow|mustard|gold/],
+    ["Cream", "#d8ccb0", /cream|beige|sand|khaki|line art/], ["Brown", "#5f4535", /brown|coffee|chocolate|tan|mosaic|camel/],
+    ["Red", "#a8342b", /red|brick|maroon|wine|burgundy/], ["Pink", "#d0607a", /pink|rose|blush/], ["Orange", "#d27c3c", /orange|coral|rust|peach/],
+    ["Purple", "#6c4f8c", /purple|violet|lilac|lavender/]
+  ];
+  function colorGroup(p) {
+    var g = COLOR_GROUPS.filter(function (x) { return x[0] === p.colorGroup; })[0];
+    if (!g) { var n = String(p.color || "").toLowerCase(); g = COLOR_GROUPS.filter(function (x) { return x[2].test(n); })[0]; }
+    return g ? { name: g[0], hex: g[1] } : (p.color ? { name: p.color, hex: p.hex || "#888888" } : null);
+  }
+  var CHEVRON = '<svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+
   function viewListing(opts) {
     var base = opts.list;
     head(opts.crumb, opts.title, opts.sub || base.length + (base.length === 1 ? " piece" : " pieces") + ". Prices in BDT.");
@@ -728,25 +745,32 @@
     base.forEach(function (p) { if (p.line && lines.indexOf(p.line) < 0) lines.push(p.line); });
     var chips = subcats.length > 1 ? subcats.map(function (c) { return { key: "cat:" + c.id, label: c.name }; }) : lines.length > 1 ? lines.map(function (l) { return { key: "line:" + l, label: l }; }) : [];
     var colors = [];
-    base.forEach(function (p) { if (p.color && !colors.some(function (c) { return c.name === p.color; })) colors.push({ name: p.color, hex: p.hex }); });
+    base.forEach(function (p) { var g = colorGroup(p); if (g && !colors.some(function (c) { return c.name === g.name; })) colors.push(g); });
+    colors.sort(function (a, b) { return COLOR_GROUPS.map(function (x) { return x[0]; }).indexOf(a.name) - COLOR_GROUPS.map(function (x) { return x[0]; }).indexOf(b.name); });
     var sizes = [];
     base.forEach(function (p) { p.variants.forEach(function (v) { var s = v.options.Size; if (s && sizes.indexOf(s) < 0) sizes.push(s); }); });
+    // Four dropdowns sit on the page header: design and colour on the left, size and sort on the right
+    var tools = '<div class="pagehead__tools" id="shopTools">' +
+      '<div class="tools__side">' +
+        (chips.length ? '<label class="sort"><span class="sr">Design</span><select id="chipFilter"><option value="">' + (subcats.length > 1 ? "All types" : "All designs") + "</option>" +
+          chips.map(function (c) { return '<option value="' + esc(c.key) + '">' + esc(c.label) + "</option>"; }).join("") + "</select></label>" : "") +
+        (colors.length > 1 ? '<div class="cdrop" id="colorDrop"><button class="cdrop__btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Colour">' +
+          '<span class="cdrop__dot" aria-hidden="true"></span><span class="cdrop__txt">Colour</span>' + CHEVRON + "</button>" +
+          '<div class="cdrop__pop" role="group" aria-label="Colour" hidden>' +
+            '<button class="swatch swatch--any" type="button" data-color="" aria-pressed="true"><span class="sr">Any colour</span></button>' +
+            colors.map(function (c) { return '<button class="swatch" type="button" data-color="' + esc(c.name) + '" style="--sw:' + esc(c.hex) + '" aria-pressed="false"><span class="sr">' + esc(c.name) + "</span></button>"; }).join("") +
+          "</div></div>" : "") +
+      "</div>" +
+      '<div class="tools__side">' +
+        (sizes.length > 1 ? '<label class="sort"><span class="sr">Size</span><select id="sizeFilter"><option value="">Any size</option>' + sizes.map(function (s) { return "<option>" + esc(s) + "</option>"; }).join("") + "</select></label>" : "") +
+        '<label class="sort"><span class="sr">Sort</span><select id="sort">' +
+          '<option value="featured">Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="new">Newest</option>' +
+        "</select></label>" +
+      "</div></div>";
+    pagehead.insertAdjacentHTML("beforeend", tools);
+    pagehead.classList.add("has-tools");
     page.innerHTML =
       '<section class="shop">' +
-        '<div class="toolbar">' +
-          (chips.length ? '<div class="filters filters--left" role="group" aria-label="Filter">' + [{ key: "", label: "All" }].concat(chips).map(function (c, i) {
-            return '<button class="filter' + (i ? "" : " is-on") + '" type="button" data-chip="' + esc(c.key) + '">' + esc(c.label) + "</button>";
-          }).join("") + "</div>" : "<span></span>") +
-          '<div class="toolbar__right">' +
-            (colors.length > 1 ? '<div class="swatches" role="group" aria-label="Colour">' + colors.map(function (c) {
-              return '<button class="swatch" type="button" data-color="' + esc(c.name) + '" style="--sw:' + esc(c.hex) + '" aria-pressed="false" title="' + esc(c.name) + '"><span class="sr">' + esc(c.name) + "</span></button>";
-            }).join("") + "</div>" : "") +
-            (sizes.length > 1 ? '<label class="sort"><span class="sr">Size</span><select id="sizeFilter"><option value="">Any size</option>' + sizes.map(function (s) { return "<option>" + esc(s) + "</option>"; }).join("") + "</select></label>" : "") +
-            '<label class="sort"><span class="sr">Sort</span><select id="sort">' +
-              '<option value="featured">Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="new">Newest</option>' +
-            "</select></label>" +
-          "</div>" +
-        "</div>" +
         '<p class="shop__count mono" id="count"></p>' +
         '<div class="grid" id="shopGrid"></div>' +
         '<div class="empty" id="shopEmpty" hidden><p>Nothing matches those filters.</p><button class="pill pill--dark pill--sm" type="button" id="clearFilters">Clear filters</button></div>' +
@@ -756,7 +780,7 @@
       var list = base.filter(function (p) {
         if (state.chip.indexOf("cat:") === 0 && !productsIn(CAT_BY_ID[state.chip.slice(4)]).some(function (x) { return x === p; })) return false;
         if (state.chip.indexOf("line:") === 0 && p.line !== state.chip.slice(5)) return false;
-        if (state.color && p.color !== state.color) return false;
+        if (state.color && (colorGroup(p) || {}).name !== state.color) return false;
         if (state.size && !p.variants.some(function (v) { return v.options.Size === state.size && (!p.trackStock || v.stock > 0); })) return false;
         return true;
       }).slice();
@@ -769,26 +793,33 @@
       $("#shopEmpty").hidden = list.length > 0;
       guardImages($("#shopGrid"));
     }
-    $$(".toolbar .filter", page).forEach(function (b) {
-      b.addEventListener("click", function () {
-        state.chip = b.dataset.chip;
-        $$(".toolbar .filter", page).forEach(function (x) { x.classList.toggle("is-on", x === b); });
-        draw();
+    var drop = $("#colorDrop");
+    function setColor(name) {
+      state.color = name || null;
+      $$(".swatch", drop).forEach(function (x) { x.setAttribute("aria-pressed", (x.dataset.color || null) === state.color ? "true" : "false"); });
+      var on = colors.filter(function (c) { return c.name === state.color; })[0];
+      drop.classList.toggle("is-set", !!on);
+      $(".cdrop__dot", drop).style.background = on ? on.hex : "";
+    }
+    function openDrop(open) {
+      $(".cdrop__pop", drop).hidden = !open;
+      $(".cdrop__btn", drop).setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (drop) {
+      $(".cdrop__btn", drop).addEventListener("click", function (e) { e.stopPropagation(); openDrop($(".cdrop__pop", drop).hidden); });
+      $$(".swatch", drop).forEach(function (b) {
+        b.addEventListener("click", function () { setColor(b.dataset.color); openDrop(false); draw(); });
       });
-    });
-    $$(".swatch", page).forEach(function (b) {
-      b.addEventListener("click", function () {
-        state.color = state.color === b.dataset.color ? null : b.dataset.color;
-        $$(".swatch", page).forEach(function (x) { x.setAttribute("aria-pressed", x.dataset.color === state.color ? "true" : "false"); });
-        draw();
-      });
-    });
+      document.addEventListener("click", function (e) { if (drop.isConnected && !drop.contains(e.target)) openDrop(false); });
+      drop.addEventListener("keydown", function (e) { if (e.key === "Escape") { openDrop(false); $(".cdrop__btn", drop).focus(); } });
+    }
+    if ($("#chipFilter")) $("#chipFilter").addEventListener("change", function (e) { state.chip = e.target.value; draw(); });
     if ($("#sizeFilter")) $("#sizeFilter").addEventListener("change", function (e) { state.size = e.target.value; draw(); });
     $("#sort").addEventListener("change", function (e) { state.sort = e.target.value; draw(); });
     $("#clearFilters").addEventListener("click", function () {
       state = { chip: "", color: null, size: "", sort: state.sort };
-      $$(".toolbar .filter", page).forEach(function (x, i) { x.classList.toggle("is-on", i === 0); });
-      $$(".swatch", page).forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+      if ($("#chipFilter")) $("#chipFilter").value = "";
+      if (drop) setColor("");
       if ($("#sizeFilter")) $("#sizeFilter").value = "";
       draw();
     });

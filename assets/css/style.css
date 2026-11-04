@@ -172,10 +172,12 @@ button { font: inherit; color: inherit; }
 
 .hero__side { position: absolute; left: 30px; bottom: 64px; width: 210px; z-index: 2; display: grid; gap: 18px; }
 /* Social links: fixed bottom-left, side by side, level with the chat button */
+/* floating buttons (chat, Facebook, Instagram): one size, theme grey with white icons */
+:root { --fab: #5f6368; --fab-hover: #3a3d41; }
 .social-dock { position: fixed; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 18px); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 34; display: flex; gap: 10px; }
-.social-dock a { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.86); color: #16181a; border: 1px solid rgba(22,24,26,.12);
+.social-dock a { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--fab); color: #fff; border: 0;
   box-shadow: 0 10px 22px -12px rgba(17,18,20,.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background .3s, color .3s, transform .3s var(--ease); }
-.social-dock a:hover { background: #16181a; color: #fff; transform: translateY(-2px); }
+.social-dock a:hover { background: var(--fab-hover); color: #fff; transform: translateY(-2px); }
 .social-dock svg { width: 18px; height: 18px; fill: currentColor; }
 .social-dock svg[fill="none"] { fill: none; }
 .hero__side p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--ink-2); text-indent: 3.2em; }
@@ -589,7 +591,38 @@ body.is-locked { overflow: hidden; }
   background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23111214' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat right 14px center;
   appearance: none; font: 500 11px var(--f-display); letter-spacing: .05em; text-transform: uppercase; color: var(--ink); cursor: pointer;
 }
-.shop__count { color: var(--ink-2); margin: 18px 0; }
+.shop__count { color: var(--ink-2); margin: 0 0 18px; }
+/* Shop filters on the page header: design + colour left, size + sort right */
+.pagehead { position: relative; }
+.pagehead.has-tools .pagehead__panel { padding-bottom: 92px; }
+.pagehead__tools { position: absolute; z-index: 6; left: calc(var(--gut) + 26px); right: calc(var(--gut-r) + 26px); bottom: 26px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; }
+.tools__side { display: flex; gap: 10px; pointer-events: auto; }
+.sort select, .cdrop__btn { box-shadow: 0 8px 18px -12px rgba(17,18,20,.4); }
+.cdrop { position: relative; }
+.cdrop__btn {
+  height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--paper); font: 500 11px var(--f-display); letter-spacing: .05em; text-transform: uppercase; color: var(--ink); cursor: pointer;
+}
+.cdrop__btn svg { margin-left: 6px; transition: transform .2s; }
+.cdrop__btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.cdrop__dot { width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(#a8342b, #c3ae62, #3f8a68, #3b6279, #6c4f8c, #a8342b); box-shadow: inset 0 0 0 1px rgba(17,18,20,.15); }
+.cdrop__pop {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20; width: max-content; max-width: 236px;
+  display: grid; grid-template-columns: repeat(5, 30px); gap: 10px; padding: 14px; border-radius: 16px;
+  background: var(--paper); border: 1px solid var(--line); box-shadow: 0 24px 40px -20px rgba(17,18,20,.45);
+}
+.cdrop__pop[hidden] { display: none; }
+.cdrop__pop .swatch { width: 30px; height: 30px; --ground: var(--paper); }
+.swatch--any { background: var(--paper) linear-gradient(135deg, transparent 46%, #b9bcc0 46% 54%, transparent 54%); }
+@media (max-width: 900px) {
+  .pagehead.has-tools .pagehead__panel { padding-bottom: 40px; }
+  .pagehead__tools { position: static; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 0; }
+  .tools__side { display: contents; }
+  .tools__side > *, .sort select, .cdrop__btn { width: 100%; }
+  .cdrop__btn { justify-content: flex-start; }
+  .cdrop__btn svg { margin-left: auto; }
+  .cdrop__pop { left: auto; right: 0; }
+}
 .empty { display: grid; justify-items: center; gap: 16px; padding: 70px 16px; text-align: center; color: var(--ink-2); }
 .empty p { margin: 0; font-size: 15px; }
 .card__type, .no-img > .card__type { z-index: 0; }
@@ -996,10 +1029,10 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
 .footer__legal { margin: 0; color: #8b9096; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; text-align: center; }
 
 /* Chat */
-.chat { pointer-events: none; position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 35; display: grid; justify-items: end; gap: 12px; }
+.chat { pointer-events: none; position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 35; display: grid; justify-items: end; gap: 12px; }
 .chat[hidden] { display: none; }
-.chat__btn { pointer-events: auto; position: relative; width: 54px; height: 54px; border-radius: 50%; border: 0; background: var(--ink); color: var(--paper); display: grid; place-items: center; cursor: pointer; box-shadow: 0 16px 30px -14px rgba(17,18,20,.7); transition: transform .25s var(--ease); }
-.chat__btn:hover { transform: translateY(-2px) scale(1.04); }
+.chat__btn { pointer-events: auto; position: relative; width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--fab); color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 16px 30px -14px rgba(17,18,20,.7); transition: transform .25s var(--ease); }
+.chat__btn:hover { background: var(--fab-hover); transform: translateY(-2px); }
 .chat__badge { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--sale); font: 600 11px/20px var(--f-display); }
 .chat__badge[hidden] { display: none; }
 .chat__panel {

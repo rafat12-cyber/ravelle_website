@@ -24,6 +24,9 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   const TOKEN_KEY = "ravelle:admin-token";
+  // Shop colour-filter groups (same names and colours as COLOR_GROUPS in assets/js/store.js)
+  const FILTER_COLORS = [["Black", "#1f2022"], ["White", "#f2f1ec"], ["Grey", "#8a8d91"], ["Blue", "#3b6279"], ["Green", "#3f8a68"], ["Yellow", "#c3ae62"],
+    ["Cream", "#d8ccb0"], ["Brown", "#5f4535"], ["Red", "#a8342b"], ["Pink", "#d0607a"], ["Orange", "#d27c3c"], ["Purple", "#6c4f8c"]];
   let token = null;
   try { token = localStorage.getItem(TOKEN_KEY); } catch (e) {}
   let me = null, areas = [], store = null; // store = GET /api/store, for categories/attributes/menus
@@ -639,7 +642,10 @@
           <div class="card"><h2 class="h2">Style</h2>
             <label class="field"><span>Line / collection label</span><input class="input" name="line" value="${esc(draft.line || "")}" placeholder="Fearless"><small>Used for the filter chips on the shop page.</small></label>
             <div class="row row--2"><label class="field"><span>Colour name</span><input class="input" name="color" value="${esc(draft.color || "")}" placeholder="Black"></label>
-            <label class="field"><span>Colour</span><input class="input" name="hex" type="color" value="${esc(draft.hex || "#7b7e83")}" style="padding:2px"></label></div></div>
+            <label class="field"><span>Colour</span><input class="input" name="hex" type="color" value="${esc(draft.hex || "#7b7e83")}" style="padding:2px"></label></div>
+            <div class="field"><span>Shop filter colour</span><input type="hidden" name="colorGroup" value="${esc(draft.colorGroup || "")}">
+              <div class="chips" id="cgPick">${[["", "Auto"]].concat(FILTER_COLORS).map(([n, h]) => `<button type="button" class="chipbtn${(draft.colorGroup || "") === n ? " is-on" : ""}" data-cg="${esc(n)}">${h ? `<span class="sw" style="background:${h}"></span>` : ""}${esc(n || "Auto")}</button>`).join("")}</div>
+              <small>The colour this product is listed under in the shop's colour filter. Auto picks it from the colour name.</small></div></div>
           <div class="card"><h2 class="h2">Web address</h2><label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(draft.slug || "")}" placeholder="Made from the name"><small>ravellebd.com/#product/<b>${esc(draft.slug || "…")}</b></small></label></div>
         </div>
         <div class="sticky-save" style="grid-column:1/-1"><span class="small">${isNew ? "New product" : "Editing " + esc(p.name)}</span>
@@ -737,12 +743,18 @@
     };
     $("[name=trackStock]", form).onchange = drawVariants;
     drawAttrs();
+    $("#cgPick", form).onclick = (e) => {
+      const btn = e.target.closest("[data-cg]");
+      if (!btn) return;
+      $("[name=colorGroup]", form).value = btn.dataset.cg;
+      $$("#cgPick .chipbtn", form).forEach((x) => x.classList.toggle("is-on", x === btn));
+    };
 
     form.onsubmit = async (e) => {
       e.preventDefault();
       const b = formData(form);
       const body = {
-        name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, price: b.price, comparePrice: b.comparePrice || 0,
+        name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, colorGroup: b.colorGroup || "", price: b.price, comparePrice: b.comparePrice || 0,
         description: b.description, details: b.details, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value,
         categoryIds: $$("[name=cat]:checked", form).map((x) => x.value), isNew: b.isNew, featured: b.featured, trackStock: b.trackStock, stock: b.stock,
         attributes: draft.attributes.filter((a) => a.values.length), variants: draft.variants

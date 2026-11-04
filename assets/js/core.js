@@ -104,7 +104,7 @@
   }
   function publicProduct(p) {
     return {
-      id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex,
+      id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex, colorGroup: p.colorGroup || "",
       price: p.price, comparePrice: p.comparePrice || 0, description: p.description, details: p.details || [],
       images: p.images || [], sizeGuide: p.sizeGuide || "", categoryIds: p.categoryIds || [],
       attributes: p.attributes || [], isNew: !!p.isNew, featured: !!p.featured, trackStock: !!p.trackStock,
@@ -187,6 +187,7 @@
       if (!p.name) fail(400, "Product name is required.");
       if (b.slug !== undefined || !p.slug) p.slug = uniqueSlug(db.products, str(b.slug) || p.name, p.id);
       ["line", "color", "description"].forEach(function (k) { if (b[k] !== undefined) p[k] = str(b[k], k === "description" ? 4000 : 120); });
+      if (b.colorGroup !== undefined) p.colorGroup = str(b.colorGroup, 30);
       if (b.hex !== undefined) p.hex = /^#[0-9a-f]{6}$/i.test(b.hex) ? b.hex : (p.hex || "#888888");
       if (b.sku !== undefined) p.sku = str(b.sku, 60).toUpperCase();
       if (b.status !== undefined) p.status = b.status === "draft" ? "draft" : "published";
