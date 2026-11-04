@@ -140,7 +140,7 @@ button { font: inherit; color: inherit; }
 .hero__rays { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .hero__model {
   position: relative; z-index: 1; align-self: end; justify-self: center;
-  width: min(780px, 62%); margin-top: -6px; margin-bottom: -20%;
+  width: min(780px, 62%); margin-top: -6px; margin-bottom: -12%;
   transform-origin: 50% 100%;
 }
 .hero__model img { width: 100%; height: auto; filter: drop-shadow(0 30px 40px rgba(40,55,62,.18)); }
@@ -482,7 +482,7 @@ button { font: inherit; color: inherit; }
   .nav__menu { display: none; }
   .nav__burger { display: grid; }
   .hero__panel { min-height: 0; }
-  .hero__model { width: min(620px, 96%); margin-bottom: -26%; }
+  .hero__model { width: min(620px, 96%); margin-bottom: -17%; }
   .hero__side { display: none; }
   .hero__reel { width: 150px; right: 14px; bottom: 14px; }
   .collage { grid-template-columns: 1fr 1fr; padding-block: 80px; }
