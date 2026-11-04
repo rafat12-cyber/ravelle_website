@@ -255,7 +255,8 @@
     var limit = heroNav ? heroNav.getBoundingClientRect().bottom + y : 80;
     top.classList.toggle("is-on", y > limit + 10);
     $$("[data-drift]").forEach(function (el) {
-      var r = el.parentElement.getBoundingClientRect();
+      // inside the sticky lookbook, measure the whole section so the text keeps sliding while the photos are pinned
+      var r = (el.closest(".lookbook") || el.parentElement).getBoundingClientRect();
       if (!r.height || r.bottom < -200 || r.top > vh + 200) return;
       var p = (vh - r.top) / (vh + r.height);
       el.style.transform = "translateX(" + (p * 30 * parseFloat(el.dataset.drift)) + "%)";

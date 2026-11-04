@@ -464,7 +464,7 @@ button { font: inherit; color: inherit; }
 .lookbook { height: 460vh; position: relative; }
 .lookbook__sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; display: grid; place-items: center; }
 .marquee--back { position: absolute; top: 16%; left: 0; z-index: 0; }
-.marquee--front { position: absolute; bottom: 13%; left: -40%; z-index: 2; color: rgba(255,255,255,.55); }
+.marquee--front { position: absolute; bottom: 13%; right: -40%; z-index: 2; color: rgba(255,255,255,.55); }
 .look {
   position: relative; z-index: 1;
   width: min(430px, 84vw, 62vh); aspect-ratio: 3 / 4; border-radius: var(--r-md); overflow: hidden;
@@ -473,9 +473,9 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 40px 60px -40px rgba(17,18,20,.6);
 }
 /* full photos, cropped to the box; one fades out as the next fades in */
-.look__img { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .4s ease 1.4s; }
+.look__img { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .2s ease .3s; }
 .look__img.is-prev { opacity: 0; z-index: 1; }
-.look__img.is-on { opacity: 1; z-index: 2; transition: opacity 1.4s ease-in-out; }
+.look__img.is-on { opacity: 1; z-index: 2; transition: opacity .3s ease; }
 .look::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.38), transparent 20%, transparent 85%, rgba(0,0,0,.2)); }
 .look__tl, .look__tr, .look__bl, .look__br, .look__count { position: absolute; z-index: 4; color: var(--paper); }
 .look__tl { top: 16px; left: 16px; }
