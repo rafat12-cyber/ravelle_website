@@ -173,17 +173,19 @@
         avatars: ["assets/img/home/h-avatar-1.jpg", "assets/img/home/h-avatar-2.jpg", "assets/img/home/h-avatar-3.jpg"]
       },
       tryLook: {
-        title: "Try the Look.", sub: "Nine looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
+        title: "Try the Look.", sub: "Eleven looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
         looks: [
           { name: "Fearless", image: "assets/img/home/look-1.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with the black baggy trouser", products: "fearless-oversized-t-shirt-yellow, baggy-trouser-black" },
           { name: "RVCHL", image: "assets/img/home/look-2.webp", imageAlt: "Model in the RVCHL oversized T-shirt in black with the black baggy trouser", products: "rvchl-oversized-t-shirt-black, baggy-trouser-black" },
           { name: "574", image: "assets/img/home/look-7.webp", imageAlt: "Model in the 574 acid washed oversized T-shirt in brick red with the black baggy trouser", products: "574-oversized-t-shirt-brick-red, baggy-trouser-black" },
-          { name: "Trust Broken", image: "assets/img/home/look-3.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in ocean blue with the black baggy trouser", products: "trust-broken-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Starlight Blue", image: "assets/img/home/look-10.webp", imageAlt: "Model in the Starlight oversized T-shirt in ocean blue, seen from the back with the black baggy trouser", products: "starlight-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
           { name: "Paradox", image: "assets/img/home/look-8.webp", imageAlt: "Model in the Paradox oversized T-shirt in cream with the black baggy trouser", products: "paradox-oversized-t-shirt-cream, baggy-trouser-black" },
           { name: "Starlight Black", image: "assets/img/home/look-5.webp", imageAlt: "Model in the Starlight oversized T-shirt in black with the black baggy trouser", products: "starlight-oversized-t-shirt-black, baggy-trouser-black" },
-          { name: "Santa Rosa", image: "assets/img/home/look-9.webp", imageAlt: "Model in the Santa Rosa oversized T-shirt in ocean blue with the black baggy trouser", products: "santa-rosa-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
-          { name: "Starlight Cream", image: "assets/img/home/look-4.webp", imageAlt: "Model in the Starlight oversized T-shirt in cream with the black baggy trouser", products: "starlight-oversized-t-shirt-cream, baggy-trouser-black" },
-          { name: "Stride Out", image: "assets/img/home/look-6.webp", imageAlt: "Model in the Stride Out oversized T-shirt in blue with the black baggy trouser", products: "stride-out-oversized-t-shirt-blue, baggy-trouser-black" }
+          { name: "RVCHL Blue", image: "assets/img/home/look-11.webp", imageAlt: "Model in the RVCHL oversized T-shirt in ocean blue, seen from the back with the black baggy trouser", products: "rvchl-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Fearless Blue", image: "assets/img/home/look-12.webp", imageAlt: "Model in the Fearless oversized T-shirt in ocean blue with the black baggy trouser", products: "fearless-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Stride Out", image: "assets/img/home/look-6.webp", imageAlt: "Model in the Stride Out oversized T-shirt in blue with the black baggy trouser", products: "stride-out-oversized-t-shirt-blue, baggy-trouser-black" },
+          { name: "Fearless Black", image: "assets/img/home/look-13.webp", imageAlt: "Model in the Fearless oversized T-shirt in black with the black baggy trouser", products: "oversized-t-shirt-fearless-black, baggy-trouser-black" },
+          { name: "Trust Broken", image: "assets/img/home/look-14.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in black with the black baggy trouser", products: "trust-broken-oversized-t-shirt-black, baggy-trouser-black" }
         ]
       },
       house: {

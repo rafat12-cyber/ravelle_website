@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v12";
+  var DB_KEY = "ravelle:demo-db:v13";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   function loadScript(src) {

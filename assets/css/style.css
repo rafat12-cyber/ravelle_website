@@ -260,7 +260,7 @@ button { font: inherit; color: inherit; }
 .tl__steps li { flex: none; }
 .tl__steps button { display: grid; gap: 9px; justify-items: start; border: 0; background: none; padding: 6px 0; cursor: pointer; color: #9a9da1; }
 .tl__steps i { position: relative; display: block; width: 56px; height: 2px; background: #d9d9d6; overflow: hidden; transition: width .5s var(--ease); }
-.tl__steps .is-on i { width: 120px; }
+.tl__steps .is-on i { width: 150px; }
 .tl__steps i::after { content: ""; position: absolute; inset: 0; background: #2a2b2d; transform: scaleX(0); transform-origin: 0 50%; }
 .tl__steps .is-done i::after { transform: scaleX(1); background: #b9bbbe; }
 .tl__steps .is-on i::after { transform: scaleX(1); }
