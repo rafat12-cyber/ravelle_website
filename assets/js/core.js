@@ -1186,6 +1186,38 @@
       }
       return { user: publicUser(u) };
     });
+    // Forgotten password (admin panel users only; customers have no accounts here)
+    route("POST", "/api/auth/forgot", null, function (c) {
+      var db = c.db, email = str(c.body.email, 120).toLowerCase(), out = { ok: true, message: "If that email belongs to an admin user, a reset link is on its way. It works for 30 minutes." };
+      if (!isEmail(email)) fail(400, "Enter the email you sign in with.");
+      var u = db.users.filter(function (x) { return x.email === email; })[0];
+      if (!u) return out;
+      if (u.resetAt && now() - u.resetAt < 60e3) return out; // one email a minute
+      var token = host.random(24);
+      u.resetHash = sha256(token); u.resetExpires = now() + 30 * 60e3; u.resetAt = now();
+      var link = siteUrl(db) + "/admin?reset=" + token;
+      var e = sendEmail(db, u.email, "Reset your admin password", emailShell(db, "Reset your password",
+        '<p style="margin:0 0 6px;font-size:15px;line-height:1.6">Hi ' + h(u.name.split(" ")[0]) + ", someone (hopefully you) asked to reset the password for the " + h((db.settings.store || {}).name || "Ravelle") + " admin panel.</p>" +
+        button(link, "Choose a new password") + '<p style="margin:14px 0 0;font-size:13px;color:#5f6368;line-height:1.6">The link works for 30 minutes and only once. If you didn&#39;t ask for this, ignore this email; your password stays the same.</p>'),
+        "Reset your admin password: " + link + "\n\nThe link works for 30 minutes. If you didn't ask for this, ignore this email.", "password-reset", u.email);
+      if (!host.sendEmail) { out.demoLink = "?reset=" + token; out.message = "Demo: there's no email server, so here is the reset link."; }
+      else if (e.ok === false) out.message = "The store can't send email yet, so no link was sent. Ask the store owner to reset your password in Admin › Users.";
+      return out;
+    });
+    function resetUser(db, token) {
+      var hs = sha256(String(token || ""));
+      var u = db.users.filter(function (x) { return x.resetHash && x.resetHash === hs; })[0];
+      if (!u || u.resetExpires < now()) fail(400, "This reset link has expired or was already used. Ask for a new one.");
+      return u;
+    }
+    route("GET", "/api/auth/reset/:token", null, function (c) { var u = resetUser(c.db, c.params.token); return { email: u.email, name: u.name }; }, { readonly: true });
+    route("POST", "/api/auth/reset", null, function (c) {
+      var u = resetUser(c.db, c.body.token);
+      setPassword(u, c.body.password);
+      delete u.resetHash; delete u.resetExpires;
+      c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; });
+      return { ok: true, email: u.email };
+    });
     function setPassword(u, pw) {
       pw = String(pw || "");
       if (pw.length < 8) fail(400, "Use a password of at least 8 characters.");

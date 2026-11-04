@@ -2359,12 +2359,54 @@
     } catch (err) { $("#loginErr").textContent = err.message || "Couldn't sign in."; $("#loginErr").hidden = false; }
     busy(btn, false);
   };
+  // Forgot password / reset link (admin users only)
+  const demoQs = () => (/[?&]demo\b/.test(location.search) ? "?demo" : "");
+  const loginCard = (id) => ["loginForm", "forgotForm", "resetForm"].forEach((k) => { $("#" + k).hidden = k !== id; });
+  $("#forgotLink").onclick = (e) => { e.preventDefault(); $("#forgotForm").email.value = $("#loginForm").email.value; $("#forgotErr").hidden = true; loginCard("forgotForm"); $("#forgotForm").email.focus(); };
+  $$("[data-back-login]").forEach((a) => { a.onclick = (e) => { e.preventDefault(); history.replaceState(null, "", location.pathname + demoQs()); loginCard("loginForm"); }; });
+  $("#forgotForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = $("button[type=submit]", e.target);
+    $("#forgotErr").hidden = true; busy(btn, true);
+    try {
+      const r = await window.Ravelle.call("POST", "/api/auth/forgot", { email: e.target.email.value.trim() });
+      $("#forgotNote").innerHTML = esc(r.message) + (r.demoLink ? ` <a href="${esc(r.demoLink)}${demoQs() ? "&demo" : ""}" id="demoResetLink">Open the reset link</a>` : "");
+      $("#forgotNote").classList.remove("muted");
+    } catch (err) { $("#forgotErr").textContent = err.message; $("#forgotErr").hidden = false; }
+    busy(btn, false);
+  };
+  const resetToken = new URLSearchParams(location.search).get("reset");
+  async function showReset() {
+    $("#app").hidden = true; $("#login").hidden = false; loginCard("resetForm");
+    const f = $("#resetForm");
+    try {
+      const r = await window.Ravelle.call("GET", "/api/auth/reset/" + encodeURIComponent(resetToken));
+      $("#resetNote").textContent = `Choose a new password for ${r.email}. At least 8 characters.`;
+      f.password.focus();
+    } catch (err) { $("#resetNote").textContent = err.message; $$("input, button", f).forEach((x) => { x.disabled = true; }); }
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      $("#resetErr").hidden = true;
+      if (f.password.value !== f.password2.value) { $("#resetErr").textContent = "The two passwords don't match."; $("#resetErr").hidden = false; return; }
+      const btn = $("button[type=submit]", f); busy(btn, true);
+      try {
+        const r = await window.Ravelle.call("POST", "/api/auth/reset", { token: resetToken, password: f.password.value });
+        history.replaceState(null, "", location.pathname + demoQs());
+        loginCard("loginForm");
+        $("#loginForm").email.value = r.email; $("#loginForm").password.value = "";
+        $("#loginNote").textContent = "Password changed. Sign in with your new password.";
+        $("#loginForm").password.focus();
+      } catch (err) { $("#resetErr").textContent = err.message; $("#resetErr").hidden = false; }
+      busy(btn, false);
+    };
+  }
   $("#logout").onclick = () => signOut();
   $("#menuBtn").onclick = () => { $("#side").classList.add("is-open"); $("#sideScrim").hidden = false; };
   $("#sideScrim").onclick = () => { $("#side").classList.remove("is-open"); $("#sideScrim").hidden = true; };
   $("#resetDemo").onclick = async () => { if (await confirmBox("Reset the demo?", "This puts back the sample products, orders and pages and removes your changes in this browser.", "Reset demo", true)) window.Ravelle.resetDemo(); };
 
   window.Ravelle.ready.then(async () => {
+    if (resetToken) return showReset();
     if (!token) return showLogin();
     try {
       const r = await window.Ravelle.call("GET", "/api/auth/me", null, token);

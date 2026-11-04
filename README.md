@@ -49,6 +49,8 @@ npm test                # end-to-end API check
 
 On first start the store is filled with the 41 products from the October 2026 shoot and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
 
+Forgot an admin password? Use **Forgot password?** on the admin sign-in page: it emails a one-time link (valid 30 minutes) once email is set up in **Email & reminders**. The owner can also set a staff member's password in **Users**. If nobody can sign in, stop the store and run `node server/reset-password.js you@example.com "new password"`, then start it again.
+
 ### `.env`
 
 | Setting | Meaning |
