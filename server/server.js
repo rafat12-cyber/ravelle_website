@@ -23,10 +23,15 @@ loadEnv(path.join(ROOT, ".env"));
 var PORT = +process.env.PORT || 3000;
 var DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || "data");
 var UPLOADS = path.join(DATA_DIR, "uploads");
+var ASSETS = path.join(ROOT, "assets");
 var DB_FILE = path.join(DATA_DIR, "db.json");
 var PUBLIC_URL = (process.env.PUBLIC_URL || "http://localhost:" + PORT).replace(/\/+$/, "");
 var SSLC_ID = process.env.SSLC_STORE_ID || "";
 var SSLC_PASS = process.env.SSLC_STORE_PASSWORD || "";
+var HTTPS_SITE = /^https:/.test(PUBLIC_URL);
+// Only trust X-Forwarded-For when the store runs behind your own proxy (nginx, Caddy, cPanel's Node app, Cloudflare).
+// Otherwise anyone can send a fake address in that header and skip every rate limit.
+var TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || "");
 
 var Core = require(path.join(ROOT, "assets/js/core.js"));
 var SEED = require(path.join(ROOT, "assets/js/seed.js"));
@@ -233,8 +238,21 @@ function postJson(url, body, headers, cb) {
 // Media: uploads are saved as files under DATA_DIR/uploads
 // ---------------------------------------------------------------------------
 var EXT = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+// The first bytes of each allowed file type. A file that claims to be a photo but isn't one is refused.
+function looksLike(buf, type) {
+  var hex = buf.slice(0, 12).toString("hex"), asc = buf.slice(0, 12).toString("latin1");
+  if (type === "image/png") return hex.indexOf("89504e470d0a1a0a") === 0;
+  if (type === "image/jpeg") return hex.indexOf("ffd8ff") === 0;
+  if (type === "image/gif") return /^GIF8[79]a/.test(asc);
+  if (type === "image/webp") return asc.slice(0, 4) === "RIFF" && asc.slice(8, 12) === "WEBP";
+  if (type === "image/avif") return asc.slice(4, 8) === "ftyp";
+  if (type === "application/pdf") return asc.slice(0, 5) === "%PDF-";
+  return false;
+}
 function saveMedia(name, dataUrl, type) {
-  var buf = Buffer.from(dataUrl.split(",")[1], "base64");
+  if (!EXT[type]) throw Object.assign(new Error("That file type isn't allowed."), { status: 400 });
+  var buf = Buffer.from(String(dataUrl).split(",")[1] || "", "base64");
+  if (!buf.length || !looksLike(buf, type)) throw Object.assign(new Error("That file doesn't look like a real " + EXT[type].toUpperCase() + "."), { status: 400 });
   var d = new Date(), dir = path.join(UPLOADS, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, "0"));
   fs.mkdirSync(dir, { recursive: true });
   var base = Core.slugify(String(name).replace(/\.[a-z0-9]+$/i, "")) || "image";
@@ -405,12 +423,15 @@ function paymentCallback(kind, body, res) {
   var order = db.orders.filter(function (o) { return o.id === orderId; })[0];
   var back = function (state) { redirect(res, "/#order/" + (order ? order.number : "") + "?payment=" + state); };
   if (!order) return back("missing");
+  // Only online-payment orders can be touched by these callbacks (a forged "fail" can't cancel a cash-on-delivery order)
+  if (order.paymentMethod !== "sslcommerz") return kind === "ipn" ? sendJson(res, 200, { ok: false }) : back("missing");
   if (kind !== "success" && kind !== "ipn") {
-    if (order.paymentStatus !== "paid") run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: kind === "cancel" ? "cancelled" : "failed" } });
+    if (order.paymentStatus !== "paid" && order.status === "pending") run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: kind === "cancel" ? "cancelled" : "failed" } });
     return kind === "ipn" ? sendJson(res, 200, { ok: true }) : back(kind);
   }
   validatePayment(body.val_id, function (err, v) {
-    var good = !err && v && (v.status === "VALID" || v.status === "VALIDATED") && v.tran_id === order.id && Math.abs(+v.amount - order.total) < 1;
+    var good = !err && v && (v.status === "VALID" || v.status === "VALIDATED") && v.tran_id === order.id && Math.abs(+v.amount - order.total) < 1 &&
+      (!v.currency_type || v.currency_type === "BDT") && (!v.currency || v.currency === "BDT");
     if (good) run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: "paid", ref: v.bank_tran_id || body.val_id } });
     if (kind === "ipn") return sendJson(res, 200, { ok: good });
     back(good ? "paid" : "failed");
@@ -420,11 +441,14 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/auth/forgot": [5, 60e3], "/api/auth/reset": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/auth/forgot": [5, 60e3], "/api/auth/reset": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3],
+  "/api/orders/track": [15, 60e3], "/api/chat/start": [10, 60e3], "/api/payments": [60, 60e3], "/api/auth/reset/": [20, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
-  if (method === "GET") return false;
-  var key = Object.keys(LIMITS).filter(function (k) { return p === k || p.indexOf(k + "/") === 0; })[0];
+  // Reset links are checked with GET, so that one counts too; other GETs are free
+  var key = Object.keys(LIMITS).filter(function (k) { return p === k || p.indexOf(k + (k.slice(-1) === "/" ? "" : "/")) === 0; })
+    .sort(function (a, b) { return b.length - a.length; })[0];
+  if (method === "GET" && key !== "/api/auth/reset/") return false;
   if (!key || (key === "/api/orders" && p !== "/api/orders")) return false;
   var lim = LIMITS[key], id = ip + " " + key, t = Date.now();
   var h = hits[id] = (hits[id] || []).filter(function (x) { return x > t - lim[1]; });
@@ -433,6 +457,14 @@ function limited(ip, p, method) {
 }
 setInterval(function () { hits = {}; }, 10 * 60e3).unref();
 
+function clientIp(req) {
+  var direct = req.socket.remoteAddress || "";
+  if (!TRUST_PROXY) return direct;
+  if (req.headers["cf-connecting-ip"]) return String(req.headers["cf-connecting-ip"]).trim();
+  // The proxy adds the real visitor address at the end; anything before it can be made up by the visitor
+  var list = String(req.headers["x-forwarded-for"] || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+  return list[list.length - 1] || direct;
+}
 function run(req) {
   var out = core.handle(req, db);
   if (out.changed && out.status < 400) save();
@@ -441,13 +473,26 @@ function run(req) {
 }
 
 var server = http.createServer(function (req, res) {
-  var u = new URL(req.url, "http://localhost");
-  var p = decodeURIComponent(u.pathname);
+  var u, p;
+  // A broken address (like "/%E0%A4%A") used to throw here and stop the whole store
+  try { u = new URL(req.url, "http://localhost"); p = decodeURIComponent(u.pathname); }
+  catch (e) { return text(res, 400, "Bad request"); }
+  // An encoded slash or backslash ("..%2f") would let a path climb out of /assets and read data/db.json or .env
+  if (/[\\\0]/.test(p) || p.split("/").indexOf("..") > -1) return text(res, 400, "Bad request");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
-  return serveStatic(req, res, p);
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  if (HTTPS_SITE) res.setHeader("Strict-Transport-Security", "max-age=31536000");
+  try {
+    if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
+    return serveStatic(req, res, p);
+  } catch (e) {
+    console.error(e);
+    if (!res.headersSent) text(res, 500, "Something went wrong on the server.");
+  }
 });
+// Last line of defence: log a bug instead of letting one bad request stop the store
+process.on("uncaughtException", function (e) { console.error("Unexpected error:", e); });
 
 function api(req, res, u, p) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -455,9 +500,11 @@ function api(req, res, u, p) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
-  var ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
+  var ip = clientIp(req);
   if (limited(ip, p, req.method)) return sendJson(res, 429, { error: "Too many requests. Wait a minute and try again." });
-  var max = p === "/api/media" || /^\/api\/(pages|products|categories)/.test(p) ? 16e6 : /^\/api\/chat\/[^/]+\/messages$/.test(p) ? 5e6 : 1e6;
+  // Large bodies (photo uploads) only for signed-in staff, so nobody can tie up the server's memory with huge anonymous requests
+  var signedIn = /^Bearer\s+\S/i.test(req.headers.authorization || "") || !!req.headers["x-api-key"];
+  var max = signedIn && (p === "/api/media" || p === "/api/files" || /^\/api\/(pages|products|categories)/.test(p)) ? 16e6 : /^\/api\/chat\/[^/]+\/messages$/.test(p) ? 5e6 : 1e6;
   readBody(req, max, function (err, raw) {
     if (err) return sendJson(res, 413, { error: "That request is too large." });
     var body = {};
@@ -516,10 +563,14 @@ function versioned(html) {
   return html.replace(/(assets\/[\w\/.-]+\.(?:js|css))\?v=[\w-]+/g, "$1?v=" + v)
     .replace("</head>", '<meta name="rv-v" content="' + v + '">\n</head>');
 }
+// The admin panel runs only its own files: an injected <script> can't run there or send the sign-in token anywhere
+var ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; " +
+  "img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; frame-src 'self' https://www.google.com https://maps.google.com; " +
+  "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 function serveAdmin(req, res) {
   fs.readFile(path.join(ROOT, "admin.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP });
     res.end(req.method === "HEAD" ? "" : versioned(html));
   });
 }
@@ -546,7 +597,9 @@ function serveStatic(req, res, p) {
   else if (p === "/docs/API.md") file = path.join(ROOT, "docs/API.md");
   else return text(res, 404, "Not found");
   var base = p.indexOf("/uploads/") === 0 ? UPLOADS : ROOT;
-  if (path.resolve(file).indexOf(base) !== 0) return text(res, 403, "Forbidden");
+  // Files must stay inside /assets (or the uploads folder): never the database, backups, .env or the server code
+  var inside = p === "/docs/API.md" ? path.join(ROOT, "docs") : base === UPLOADS ? UPLOADS : ASSETS;
+  if (path.resolve(file).indexOf(inside + path.sep) !== 0) return text(res, 403, "Forbidden");
   fs.stat(file, function (err, st) {
     // Site images are WebP now; older saved data may still point at the .jpg/.png name
     if ((err || !st.isFile()) && base === ROOT && /\.(jpe?g|png)$/i.test(file)) {
@@ -562,6 +615,7 @@ function serveStatic(req, res, p) {
     var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
     headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
+    if (base === UPLOADS) { headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"; if (ext === ".pdf") headers["Content-Disposition"] = "inline"; }
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }
     res.writeHead(200, headers);
     if (req.method === "HEAD") return res.end();
@@ -597,4 +651,7 @@ function loadEnv(file) {
 
 server.listen(PORT, function () {
   console.log("Ravelle is running at " + PUBLIC_URL + "  (admin: " + PUBLIC_URL + "/admin)");
+  var ssl = db.settings.payments.sslcommerz || {};
+  if (ssl.enabled && ssl.sandbox && HTTPS_SITE) console.warn("\n  WARNING: SSLCOMMERZ is in sandbox (test) mode. Test cards will mark real orders as paid.\n  Turn sandbox off in Admin > Settings > Payments before taking real orders.\n");
+  if (!TRUST_PROXY && HTTPS_SITE) console.log("  Tip: behind nginx, Caddy, cPanel or Cloudflare, set TRUST_PROXY=1 so rate limits see each visitor's real address.");
 });

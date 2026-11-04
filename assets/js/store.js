@@ -9,6 +9,13 @@
   var taka = function (n) { return "৳" + Math.round(n || 0).toLocaleString("en-US"); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
   var br = function (s) { return esc(s).replace(/\n/g, "<br>"); };
+  // Links that came from the admin or from Acore: never "javascript:" or other code-running addresses
+  var safe = function (u) {
+    u = String(u == null ? "" : u).trim();
+    var bare = u.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
+    if (/^[a-z][a-z0-9+.-]*:/.test(bare) && !/^(https?|mailto|tel|sms|whatsapp):|^data:(image\/(png|jpeg|webp|gif|avif)|application\/pdf)[;,]/.test(bare)) return "#";
+    return u;
+  };
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var EDIT = /[?&]edit\b/.test(location.search);
   var api = window.Ravelle.call;
@@ -310,13 +317,13 @@
   // A sub-link with its own photo swaps the panel photo on hover.
   function menuItem(it) {
     var kids = it.children && it.children.length;
-    if (!kids) return '<li><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a></li>";
+    if (!kids) return '<li><a href="' + esc(safe(it.url || "#")) + '">' + esc(it.label) + "</a></li>";
     var img = it.image || "";
     var per = Math.min(12, Math.max(1, parseInt(it.perColumn, 10) || 6));
-    return '<li class="has-sub"><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a>" +
+    return '<li class="has-sub"><a href="' + esc(safe(it.url || "#")) + '">' + esc(it.label) + "</a>" +
       '<div class="nav__sub' + (img ? " has-img" : "") + '">' +
         '<ul class="nav__sub-list" style="--rows:' + Math.min(per, it.children.length) + '">' + it.children.map(function (c) {
-          return '<li><a href="' + esc(c.url) + '"' + (c.image ? ' data-img="' + esc(c.image) + '"' : "") + ">" + esc(c.label) + "</a></li>";
+          return '<li><a href="' + esc(safe(c.url)) + '"' + (c.image ? ' data-img="' + esc(c.image) + '"' : "") + ">" + esc(c.label) + "</a></li>";
         }).join("") + "</ul>" +
         (img ? '<figure class="nav__sub-img"><img src="' + esc(img) + '" data-base="' + esc(img) + '" alt="" loading="lazy" decoding="async"></figure>' : "") +
       "</div></li>";
@@ -395,10 +402,10 @@
     // Mobile menu
     $("#menuList").innerHTML = (S.menus.header || []).map(function (it, i) {
       var kids = it.children && it.children.length;
-      if (!kids) return '<li><a class="menu__link" href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>";
+      if (!kids) return '<li><a class="menu__link" href="' + esc(safe(it.url)) + '">' + esc(it.label) + "</a></li>";
       return '<li><details' + (i === 0 ? "" : "") + '><summary class="menu__link">' + esc(it.label) + "</summary>" +
-        '<ul class="menu__sub"><li><a href="' + esc(it.url) + '">All ' + esc(it.label.toLowerCase()) + "</a></li>" +
-        it.children.map(function (c) { return '<li><a href="' + esc(c.url) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul></details></li>";
+        '<ul class="menu__sub"><li><a href="' + esc(safe(it.url)) + '">All ' + esc(it.label.toLowerCase()) + "</a></li>" +
+        it.children.map(function (c) { return '<li><a href="' + esc(safe(c.url)) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul></details></li>";
     }).join("");
     $("#menuFoot").innerHTML = '<a href="#track">Track order</a><a href="#saved">Saved items</a><a href="#contact">Contact us</a>' +
       (st.phone ? '<a href="tel:' + esc(st.phone.replace(/[^\d+]/g, "")) + '">' + esc(st.phone) + "</a>" : "");
@@ -412,10 +419,10 @@
     var heroSoc = $("#heroSocial");
     if (heroSoc) heroSoc.innerHTML = [["facebook", "Facebook", soc.facebook], ["instagram", "Instagram", soc.instagram],
       ["whatsapp", "WhatsApp", st.whatsapp ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : ""]].filter(function (s) { return s[2]; }).map(function (s) {
-      return '<a href="' + esc(s[2]) + '" target="_blank" rel="noopener" aria-label="' + s[1] + '">' + ICON[s[0]] + "</a>";
+      return '<a href="' + esc(safe(s[2])) + '" target="_blank" rel="noopener" aria-label="' + s[1] + '">' + ICON[s[0]] + "</a>";
     }).join("");
     $("#footerCols").innerHTML = (S.menus.footer || []).map(function (col) {
-      return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
+      return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(safe(it.url)) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
     }).join("") +
       '<ul class="footer__contact"><li class="mono">Get in touch</li>' +
         (LAY().footer.showContact === false ? "" : (st.address ? "<li>" + esc(st.address) + "</li>" : "") +
@@ -423,7 +430,7 @@
         (st.email ? '<li><a href="mailto:' + esc(st.email) + '">' + esc(st.email) + "</a></li>" : "")) +
         (socials.length && LAY().footer.showSocial !== false ? '<li class="footer__social">' + socials.map(function (s) {
           var url = s[0] === "whatsapp" ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : soc[s[0]];
-          return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + s[1] + "</a>";
+          return '<a href="' + esc(safe(url)) + '" target="_blank" rel="noopener">' + s[1] + "</a>";
         }).join("") + "</li>" : "") +
       "</ul>";
     var legal = [["Trade license", st.tradeLicense], ["TIN", st.tin], ["DBID", st.dbid], ["BIN", st.bin]].filter(function (x) { return x[1]; });
@@ -1205,7 +1212,7 @@
           (st.whatsapp ? '<a class="contact__card" href="https://wa.me/' + esc(st.whatsapp.replace(/[^\d]/g, "")) + '" target="_blank" rel="noopener"><span class="mono">WhatsApp</span><b>' + esc(st.whatsapp) + "</b><small>Message us any time</small></a>" : "") +
           (st.address ? '<div class="contact__card"><span class="mono">Visit</span><b>' + esc(st.address) + "</b><small>" + esc(st.legalName || "") + "</small></div>" : "") +
           '<div class="contact__card contact__social"><span class="mono">Follow</span>' + [["facebook", "Facebook"], ["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]].filter(function (s) { return soc[s[0]]; })
-            .map(function (s) { return '<a class="u" href="' + esc(soc[s[0]]) + '" target="_blank" rel="noopener">' + s[1] + "</a>"; }).join(" ") + "</div>" +
+            .map(function (s) { return '<a class="u" href="' + esc(safe(soc[s[0]])) + '" target="_blank" rel="noopener">' + s[1] + "</a>"; }).join(" ") + "</div>" +
         "</div>" +
         '<form class="panel contact__form" id="contactForm" novalidate>' +
           '<h2 class="panel__title" data-c="formTitle"></h2><p class="contact__note" data-c="formNote"></p>' +
@@ -1260,7 +1267,7 @@
           (s.phone ? '<a href="tel:' + esc(tel) + '"><span class="mono">Call</span>' + esc(s.phone) + "</a>" : "") +
           (s.email ? '<a href="mailto:' + esc(s.email) + '"><span class="mono">Email</span>' + esc(s.email) + "</a>" : "") +
         "</div>" +
-        '<a class="pill pill--sm pill--arrow shopcard__map" href="' + esc(map) + '" target="_blank" rel="noopener">Get directions <span class="pill__arrow" aria-hidden="true">↗</span></a>' +
+        '<a class="pill pill--sm pill--arrow shopcard__map" href="' + esc(safe(map)) + '" target="_blank" rel="noopener">Get directions <span class="pill__arrow" aria-hidden="true">↗</span></a>' +
       "</div></article>";
   }
   function viewStores() {
@@ -1346,7 +1353,7 @@
                 "<div><b>" + esc(s.ownerName) + '</b><span class="mono">Owner' + (s.storeName ? ", " + esc(s.storeName) : "") + "</span></div></div>" +
             "</div></article>";
         }).join("") + "</div></div>" : "";
-      $("#frPdf").innerHTML = d.pdf ? '<a class="pill pill--dark pill--arrow" href="' + esc(d.pdf) + '" download="Ravelle-franchise-guide.pdf" target="_blank" rel="noopener">Download PDF <span class="pill__arrow" aria-hidden="true">↓</span></a>'
+      $("#frPdf").innerHTML = d.pdf ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(d.pdf)) + '" download="Ravelle-franchise-guide.pdf" target="_blank" rel="noopener">Download PDF <span class="pill__arrow" aria-hidden="true">↓</span></a>'
         : '<span class="pill fr__soon" aria-disabled="true">PDF coming soon</span>';
       bind(page, d);
       activate($("#frStories"));
@@ -1403,7 +1410,7 @@
         '<span class="chip ' + (o.paymentStatus === "paid" ? "chip--paid" : "chip--muted") + '">' + (o.paymentStatus === "paid" ? "Paid" : o.paymentMethod === "cod" ? "Cash on delivery" : "Payment " + esc(o.paymentStatus)) + "</span></div>" +
       (at > -1 ? '<ol class="steps">' + STEPS.map(function (s, i) { return '<li class="' + (i <= at ? "is-done" : "") + '">' + STATUS[s] + "</li>"; }).join("") + "</ol>" : "") +
       (o.courier && (o.courier.name || o.courier.code) ? '<p class="order__track">' + esc(o.courier.name ? o.courier.name.charAt(0).toUpperCase() + o.courier.name.slice(1) : "Courier") +
-          (o.courier.code ? " · <b>" + esc(o.courier.code) + "</b>" : "") + (o.courier.url ? ' · <a href="' + esc(o.courier.url) + '" target="_blank" rel="noopener">Track with the courier</a>' : "") +
+          (o.courier.code ? " · <b>" + esc(o.courier.code) + "</b>" : "") + (o.courier.url ? ' · <a href="' + esc(safe(o.courier.url)) + '" target="_blank" rel="noopener">Track with the courier</a>' : "") +
           (o.courier.rider ? "<br>Rider: " + esc(o.courier.rider) + (o.courier.riderPhone ? ' · <a href="tel:' + esc(o.courier.riderPhone) + '">' + esc(o.courier.riderPhone) + "</a>" : "") : "") + "</p>"
         : o.tracking ? '<p class="order__track">Courier tracking: <b>' + esc(o.tracking) + "</b></p>" : "") +
       (o.history && o.history.some(function (h) { return h.note; }) ? '<ol class="order__log">' + o.history.filter(function (h) { return h.note; }).slice().reverse().map(function (h) {
@@ -1694,10 +1701,10 @@
     wrap.innerHTML = '<div class="popup__scrim" data-popup-close></div>' +
       '<div class="popup__box" role="dialog" aria-modal="true" aria-label="' + esc(p.title || "Offer") + '">' +
         '<button class="popup__x" type="button" data-popup-close aria-label="Close">✕</button>' +
-        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(link) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
+        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
         (p.title || p.text || p.buttonText ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
           (p.title ? '<h2 class="popup__title">' + br(p.title) + "</h2>" : "") + (p.text ? '<p class="popup__text">' + br(p.text) + "</p>" : "") +
-          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(link) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
+          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
       "</div>";
     document.body.appendChild(wrap);
     requestAnimationFrame(function () { wrap.classList.add("is-on"); });
@@ -1882,7 +1889,7 @@
     var greet = (S.settings.chat || {}).greeting;
     var list = chat.messages.length ? chat.messages : greet ? [{ from: "bot", text: greet, at: Date.now() }] : [];
     box.innerHTML = list.map(function (m) {
-      var pic = m.image ? '<a class="msg__img" href="' + esc(m.image) + '" target="_blank" rel="noopener"><img src="' + esc(m.image) + '" alt="Photo"></a>' : "";
+      var pic = m.image ? '<a class="msg__img" href="' + esc(safe(m.image)) + '" target="_blank" rel="noopener"><img src="' + esc(m.image) + '" alt="Photo"></a>' : "";
       return '<div class="msg msg--' + (m.from === "customer" ? "me" : "them") + (m.image ? " msg--img" : "") + '">' + pic + (m.text ? "<p>" + br(m.text) + "</p>" : "") + '<span class="mono">' +
         (m.from === "customer" ? "You" : esc(m.author || (S.settings.chat || {}).title || "Ravelle")) + " · " + new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span></div>";
     }).join("");

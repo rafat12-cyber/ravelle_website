@@ -34,6 +34,13 @@
   function isPhone(p) { return /^(?:\+?88)?01[3-9]\d{8}$/.test(String(p).replace(/[\s-]/g, "")); }
   function normPhone(p) { var d = String(p).replace(/[^\d]/g, ""); return d.length === 13 && d.indexOf("88") === 0 ? d.slice(2) : d; }
   function isEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+  // Links typed in the admin: web pages, store sections, email and phone only. "javascript:" links would run code for whoever clicks.
+  function safeUrl(u) {
+    u = String(u == null ? "" : u).trim();
+    var bare = u.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
+    if (/^[a-z][a-z0-9+.-]*:/.test(bare) && !/^(https?|mailto|tel|sms|whatsapp):/.test(bare)) return "";
+    return u;
+  }
 
   // SHA-256 (sync, used for API keys, sessions and the demo's passwords).
   function sha256(ascii) {
@@ -356,7 +363,8 @@
           if (!v) fail(400, "Choose a size for " + p.name + ".");
         }
         var stock = v ? v.stock : p.stock;
-        if (p.trackStock && stock < qty) {
+        var key = p.id + "|" + (v ? v.id : ""), already = lines.filter(function (l) { return l.productId + "|" + (l.variantId || "") === key; }).reduce(function (n, l) { return n + l.qty; }, 0);
+        if (p.trackStock && stock < qty + already) {
           fail(409, stock > 0 ? "Only " + stock + " left of " + p.name + (v ? " (" + optionText(v.options) + ")" : "") + "." : p.name + (v ? " (" + optionText(v.options) + ")" : "") + " is out of stock.");
         }
         var price = v && v.price != null ? v.price : p.price;
@@ -985,6 +993,11 @@
       (db.carts || []).forEach(function (x) {
         var n = cartDue(db, x, t);
         if (!n || sent >= 20) return;
+        // Anyone can type any email at checkout. Send each address at most two reminders a day, so the store's Gmail
+        // can't be used to flood a stranger's inbox (which would also get the Gmail account blocked).
+        var to = String(x.customer.email).toLowerCase();
+        var recent = (db.emailLog || []).filter(function (e) { return /^cart-reminder/.test(e.kind) && String(e.to).toLowerCase() === to && t - e.at < 864e5; }).length;
+        if (recent >= 2) { x.reminders.push({ n: n, at: t, auto: true, channel: "email", status: "Skipped: this address already got 2 reminders today" }); return; }
         var e = reminderEmail(db, x, n);
         x.reminders.push({ n: n, at: t, auto: true, channel: "email", status: e.status, emailId: e.id });
         sent++;
@@ -1045,6 +1058,12 @@
       var s = c.db.settings, b = c.body || {};
       if (b.email) {
         var e = emailSettings(c.db), x = b.email;
+        // The Gmail app password is sent to the mail server saved here. Changing the server or address needs the owner, and forgets the old password.
+        var nh = x.host !== undefined ? str(x.host, 300) : e.host, nu = x.user !== undefined ? str(x.user, 300).toLowerCase() : e.user, np = x.port !== undefined ? int(x.port, 465) : e.port;
+        var serverChanged = nh !== e.host || nu !== String(e.user || "").toLowerCase() || np !== int(e.port, 465);
+        if (serverChanged || x.password || x.passwordClear) needOwner(c, "change the email server, Gmail address or app password");
+        if (serverChanged && !x.password) e.password = "";
+        if (nh && !/^[a-z0-9.-]+$/i.test(nh)) fail(400, "The mail server name doesn't look right.");
         ["host", "user", "fromName", "replyTo", "copyTo"].forEach(function (k) { if (x[k] !== undefined) e[k] = str(x[k], 300).trim(); });
         if (x.port !== undefined) e.port = int(x.port, 465);
         ["enabled", "invoice"].forEach(function (k) { if (x[k] !== undefined) e[k] = bool(x[k]); });
@@ -1160,7 +1179,18 @@
       var db = c.db;
       var email = str(c.body.email, 120).toLowerCase(), pw = String(c.body.password || "");
       var u = db.users.filter(function (x) { return x.email === email; })[0];
-      if (!u || host.hashPassword(pw, u.salt) !== u.passwordHash) fail(401, "Wrong email or password.");
+      // Ten wrong passwords for one account lock it for 15 minutes, whoever is guessing and from wherever
+      if (u && u.lockedUntil && u.lockedUntil > now()) fail(429, "Too many wrong passwords. This account is locked for 15 minutes, or reset the password by email.");
+      var good = host.hashPassword(pw, u ? u.salt : "no-such-user") === (u ? u.passwordHash : "-");
+      if (!good) {
+        if (u) {
+          u.failedLogins = (now() - (u.lastFailedLogin || 0) > 15 * 60e3 ? 0 : int(u.failedLogins)) + 1;
+          u.lastFailedLogin = now();
+          if (u.failedLogins >= 10) { u.lockedUntil = now() + 15 * 60e3; u.failedLogins = 0; }
+        }
+        fail(401, "Wrong email or password.");
+      }
+      delete u.failedLogins; delete u.lockedUntil; delete u.lastFailedLogin;
       var token = host.random(24);
       db.sessions = (db.sessions || []).filter(function (s) { return s.expiresAt > now(); });
       db.sessions.push({ hash: sha256(token), userId: u.id, createdAt: now(), expiresAt: now() + 7 * 864e5 });
@@ -1183,6 +1213,9 @@
       if (b.password) {
         if (host.hashPassword(String(b.currentPassword || ""), u.salt) !== u.passwordHash) fail(400, "Your current password is wrong.");
         setPassword(u, b.password);
+        // Sign out every other device that had this account open
+        var mine = sha256(String((c.req.headers || {}).authorization || "").replace(/^Bearer\s+/i, "").trim());
+        c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id || s.hash === mine; });
       }
       return { user: publicUser(u) };
     });
@@ -1214,7 +1247,7 @@
     route("POST", "/api/auth/reset", null, function (c) {
       var u = resetUser(c.db, c.body.token);
       setPassword(u, c.body.password);
-      delete u.resetHash; delete u.resetExpires;
+      delete u.resetHash; delete u.resetExpires; delete u.lockedUntil; delete u.failedLogins;
       c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; });
       return { ok: true, email: u.email };
     });
@@ -1663,9 +1696,9 @@
     route("PUT", "/api/menus", "content", function (c) {
       var clean = function (items, depth) {
         return (items || []).slice(0, 30).map(function (it) {
-          var out = { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: str(it.url, 300),
+          var out = { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: safeUrl(str(it.url, 300)),
             children: depth < 2 ? clean(it.children, depth + 1) : [] };
-          if (depth < 2 && str(it.image, 300)) out.image = str(it.image, 300); // dropdown photo (header menu only)
+          if (depth < 2 && safeUrl(str(it.image, 300))) out.image = safeUrl(str(it.image, 300)); // dropdown photo (header menu only)
           if (depth === 0 && it.perColumn) out.perColumn = Math.min(12, Math.max(1, int(it.perColumn) || 6)); // dropdown links per column
           return out;
         }).filter(function (it) { return it.label; });
@@ -1714,7 +1747,7 @@
       s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
       if (s.email) { s.email.passwordSet = !!s.email.password; s.email.password = ""; }
       var ac = acoreSettings(c.db);
-      s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: ac.webhookSecret, since: ac.since };
+      s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: isOwner(c.auth) ? ac.webhookSecret : (ac.webhookSecret ? "Only the owner can see this" : ""), since: ac.since };
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -1742,9 +1775,12 @@
         if (!s.shipping.zones.length) fail(400, "Keep at least one delivery area.");
       }
       if (b.payments) {
+        var ssl = b.payments.sslcommerz || {}, cur = s.payments.sslcommerz || {};
+        var nextSsl = { enabled: bool(ssl.enabled), sandbox: bool(ssl.sandbox), storeId: str(ssl.storeId, 80) };
+        // Turning sandbox (test) mode on, or swapping the store ID, would let orders "pay" without real money
+        if (nextSsl.enabled !== !!cur.enabled || nextSsl.sandbox !== !!cur.sandbox || nextSsl.storeId !== (cur.storeId || "")) needOwner(c, "change the SSLCOMMERZ settings");
         s.payments.cod = bool(b.payments.cod);
-        var ssl = b.payments.sslcommerz || {};
-        s.payments.sslcommerz = { enabled: bool(ssl.enabled), sandbox: bool(ssl.sandbox), storeId: str(ssl.storeId, 80) };
+        s.payments.sslcommerz = nextSsl;
         if (!s.payments.cod && !s.payments.sslcommerz.enabled) fail(400, "Keep at least one payment method on.");
       }
       if (b.lowStock !== undefined) s.lowStock = Math.max(0, int(b.lowStock));
@@ -1766,12 +1802,17 @@
       }
       if (b.acore && typeof b.acore === "object") {
         var ac = s.acore = s.acore || {}, ba = b.acore;
+        // The API key is sent to whatever address is saved here, so only the owner may change where it goes
+        var newUrl = ba.url !== undefined ? String(ba.url || "").trim().replace(/\/+$/, "") : ac.url || "";
+        if (newUrl !== (ac.url || "") || ba.apiKey || ba.apiKeyClear || ba.newSecret) needOwner(c, "change the Acore address, API key or webhook secret");
+        var forgetKey = newUrl !== (ac.url || "") && !ba.apiKey;
         if (ba.enabled !== undefined) { var on = bool(ba.enabled); if (on && !ac.enabled) ac.since = now(); ac.enabled = on; }
         if (ba.url !== undefined) {
           var u = String(ba.url || "").trim().replace(/\/+$/, "");
           if (u && !/^https?:\/\/[^\s]+$/.test(u)) fail(400, "The Acore address should start with https://");
           ac.url = u.slice(0, 300);
         }
+        if (forgetKey) ac.apiKey = "";
         if (ba.apiKey) ac.apiKey = String(ba.apiKey).trim().slice(0, 300);
         if (ba.apiKeyClear) ac.apiKey = "";
         if (ba.newSecret) ac.webhookSecret = "whsec_" + host.random(16);
@@ -1779,6 +1820,9 @@
       }
       if (b.code && typeof b.code === "object") {
         var code = siteCode(s), bc = b.code;
+        // Custom code runs on every page for every visitor (and in the admin's page editor), so only the owner may change it
+        if ((bc.head !== undefined && String(bc.head || "").slice(0, 20000) !== code.head) || (bc.bodyEnd !== undefined && String(bc.bodyEnd || "").slice(0, 20000) !== code.bodyEnd) ||
+          bc.capiToken || bc.capiTokenClear || bc.gaSecret || bc.gaSecretClear) needOwner(c, "change custom code or tracking secrets");
         if (bc.head !== undefined) code.head = String(bc.head || "").slice(0, 20000);
         if (bc.bodyEnd !== undefined) code.bodyEnd = String(bc.bodyEnd || "").slice(0, 20000);
         if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
@@ -1799,6 +1843,16 @@
       if (!out.length) fail(400, "Tick at least one module this person can open.");
       return out;
     }
+    function isOwner(auth) { return !!(auth && auth.kind === "user" && auth.user.role === "owner"); }
+    function needOwner(c, what) { if (!isOwner(c.auth)) fail(403, "Only the store owner can " + what + "."); }
+    // A staff member who can open Users may not give anyone (or themselves) access they don't have
+    function checkGrant(c, role, areas) {
+      if (isOwner(c.auth)) return;
+      if (role === "owner") fail(403, "Only the store owner can make someone an owner.");
+      var mine = c.auth.areas, want = role === "custom" ? areas || [] : (ROLES[role] || {}).areas || [];
+      var extra = want.filter(function (a) { return mine.indexOf(a) < 0; });
+      if (extra.length) fail(403, "You can't give access you don't have yourself: " + extra.join(", ") + ".");
+    }
     route("GET", "/api/users", "users", function (c) { return { users: c.db.users.map(publicUser), roles: ROLES }; }, { readonly: true });
     route("POST", "/api/users", "users", function (c) {
       var b = c.body, email = str(b.email, 120).toLowerCase();
@@ -1808,6 +1862,7 @@
       if (!ROLES[b.role]) fail(400, "Choose a role.");
       var u = { id: newId("usr"), name: str(b.name, 80), email: email, role: b.role, createdAt: now() };
       if (b.role === "custom") u.areas = cleanAreas(b.areas);
+      checkGrant(c, u.role, u.areas);
       setPassword(u, b.password);
       c.db.users.push(u);
       return { user: publicUser(u) };
@@ -1816,22 +1871,30 @@
       var u = c.db.users.filter(function (x) { return x.id === c.params.id; })[0];
       if (!u) fail(404, "User not found.");
       var b = c.body;
-      if (b.role && b.role !== u.role) {
-        if (!ROLES[b.role]) fail(400, "Unknown role.");
-        if (u.role === "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
-        u.role = b.role;
-      }
-      if (u.role === "custom" && b.areas !== undefined) u.areas = cleanAreas(b.areas);
-      if (u.role !== "custom") delete u.areas;
-      if (c.auth.user && u.id === c.auth.user.id && userAreas(u).indexOf("users") < 0) fail(400, "Keep Users ticked for yourself, or you'll lock yourself out of this page.");
+      if (u.role === "owner") needOwner(c, "change an owner's account");
+      checkGrant(c, u.role, u.areas); // can't take over (or reset the password of) someone with more access than you
+      // Work out the new access first and check it, so a refused change leaves nothing half-applied
+      var role = b.role || u.role;
+      if (!ROLES[role]) fail(400, "Unknown role.");
+      if (u.role === "owner" && role !== "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
+      var areas = role === "custom" ? (b.areas !== undefined ? cleanAreas(b.areas) : (u.areas || [])) : undefined;
+      var accessChanged = role !== u.role || (role === "custom" && JSON.stringify(areas) !== JSON.stringify(u.areas || []));
+      if (accessChanged) checkGrant(c, role, areas);
+      if (c.auth.user && u.id === c.auth.user.id && userAreas({ role: role, areas: areas }).indexOf("users") < 0) fail(400, "Keep Users ticked for yourself, or you'll lock yourself out of this page.");
+      if (b.password) setPassword(u, b.password);
+      u.role = role;
+      if (role === "custom") u.areas = areas; else delete u.areas;
+      if (accessChanged) c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id || (c.auth.user && c.auth.user.id === u.id); });
       if (b.name) u.name = str(b.name, 80);
-      if (b.password) { setPassword(u, b.password); c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
+      if (b.password) { c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
       return { user: publicUser(u) };
     });
     route("DELETE", "/api/users/:id", "users", function (c) {
       var u = c.db.users.filter(function (x) { return x.id === c.params.id; })[0];
       if (!u) fail(404, "User not found.");
       if (c.auth.user && u.id === c.auth.user.id) fail(400, "You can't remove yourself.");
+      if (u.role === "owner") needOwner(c, "remove an owner");
+      checkGrant(c, u.role, u.areas);
       if (u.role === "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
       c.db.users = c.db.users.filter(function (x) { return x !== u; });
       c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; });
@@ -1998,6 +2061,7 @@
         return { status: matched.opts.status || 200, body: body, changed: !matched.opts.readonly || (auth && auth.kind === "key") };
       } catch (e) {
         if (e instanceof HttpError) return { status: e.status, body: { error: e.message, fields: e.details } };
+        if (e && e.status >= 400 && e.status < 500 && e.message) return { status: e.status, body: { error: e.message } };
         throw e;
       }
     }
