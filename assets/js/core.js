@@ -437,6 +437,26 @@
         events: [{ name: name, params: params }]
       } });
     }
+    // Admin "test" buttons on the Pixel & Analytics page
+    route("POST", "/api/tracking/test", "settings", function (c) {
+      var code = siteCode(c.db.settings), kind = str(c.body.kind, 10);
+      if (kind === "meta") {
+        if (!code.pixelId) fail(400, "Add the Pixel ID first.");
+        if (!code.capiToken) fail(400, "Add the Conversions API access token first.");
+        if (!host.metaEvent) fail(400, "Server events are sent from the live store. The demo has no server.");
+        var cust = { name: "Test Customer", phone: "01700000000", city: "Dhaka" };
+        capi({ db: c.db, req: c.req, body: { meta: { url: (c.req.headers || {}).referer || "", sid: "admin-test" } } }, "PageView", "test." + now(), { content_name: "Ravelle admin test" }, cust);
+        return { ok: true, message: "Sent a test PageView to Meta. " + (code.capiTest ? "Look for it in Events Manager › Test events (code " + code.capiTest + ")." : "Add a test event code to see it in Events Manager › Test events.") + " Meta's answer shows here after you reload." };
+      }
+      if (kind === "ga") {
+        if (!code.gaId) fail(400, "Add the Measurement ID first.");
+        if (!code.gaSecret) fail(400, "Add the API secret first.");
+        if (!host.gaEvent) fail(400, "Server events are sent from the live store. The demo has no server.");
+        host.gaEvent({ measurementId: code.gaId, secret: code.gaSecret, debug: true, body: { client_id: "ravelle.admin.test", events: [{ name: "ravelle_test", params: { engagement_time_msec: 1 } }] } });
+        return { ok: true, message: "Asked Google to check the ID and secret. The result shows here after you reload." };
+      }
+      fail(400, "Unknown test.");
+    });
     function capiTrack(c, t, b) {
       var name = CAPI_NAMES[t];
       if (!name || !host.metaEvent) return;

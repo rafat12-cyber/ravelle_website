@@ -355,3 +355,11 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 .t td.drag { cursor: grab; color: var(--ink-3, #9aa0a6); font-size: 16px; text-align: center; user-select: none; touch-action: none; width: 28px; }
 .t td.drag:active { cursor: grabbing; }
 .t tr.is-dragging { opacity: .45; background: var(--bg-2, #f1f2f4); }
+
+/* Pixel & Analytics */
+.trk__state { font-size: 12px; color: var(--ink-2, #5f6368); margin-left: 10px; }
+.trk__state.is-on { color: var(--ok, #1e7d4f); font-weight: 600; }
+.trk__guide { border-top: 1px solid var(--line, #e3e5e8); padding-top: 12px; }
+.trk__guide summary { cursor: pointer; font-weight: 600; }
+.trk__guide h3 { font-size: 13px; margin: 16px 0 6px; }
+.trk__steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; }

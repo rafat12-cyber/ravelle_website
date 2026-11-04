@@ -190,14 +190,22 @@ function acoreWebhook(req, raw, body, res) {
 // Google Analytics 4 Measurement Protocol, straight from this server
 var gaStatus = null;
 function gaEvent(job) {
-  var body = JSON.stringify(job.body), base = process.env.GA_MP_URL || "https://www.google-analytics.com/mp/collect";
+  var body = JSON.stringify(job.body), base = process.env.GA_MP_URL || ("https://www.google-analytics.com/" + (job.debug ? "debug/" : "") + "mp/collect");
   var url = base + "?measurement_id=" + encodeURIComponent(job.measurementId) + "&api_secret=" + encodeURIComponent(job.secret);
   var name = job.body.events[0].name;
   var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 8000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
-    res.resume();
+    var text = "";
+    res.on("data", function (d) { if (text.length < 4000) text += d; });
     res.on("end", function () {
-      var ok = res.statusCode >= 200 && res.statusCode < 300;
-      gaStatus = { at: Date.now(), ok: ok, event: name, message: ok ? "Sent to Google Analytics" : "HTTP " + res.statusCode };
+      var ok = res.statusCode >= 200 && res.statusCode < 300, msg = ok ? "Sent to Google Analytics" : "HTTP " + res.statusCode;
+      // The debug endpoint (test button) explains what's wrong instead of silently accepting
+      if (job.debug && ok) {
+        try {
+          var v = (JSON.parse(text || "{}").validationMessages || [])[0];
+          if (v) { ok = false; msg = "Google says: " + v.description; } else msg = "Google accepted the test event. The ID and secret look right.";
+        } catch (e) {}
+      }
+      gaStatus = { at: Date.now(), ok: ok, event: name, message: msg };
       if (!ok) console.warn("GA Measurement Protocol: HTTP " + res.statusCode);
     });
   });

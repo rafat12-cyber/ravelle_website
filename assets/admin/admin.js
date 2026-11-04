@@ -1418,7 +1418,7 @@
     const sw = (g, k, label, on) => `<label class="switch"><input type="checkbox" data-l="${g}" name="${k}" ${on ? "checked" : ""}> ${label}</label>`;
     const txt = (attr, k, label, value, hint, ph) => `<label class="field"><span>${label}</span><input class="input" ${attr} name="${k}" value="${esc(value || "")}" placeholder="${esc(ph || "")}">${hint ? `<small>${hint}</small>` : ""}</label>`;
     const color = (k, label, value) => `<label class="field"><span>${label}</span><span class="flex" style="flex-wrap:nowrap"><input type="color" data-l="header" name="${k}" value="${esc(value)}" style="width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:none"><code class="small" data-hex="${k}">${esc(value)}</code></span></label>`;
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Header & footer</h1><p class="muted">Everything at the top and bottom of every store page, plus Google Analytics, Meta Pixel and other code.</p></div>
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Header & footer</h1><p class="muted">Everything at the top and bottom of every store page. Meta Pixel and Google Analytics are in <a href="#/tracking">Pixel & Analytics</a>.</p></div>
       <a class="btn btn--ghost" href="#/menus">Edit menu links</a></div>
       <form class="stack" id="layForm">
         <div class="card"><h2 class="h2">Announcement bar</h2><p class="muted small" style="margin:0">The thin strip above the header.</p>
@@ -1447,27 +1447,10 @@
         <div class="card"><h2 class="h2">Social links</h2><div class="row row--2">
           ${["facebook", "instagram", "tiktok", "youtube"].map((k) => txt('data-s="social"', k, k === "tiktok" ? "TikTok" : k === "youtube" ? "YouTube" : k.charAt(0).toUpperCase() + k.slice(1), (s.social || {})[k], "", `https://www.${k}.com/ravellebd`)).join("")}
           ${txt('data-s="store"', "whatsapp", "WhatsApp number", (s.store || {}).whatsapp, "Turns on the WhatsApp button.", "+880 17XX-XXXXXX")}</div></div>
-        <div class="card"><h2 class="h2">Tracking and custom code</h2>
-          <p class="muted small" style="margin:0">Added to every store page. Your store's own visitor numbers are on the <a href="#/analytics">Analytics</a> page either way.</p>
-          <div class="row row--2">${txt('data-c="1"', "gaId", "Google Analytics 4 measurement ID", code.gaId, "In Google Analytics: Admin › Data streams › your site. Starts with G-.", "G-XXXXXXXXXX")}
-            ${txt('data-c="1"', "pixelId", "Meta (Facebook) Pixel ID", code.pixelId, "In Meta Events Manager › Data sources. Numbers only.", "123456789012345")}</div>
-          <div class="row row--2"><label class="field"><span>Conversions API access token</span><input class="input" type="password" autocomplete="off" data-c="1" name="capiToken" value="" placeholder="${code.capiTokenSet ? "Saved. Paste a new one to replace it." : "Paste the token from Events Manager"}">
-              <small>Sends Purchase, checkout, add to bag, product views, searches and page views to Meta from your own server, so ad blockers and iPhone settings don't hide them. Events Manager › your pixel › Settings › Conversions API › Generate access token.${code.capiTokenSet ? ` <a href="#" id="capiClear">Remove token</a>` : ""}</small></label>
-            ${txt('data-c="1"', "capiTest", "Test event code (optional)", code.capiTest, "From Events Manager › Test events, e.g. TEST12345. Clear it when you're done testing.", "TEST12345")}</div>
-          ${code.capiStatus ? `<p class="small" style="margin:0;color:${code.capiStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last server event: ${esc(code.capiStatus.event)} · ${esc(code.capiStatus.message)} · ${dateTime(code.capiStatus.at)}</p>` : code.capiTokenSet ? `<p class="muted small" style="margin:0">${window.Ravelle.mode === "demo" ? "The demo has no server, so nothing is sent to Meta from here." : "No server events sent yet. Open the store to send one."}</p>` : ""}
-          <div class="row row--2"><label class="field"><span>Google Analytics API secret</span><input class="input" type="password" autocomplete="off" data-c="1" name="gaSecret" value="" placeholder="${code.gaSecretSet ? "Saved. Paste a new one to replace it." : "Paste the secret from Google Analytics"}">
-              <small>Sends every purchase, and a refund when you cancel or return an order, to Google Analytics from your own server, so ad blockers don't hide sales. Google Analytics › Admin › Data streams › your site › Measurement Protocol API secrets › Create.${code.gaSecretSet ? ` <a href="#" id="gaClear">Remove secret</a>` : ""}</small></label>
-            <div class="field"><span>Google Analytics server status</span><p class="small" style="margin:6px 0 0;color:${code.gaStatus ? (code.gaStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)") : "inherit"}">${code.gaStatus ? `Last server event: ${esc(code.gaStatus.event)} · ${esc(code.gaStatus.message)} · ${dateTime(code.gaStatus.at)}` : code.gaSecretSet ? (window.Ravelle.mode === "demo" ? "The demo has no server, so nothing is sent from here." : "Nothing sent yet. It sends when an order is placed.") : "Add your G- ID and the API secret to turn it on."}</p></div></div>
-          <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" data-c="1" name="head" rows="7" spellcheck="false" placeholder="&lt;!-- Paste Google Tag Manager, TikTok Pixel, Search Console verification, etc. --&gt;">${esc(code.head || "")}</textarea>
-            <small>For Google Tag Manager, TikTok Pixel, site verification tags and other snippets that say “paste in the head”.</small></label>
-          <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" data-c="1" name="bodyEnd" rows="5" spellcheck="false" placeholder="&lt;!-- e.g. Google Tag Manager (noscript) --&gt;">${esc(code.bodyEnd || "")}</textarea></label>
-          <p class="small" style="margin:0;color:var(--warn)">Only paste code from services you trust, like Google or Meta. Code here runs for every visitor.</p></div>
         <div class="sticky-save"><span class="small">Changes show on the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
       </form>`;
     const form = $("#layForm");
     let dirty = false;
-    if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
-    if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     wireImgFields(form, () => { dirty = true; });
     const prev = () => {
       const p = $("#annPrev");
@@ -1486,10 +1469,7 @@
       layout.header.logo = $('input[name="logo"]', form).value;
       $$("[data-s]", form).forEach((el) => { out[el.dataset.s][el.name] = el.value; });
       $$("[data-c]", form).forEach((el) => { out.code[el.name] = el.value; });
-      if (!out.code.capiToken) delete out.code.capiToken;
-      if (form.dataset.capiClear) out.code.capiTokenClear = true;
-      if (!out.code.gaSecret) delete out.code.gaSecret;
-      if (form.dataset.gaClear) out.code.gaSecretClear = true;
+
       out.layout = layout; out.announcement = $("#announcement").value;
       try {
         await api("PUT", "/api/settings", { settings: out });
@@ -1498,6 +1478,106 @@
         dirty = false; store = null;
         toast("Header and footer saved");
       } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pixel & Analytics: Meta Pixel + Conversions API, Google Analytics 4 + server purchases, with guides and tests
+  // ---------------------------------------------------------------------------
+  async function viewTracking() {
+    setTitle("Pixel & Analytics");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const c = s.code || {}, demo = window.Ravelle.mode === "demo";
+    const dot = (on, label) => `<span class="trk__state ${on ? "is-on" : ""}">${on ? "●" : "○"} ${label}</span>`;
+    const status = (x, none) => x ? `<p class="small" style="margin:0;color:${x.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last server event: <b>${esc(x.event)}</b> · ${esc(x.message)} · ${dateTime(x.at)}</p>` : `<p class="muted small" style="margin:0">${demo ? "The demo has no server, so server events can't be sent from here. This works on the live store." : none}</p>`;
+    const steps = (list) => `<ol class="trk__steps">${list.map((x) => `<li>${x}</li>`).join("")}</ol>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Pixel & Analytics</h1><p class="muted">Connect Meta (Facebook and Instagram ads) and Google Analytics. Paste the IDs below. The store sends every event by itself, so you don't need Google Tag Manager or any other app.</p></div></div>
+      <form class="stack" id="trkForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Meta Pixel and Conversions API</h2>
+            <div class="flex">${dot(!!c.pixelId, "Pixel (browser)")}${dot(!!(c.pixelId && c.capiTokenSet), "Conversions API (server)")}</div></div>
+          <div class="row row--2">
+            <label class="field"><span>Pixel ID</span><input class="input" name="pixelId" value="${esc(c.pixelId || "")}" placeholder="123456789012345" inputmode="numeric"><small>15–16 digits. Events Manager › Data sources › your pixel.</small></label>
+            <label class="field"><span>Conversions API access token</span><input class="input" type="password" autocomplete="off" name="capiToken" value="" placeholder="${c.capiTokenSet ? "Saved. Paste a new one to replace it." : "Paste the token from Events Manager"}">
+              <small>Kept on your server only, never shown on the website.${c.capiTokenSet ? ` <a href="#" id="capiClear">Remove token</a>` : ""}</small></label></div>
+          <div class="row row--2">
+            <label class="field"><span>Test event code (only while testing)</span><input class="input" name="capiTest" value="${esc(c.capiTest || "")}" placeholder="TEST12345"><small>From Events Manager › Test events. Clear it when you're done, or real events stay in test mode.</small></label>
+            <div class="field"><span>Check the connection</span><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-test="meta">Send a test event to Meta</button></div><div id="metaStatus">${status(c.capiStatus, c.capiTokenSet ? "No server events sent yet." : "Add the token to turn on server events.")}</div></div></div>
+          <details class="trk__guide"><summary>Step-by-step: set up the Pixel and Conversions API</summary>
+            <h3>1. Create the Pixel</h3>${steps([
+              `Open <a href="https://business.facebook.com/events_manager2" target="_blank" rel="noopener">Meta Events Manager</a> with the Business account that runs your ads.`,
+              `Click <b>Connect data sources › Web › Meta Pixel</b>. Name it "Ravelle website" and enter <b>ravellebd.com</b>.`,
+              `When it asks how to install, close that window. You don't need to paste Meta's code; this store adds it.`,
+              `Copy the <b>Pixel ID</b> (the number under the pixel's name) into the box above and press Save.`])}
+            <h3>2. Turn on the Conversions API</h3>${steps([
+              `In Events Manager, open your pixel and go to <b>Settings</b>.`,
+              `Under <b>Conversions API</b>, choose <b>Set up direct integration</b> (or "Generate access token").`,
+              `Click <b>Generate access token</b>, copy it, and paste it into the token box above. Press Save. Meta shows the token only once.`])}
+            <h3>3. Test it</h3>${steps([
+              `In Events Manager, open <b>Test events</b> and copy the test code (like TEST12345) into <b>Test event code</b>. Save.`,
+              `Press <b>Send a test event to Meta</b> above. It should appear in Test events within a minute, marked <b>Server</b>.`,
+              `Open your store in another tab, view a product, add it to the bag and place a test order. Each event should show twice, <b>Browser</b> and <b>Server</b>, and Meta marks them "Deduplicated".`,
+              `Clear the test code and Save.`])}
+            <h3>4. Finish in Business Settings</h3>${steps([
+              `<a href="https://business.facebook.com/settings/owned-domains" target="_blank" rel="noopener">Business Settings › Brand safety › Domains</a>: add and verify ravellebd.com.`,
+              `In your pixel, open <b>Aggregated event measurement</b> and put <b>Purchase</b> at the top, then InitiateCheckout, AddToCart, ViewContent.`,
+              `After a few days, check <b>Overview › Event match quality</b>. Purchase usually reaches "Good" or "Great" because the server sends hashed phone numbers.`])}
+            <p class="muted small">Events the store sends: PageView, ViewCategory, ViewContent, Search, AddToWishlist, AddToCart, InitiateCheckout, AddPaymentInfo, Purchase, Lead, Contact.</p>
+          </details></div>
+        <div class="card"><div class="card__head"><h2 class="h2">Google Analytics 4</h2>
+            <div class="flex">${dot(!!c.gaId, "Tag (browser)")}${dot(!!(c.gaId && c.gaSecretSet), "Purchases from server")}</div></div>
+          <div class="row row--2">
+            <label class="field"><span>Measurement ID</span><input class="input" name="gaId" value="${esc(c.gaId || "")}" placeholder="G-XXXXXXXXXX"><small>Starts with G-. Admin › Data streams › your web stream.</small></label>
+            <label class="field"><span>Measurement Protocol API secret</span><input class="input" type="password" autocomplete="off" name="gaSecret" value="" placeholder="${c.gaSecretSet ? "Saved. Paste a new one to replace it." : "Paste the secret from Google Analytics"}">
+              <small>Kept on your server only.${c.gaSecretSet ? ` <a href="#" id="gaClear">Remove secret</a>` : ""}</small></label></div>
+          <div class="field"><span>Check the connection</span><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-test="ga">Check with Google</button></div><div id="gaStatus">${status(c.gaStatus, c.gaSecretSet ? "Nothing sent yet. It sends when an order is placed." : "Add the API secret to send purchases from the server.")}</div></div>
+          <details class="trk__guide"><summary>Step-by-step: set up Google Analytics</summary>
+            <h3>1. Create the property</h3>${steps([
+              `Go to <a href="https://analytics.google.com" target="_blank" rel="noopener">analytics.google.com</a> › <b>Admin › Create › Property</b>. Name it "Ravelle", time zone <b>Bangladesh</b>, currency <b>Bangladeshi Taka (BDT)</b>.`,
+              `Choose <b>Web</b> as the platform, enter <b>https://ravellebd.com</b>, and create the stream.`,
+              `Copy the <b>Measurement ID</b> (G-…) into the box above and press Save. Skip Google's "install manually" code; the store adds it.`])}
+            <h3>2. Send purchases from the server</h3>${steps([
+              `In the same web stream page, open <b>Measurement Protocol API secrets › Create</b>. Accept the terms if asked.`,
+              `Name it "Ravelle server", copy the <b>Secret value</b>, paste it above and Save.`,
+              `Press <b>Check with Google</b>. Google checks the event and the result shows under the button.`])}
+            <h3>3. Check it works</h3>${steps([
+              `Open <b>Reports › Realtime</b> in Google Analytics, then open your store in another tab. You should appear within a minute.`,
+              `Place a test order. It shows under <b>Reports › Monetization › Ecommerce purchases</b> within a few hours.`,
+              `Optional: link Google Ads and Search Console under <b>Admin › Product links</b>.`])}
+            <p class="muted small">Events the store sends: page_view, view_item_list, view_item, search, add_to_wishlist, add_to_cart, begin_checkout, add_payment_info, purchase, generate_lead, contact, and refund when you cancel or return an order.</p>
+          </details></div>
+        <div class="card"><h2 class="h2">Other tracking code</h2><p class="muted small" style="margin:0">For TikTok Pixel, Google Search Console verification or any other snippet that says "paste in the head". You don't need this for Meta or Google Analytics.</p>
+          <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" name="head" rows="6" spellcheck="false" placeholder="&lt;!-- Paste code here --&gt;">${esc(c.head || "")}</textarea></label>
+          <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" name="bodyEnd" rows="4" spellcheck="false">${esc(c.bodyEnd || "")}</textarea></label>
+          <p class="small" style="margin:0;color:var(--warn)">Only paste code from services you trust. It runs for every visitor.</p></div>
+        <div class="sticky-save"><span class="small">Changes apply to the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#trkForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    $$("[data-test]", form).forEach((b) => {
+      b.onclick = async () => {
+        if (dirty) return toast("Save first, then test.", "warn");
+        const kind = b.dataset.test, out = $(kind === "meta" ? "#metaStatus" : "#gaStatus");
+        b.disabled = true; out.innerHTML = `<p class="muted small" style="margin:0">Sending…</p>`;
+        try {
+          const r = await api("POST", "/api/tracking/test", { kind });
+          out.innerHTML = `<p class="small" style="margin:0;color:${r.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">${esc(r.message)}</p>`;
+        } catch (err) { out.innerHTML = `<p class="small" style="margin:0;color:var(--danger)">${esc(err.message)}</p>`; }
+        b.disabled = false;
+      };
+    });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, code = { pixelId: f.pixelId.value.trim(), capiTest: f.capiTest.value.trim(), gaId: f.gaId.value.trim(), head: f.head.value, bodyEnd: f.bodyEnd.value };
+      if (f.capiToken.value.trim()) code.capiToken = f.capiToken.value.trim();
+      if (f.gaSecret.value.trim()) code.gaSecret = f.gaSecret.value.trim();
+      if (form.dataset.capiClear) code.capiTokenClear = true;
+      if (form.dataset.gaClear) code.gaSecretClear = true;
+      try { await api("PUT", "/api/settings", { settings: { code } }); dirty = false; toast("Saved"); viewTracking(); } catch (err) { fail(err); }
     };
   }
 
@@ -1795,7 +1875,7 @@
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
     ["Sales", [["orders", "Orders", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
-    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["media", "Media library", "content"]]],
+    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"]]],
     ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
   ];
@@ -1827,7 +1907,7 @@
   function notFound() { view.innerHTML = `<p class="empty">That page doesn't exist. <a href="#/dashboard">Go to the dashboard</a></p>`; }
 
   const ROUTES = [
-    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"],
+    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
     [/^coupons$/, viewCoupons, "coupons"],
