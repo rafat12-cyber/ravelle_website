@@ -240,7 +240,7 @@ function api(req, res, u, p) {
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
   var ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
   if (limited(ip, p, req.method)) return sendJson(res, 429, { error: "Too many requests. Wait a minute and try again." });
-  var max = p === "/api/media" || /^\/api\/(pages|products|categories)/.test(p) ? 16e6 : 1e6;
+  var max = p === "/api/media" || /^\/api\/(pages|products|categories)/.test(p) ? 16e6 : /^\/api\/chat\/[^/]+\/messages$/.test(p) ? 5e6 : 1e6;
   readBody(req, max, function (err, raw) {
     if (err) return sendJson(res, 413, { error: "That request is too large." });
     var body = {};

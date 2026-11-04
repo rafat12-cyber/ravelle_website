@@ -1571,7 +1571,8 @@
     var greet = (S.settings.chat || {}).greeting;
     var list = chat.messages.length ? chat.messages : greet ? [{ from: "bot", text: greet, at: Date.now() }] : [];
     box.innerHTML = list.map(function (m) {
-      return '<div class="msg msg--' + (m.from === "customer" ? "me" : "them") + '"><p>' + br(m.text) + '</p><span class="mono">' +
+      var pic = m.image ? '<a class="msg__img" href="' + esc(m.image) + '" target="_blank" rel="noopener"><img src="' + esc(m.image) + '" alt="Photo"></a>' : "";
+      return '<div class="msg msg--' + (m.from === "customer" ? "me" : "them") + (m.image ? " msg--img" : "") + '">' + pic + (m.text ? "<p>" + br(m.text) + "</p>" : "") + '<span class="mono">' +
         (m.from === "customer" ? "You" : esc(m.author || (S.settings.chat || {}).title || "Ravelle")) + " · " + new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span></div>";
     }).join("");
     box.scrollTop = box.scrollHeight;
@@ -1597,11 +1598,11 @@
       chat.timer = setTimeout(pollChat, chat.open ? 3500 : 20000);
     });
   }
-  function sendChat(text) {
+  function sendChat(text, image) {
     var go = function () {
-      var msg = { id: "tmp" + Date.now(), from: "customer", text: text, at: Date.now() };
+      var msg = { id: "tmp" + Date.now(), from: "customer", text: text, image: image, at: Date.now() };
       chat.messages.push(msg); drawChat();
-      return api("POST", "/api/chat/" + chat.session.id + "/messages", { token: chat.session.token, text: text, since: chat.last, name: $("#chatName").value }).then(function (r) {
+      return api("POST", "/api/chat/" + chat.session.id + "/messages", { token: chat.session.token, text: text, image: image || undefined, since: chat.last, name: $("#chatName").value }).then(function (r) {
         chat.messages = chat.messages.filter(function (m) { return m !== msg; });
         r.messages.forEach(function (m) { if (!chat.messages.some(function (x) { return x.id === m.id; })) chat.messages.push(m); });
         chat.messages.sort(function (a, b) { return a.at - b.at; });
@@ -1616,7 +1617,10 @@
       chat.messages = r.messages;
       chat.last = r.messages.length ? r.messages[r.messages.length - 1].at : 0;
     });
-    return start.then(go).catch(function (err) { toast(esc(err.message || "Chat isn't available right now."), "warn"); });
+    return start.then(go).catch(function (err) {
+      chat.messages = chat.messages.filter(function (m) { return String(m.id).indexOf("tmp") !== 0; }); drawChat();
+      toast(esc(err.message || "Chat isn't available right now."), "warn");
+    });
   }
   function toggleChat(force) {
     chat.open = force === undefined ? !chat.open : force;
@@ -1631,6 +1635,35 @@
     if (!text) return;
     t.value = "";
     sendChat(text);
+  });
+  // "+" button: pick a photo, shrink it to 1280 px and send it
+  function shrinkPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+        var cv = document.createElement("canvas");
+        cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        var out = cv.toDataURL("image/webp", 0.82);
+        resolve(out.indexOf("data:image/webp") === 0 ? out : cv.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("That file isn't a photo we can open.")); };
+      img.src = url;
+    });
+  }
+  $("#chatAttach").addEventListener("click", function () { $("#chatFile").click(); });
+  $("#chatFile").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!/^image\//.test(f.type)) { toast("Choose a photo (JPG, PNG or WebP).", "warn"); return; }
+    shrinkPhoto(f).then(function (data) {
+      var t = $("#chatText"), text = t.value.trim();
+      t.value = "";
+      sendChat(text, data);
+    }, function (err) { toast(esc(err.message), "warn"); });
   });
   $("#chatText").addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chatForm").requestSubmit(); }

@@ -124,7 +124,7 @@
   function chatSummary(c) {
     var last = c.messages[c.messages.length - 1];
     return { id: c.id, name: c.name, phone: c.phone, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt,
-      unread: c.unreadAdmin || 0, lastMessage: last ? { from: last.from, text: last.text, at: last.at } : null, page: c.page || "" };
+      unread: c.unreadAdmin || 0, lastMessage: last ? { from: last.from, text: last.text || (last.image ? "Photo" : ""), at: last.at } : null, page: c.page || "" };
   }
   function publicSettings(s) {
     return {
@@ -617,7 +617,7 @@
     }
     function visibleMessages(ch, since) {
       since = num(since, 0);
-      return ch.messages.filter(function (m) { return m.at > since && !m.internal; }).map(function (m) { return { id: m.id, from: m.from, text: m.text, at: m.at, author: m.from === "customer" ? "" : m.author || "" }; });
+      return ch.messages.filter(function (m) { return m.at > since && !m.internal; }).map(function (m) { var o = { id: m.id, from: m.from, text: m.text, at: m.at, author: m.from === "customer" ? "" : m.author || "" }; if (m.image) o.image = m.image; return o; });
     }
     route("POST", "/api/chat/start", null, function (c) {
       var db = c.db;
@@ -637,11 +637,19 @@
     }, { readonly: true });
     route("POST", "/api/chat/:id/messages", null, function (c) {
       var ch = visitorChat(c), db = c.db;
-      var text = str(c.body.text, 2000);
-      if (!text) fail(400, "Write a message.");
+      var text = str(c.body.text, 2000), image = "";
+      // A customer can attach one photo (sent as a data URL; the widget shrinks it to 1280 px first)
+      if (c.body.image) {
+        var im = /^data:(image\/(png|jpeg|webp|gif));base64,/.exec(String(c.body.image));
+        if (!im) fail(400, "Send a PNG, JPG, WebP or GIF photo.");
+        if (String(c.body.image).length > 4e6) fail(413, "That photo is too big. Try a smaller one.");
+        image = host.saveMedia("chat-" + ch.id + "-" + now(), String(c.body.image), im[1]).url;
+      }
+      if (!text && !image) fail(400, "Write a message.");
       if (c.body.name) ch.name = str(c.body.name, 80);
       if (c.body.phone) ch.phone = str(c.body.phone, 20);
       var m = { id: newId("m"), from: "customer", text: text, at: now() };
+      if (image) m.image = image;
       ch.messages.push(m);
       ch.status = "open"; ch.updatedAt = m.at; ch.unreadAdmin = int(ch.unreadAdmin) + 1;
       var custCount = ch.messages.filter(function (x) { return x.from === "customer"; }).length;
