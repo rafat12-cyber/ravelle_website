@@ -855,7 +855,9 @@
       if (state.sort === "low") list.sort(function (a, b) { return a.price - b.price || a.order - b.order; });
       if (state.sort === "high") list.sort(function (a, b) { return b.price - a.price || a.order - b.order; });
       if (state.sort === "new") list.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      if (state.sort === "featured") list.sort(function (a, b) { return (soldOut(a) ? 1 : 0) - (soldOut(b) ? 1 : 0) || a.order - b.order; });
+      if (state.sort === "featured") list.sort(function (a, b) { return a.order - b.order; });
+      // Sold-out products always go to the end, whatever the sort
+      list = list.filter(function (p) { return !soldOut(p); }).concat(list.filter(soldOut));
       $("#shopGrid").innerHTML = grid(list);
       $("#count").textContent = list.length + (list.length === 1 ? " product" : " products");
       $("#shopEmpty").hidden = list.length > 0;
