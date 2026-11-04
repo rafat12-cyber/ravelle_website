@@ -264,7 +264,7 @@ button { font: inherit; color: inherit; }
 .tl__steps i::after { content: ""; position: absolute; inset: 0; background: #2a2b2d; transform: scaleX(0); transform-origin: 0 50%; }
 .tl__steps .is-done i::after { transform: scaleX(1); background: #b9bbbe; }
 .tl__steps .is-on i::after { transform: scaleX(1); }
-.tl.is-playing .tl__steps .is-on i::after { animation: tl-fill 3.2s linear both; }
+.tl.is-playing .tl__steps .is-on i::after { animation: tl-fill 2.2s linear both; }
 @keyframes tl-fill { from { transform: scaleX(0); } }
 .tl__steps span { font-size: 10px; letter-spacing: .08em; white-space: nowrap; }
 .tl__steps b { font-weight: 400; display: none; color: #2a2b2d; margin-left: 6px; }

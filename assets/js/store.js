@@ -404,7 +404,7 @@
   // ---------------------------------------------------------------------------
   var TL = { n: 0, pos: 0, target: 0, i: -1, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, unit: 200 };
   var tlTrack = $("#tlTrack"), tlStage = $("#tlStage"), tlCursor = $("#tlCursor");
-  var TL_MS = 3200; // time on each look while autoplaying
+  var TL_MS = 2200; // time on each look while autoplaying
   var TL_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
   function tlLooks() {
     return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l, i) {
@@ -495,7 +495,7 @@
       var diff = TL.target - TL.pos;
       if (Math.abs(diff) > 0.0005) {
         // Smooth, frame-rate independent ease
-        TL.pos += diff * (1 - Math.exp(-dt * 7.5));
+        TL.pos += diff * (1 - Math.exp(-dt * 9));
         tlLayout();
       } else if (diff) { TL.pos = TL.target; tlLayout(); }
     }
@@ -545,35 +545,25 @@
   });
   // Drag: the row follows the pointer, then settles on the nearest look,
   // carrying a little of the flick speed
-  tlStage.addEventListener("pointerdown", function (e) {
-    if (e.target.closest(".tl__foot, .tl__head") || e.button) return;
-    TL.drag = { px: e.clientX, p0: TL.pos, moved: 0, lx: e.clientX, lt: performance.now(), v: 0 };
+  function tlDown(x, t) {
+    if (t.closest(".tl__foot, .tl__head")) return false;
+    TL.drag = { px: x, p0: TL.pos, moved: 0, lx: x, lt: performance.now(), v: 0 };
     tlStage.classList.add("is-grabbing");
     tlTimer();
-  });
-  window.addEventListener("pointermove", function (e) {
-    var g = TL.drag;
-    if (!g) return;
-    var now = performance.now(), dx = e.clientX - g.px;
+    return true;
+  }
+  function tlMove(x) {
+    var g = TL.drag, now = performance.now(), dx = x - g.px;
     g.moved = Math.max(g.moved, Math.abs(dx));
-    if (now > g.lt) { g.v = 0.8 * g.v + 0.2 * ((e.clientX - g.lx) / (now - g.lt)); g.lx = e.clientX; g.lt = now; }
+    if (now > g.lt) { g.v = 0.8 * g.v + 0.2 * ((x - g.lx) / (now - g.lt)); g.lx = x; g.lt = now; }
     TL.pos = TL.target = g.p0 - dx / TL.unit;
     tlLayout();
-  });
-  // A vertical scroll on a phone cancels the drag: settle where it is
-  window.addEventListener("pointercancel", function () {
-    if (!TL.drag) return;
-    TL.drag = null;
-    tlStage.classList.remove("is-grabbing");
-    TL.target = Math.round(TL.pos);
-    tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
-  });
-  window.addEventListener("pointerup", function (e) {
+  }
+  function tlUp(t) {
     var g = TL.drag;
-    if (!g) return;
     TL.drag = null;
     tlStage.classList.remove("is-grabbing");
-    var m = e.target.closest && e.target.closest(".tl__model");
+    var m = t && t.closest && t.closest(".tl__model");
     if (g.moved < 6) {
       if (m && tlTrack.contains(m)) { tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
       else tlTimer();
@@ -582,7 +572,45 @@
     tlStop();
     TL.target = Math.round(TL.pos - g.v * 260 / TL.unit);
     tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
+  }
+  // Mouse and pen use pointer events
+  tlStage.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "touch" || e.button) return;
+    tlDown(e.clientX, e.target);
   });
+  window.addEventListener("pointermove", function (e) { if (TL.drag && !TL.drag.touch) tlMove(e.clientX); });
+  window.addEventListener("pointerup", function (e) { if (TL.drag && !TL.drag.touch) tlUp(e.target); });
+  // Touch uses touch events, so a sideways swipe is always ours (the page
+  // never steals it as a scroll) while an up/down swipe still scrolls the page
+  tlStage.addEventListener("touchstart", function (e) {
+    if (e.touches.length > 1) return;
+    var p = e.touches[0];
+    if (!tlDown(p.clientX, e.target)) return;
+    TL.drag.touch = true; TL.drag.py = p.clientY; TL.drag.axis = "";
+  }, { passive: true });
+  tlStage.addEventListener("touchmove", function (e) {
+    var g = TL.drag;
+    if (!g || !g.touch) return;
+    var p = e.touches[0], dx = p.clientX - g.px, dy = p.clientY - g.py;
+    if (!g.axis) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if (g.axis === "y") { tlUp(null); TL.target = Math.round(TL.pos); return; }
+      g.px = p.clientX; // start the row from here so it doesn't jump
+    }
+    e.preventDefault();
+    tlMove(p.clientX);
+  }, { passive: false });
+  function tlTouchEnd(e) {
+    var g = TL.drag;
+    if (!g || !g.touch) return;
+    // A tap: work out which model is under the finger (photos ignore taps)
+    var t = e.changedTouches && e.changedTouches[0], el = t ? document.elementFromPoint(t.clientX, t.clientY) : null;
+    if (g.moved < 6 && e.cancelable) e.preventDefault();
+    tlUp(el);
+  }
+  tlStage.addEventListener("touchend", tlTouchEnd);
+  tlStage.addEventListener("touchcancel", function () { if (TL.drag && TL.drag.touch) { TL.drag.moved = 99; TL.drag.v = 0; tlUp(null); } });
   tlTrack.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" && e.key !== " ") return;
     var m = e.target.closest(".tl__model");
