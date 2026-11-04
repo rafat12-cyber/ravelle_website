@@ -1107,3 +1107,14 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
   .cookies { width: calc(100vw - 32px); bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
   .pd__buy { grid-template-columns: auto 1fr auto; }
 }
+
+/* Shop and category pages: name and price sit under the photo (home cards keep the bar on the photo) */
+#shopGrid .card { aspect-ratio: auto; padding-top: 140%; overflow: visible; background: none; border-radius: 0; }
+#shopGrid .card:hover { transform: none; box-shadow: none; }
+#shopGrid .card__img, #shopGrid .card > .card__type { bottom: auto; height: auto; aspect-ratio: 5 / 7; border-radius: var(--r-md); background-color: #dfe1e3; }
+#shopGrid .card:hover .card__img { transform: none; opacity: .92; }
+#shopGrid .card__bar { position: static; padding: 10px 2px 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 0; align-items: flex-start; }
+#shopGrid .card__name { font-size: 13px; }
+#shopGrid .card__name b { white-space: normal; }
+#shopGrid .card__price { display: block; margin-top: 3px; }
+#shopGrid .card__go { display: none; }
