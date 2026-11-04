@@ -160,7 +160,7 @@
       payments: { cod: !!(s.payments && s.payments.cod), sslcommerz: !!(s.payments && s.payments.sslcommerz && s.payments.sslcommerz.enabled) },
       chat: { enabled: !!(s.chat && s.chat.enabled), greeting: s.chat && s.chat.greeting, title: s.chat && s.chat.title },
       seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock,
-      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd }
+      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd, pixelId: siteCode(s).pixelId }
     };
   }
 
@@ -395,7 +395,8 @@
     }
     // Meta Conversions API: the server sends the same event as the browser Pixel, with the same event ID,
     // so Meta counts it once even when an ad blocker stops the browser copy. Only the Node server sends it.
-    var CAPI_NAMES = { page: "PageView", view: "ViewContent", cart: "AddToCart", checkout: "InitiateCheckout", search: "Search" };
+    var CAPI_NAMES = { page: "PageView", view: "ViewContent", cart: "AddToCart", checkout: "InitiateCheckout", search: "Search",
+      wishlist: "AddToWishlist", category: "ViewCategory", payment: "AddPaymentInfo", lead: "Lead", contact: "Contact" };
     function hashed(v) { v = String(v || "").trim().toLowerCase(); return v ? sha256(v) : undefined; }
     function capi(c, name, eventId, custom, person) {
       var code = siteCode(c.db.settings), req = c.req || {}, h = req.headers || {}, m = (c.body && c.body.meta) || c.body || {};
@@ -406,7 +407,7 @@
       var user = {
         client_ip_address: req.ip || undefined, client_user_agent: h["user-agent"] || undefined,
         fbp: str(m.fbp, 120) || undefined, fbc: str(m.fbc, 300) || undefined,
-        external_id: m.sid || person.phone ? [hashed(person.phone ? phone : m.sid)] : undefined,
+        external_id: m.sid ? [hashed(m.sid)] : phone ? [hashed(phone)] : undefined,
         ph: phone ? [hashed(phone)] : undefined, em: person.email ? [hashed(person.email)] : undefined,
         fn: names[0] ? [hashed(names[0])] : undefined, ln: names.length > 1 ? [hashed(names[names.length - 1])] : undefined,
         ct: person.city ? [hashed(String(person.city).replace(/[^a-z]/gi, ""))] : undefined, country: [hashed("bd")]
@@ -422,15 +423,27 @@
       var name = CAPI_NAMES[t];
       if (!name || !host.metaEvent) return;
       var p = b.productId ? findProduct(c.db, str(b.productId, 40)) : null, custom = null;
-      if ((t === "view" || t === "cart") && !p) return;
-      if (p) custom = { content_ids: [p.sku], content_name: p.name, content_type: "product", currency: "BDT", value: p.price * (t === "cart" ? Math.max(1, int(b.qty, 1)) : 1) };
-      if (t === "checkout") {
-        var items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map(function (l) { var x = findProduct(c.db, str(l.productId, 40)); return x ? { id: x.sku, quantity: Math.max(1, int(l.qty, 1)), item_price: x.price } : null; }).filter(Boolean);
-        custom = { content_ids: items.map(function (x) { return x.id; }), contents: items, content_type: "product", num_items: items.length, currency: "BDT",
-          value: items.reduce(function (s, x) { return s + x.item_price * x.quantity; }, 0) };
+      if ((t === "view" || t === "cart" || t === "wishlist") && !p) return;
+      var catName = function (x) { var ids = x.categoryIds || [], cat = findCategory(ids[ids.length - 1]) || findCategory(ids[0]); return cat ? cat.name : undefined; };
+      var findCategory = function (id) { return c.db.categories.filter(function (x) { return x.id === id; })[0]; };
+      if (p) {
+        var q = t === "cart" ? Math.max(1, int(b.qty, 1)) : 1;
+        custom = { content_ids: [p.sku], content_name: p.name, content_category: catName(p), content_type: "product",
+          contents: [{ id: p.sku, quantity: q, item_price: p.price }], currency: "BDT", value: p.price * q };
       }
-      if (t === "search") custom = { search_string: str(b.q, 60) };
-      capi(c, name, str(b.eid, 80), custom, null);
+      if (t === "checkout" || t === "payment") {
+        var items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map(function (l) { var x = findProduct(c.db, str(l.productId, 40)); return x ? { id: x.sku, quantity: Math.max(1, int(l.qty, 1)), item_price: x.price } : null; }).filter(Boolean);
+        custom = { content_ids: items.map(function (x) { return x.id; }), contents: items, content_type: "product", currency: "BDT",
+          num_items: items.reduce(function (s, x) { return s + x.quantity; }, 0), value: items.reduce(function (s, x) { return s + x.item_price * x.quantity; }, 0) };
+        if (t === "payment") custom.payment_method = str(b.method, 40);
+      }
+      if (t === "search") custom = { search_string: str(b.q, 60), content_type: "product", content_ids: (Array.isArray(b.ids) ? b.ids : []).slice(0, 10).map(function (x) { return str(x, 40); }) };
+      if (t === "category") custom = { content_category: str(b.name, 80), content_type: "product", content_ids: (Array.isArray(b.ids) ? b.ids : []).slice(0, 20).map(function (x) { return str(x, 40); }) };
+      if (t === "lead") custom = { content_name: str(b.topic, 80), content_category: "email signup" };
+      if (t === "contact") custom = { content_name: str(b.method, 40) };
+      var cu = b.cu && typeof b.cu === "object" ? { name: str(b.cu.name, 80), phone: isPhone(b.cu.phone || "") ? str(b.cu.phone, 20) : "", email: str(b.cu.email, 120), city: str(b.cu.city, 60) } : {};
+      if (t === "lead" && b.em) cu.email = str(b.em, 120);
+      capi(c, name, str(b.eid, 80), custom, cu);
     }
     // Add one to a counter in a map, folding rare keys into "Other" so a day stays small
     function bump(map, key, by, cap) {
@@ -691,7 +704,7 @@
     });
     route("POST", "/api/track", null, function (c) {
       var t = str(c.body.type, 10), b = c.body;
-      if (["visit", "view", "cart", "page", "search", "checkout"].indexOf(t) < 0) fail(400, "Unknown event.");
+      if (["visit", "view", "cart", "page", "search", "checkout", "wishlist", "category", "payment", "lead", "contact"].indexOf(t) < 0) fail(400, "Unknown event.");
       track(c.db, t, str(b.productId, 40), str(b.sid, 40), 0, {
         path: str(b.path, 80), src: str(b.src, 40), dev: str(b.dev, 20), br: str(b.br, 30), os: str(b.os, 20), nv: !!b.nv, q: str(b.q, 60), n: int(b.n)
       });
@@ -752,7 +765,7 @@
       db.orders.push(order);
       emit(db, "order.created", order);
       capi(c, "Purchase", order.number, {
-        content_ids: order.items.map(function (it) { return it.sku; }), content_type: "product", num_items: order.items.length, currency: "BDT", value: order.total,
+        content_ids: order.items.map(function (it) { return it.sku; }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
         contents: order.items.map(function (it) { return { id: it.sku, quantity: it.qty, item_price: it.price }; }), order_id: order.number
       }, order.customer);
       return { order: publicOrder(order) };

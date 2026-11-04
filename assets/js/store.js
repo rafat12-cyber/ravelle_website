@@ -899,6 +899,7 @@
     var cat = CAT_BY_SLUG[slug];
     if (!cat) return viewMissing();
     var list = productsIn(cat);
+    track("category", "", { name: cat.name, ids: list.slice(0, 20).map(function (p) { return p.sku; }) });
     var kids = S.categories.filter(function (c) { return c.parentId === cat.id; }).sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
     // A category of collections (like The House) shows its collections first.
     var collections = kids.filter(function (c) { return c.image; });
@@ -961,7 +962,7 @@
         p.categoryIds.map(function (id) { return (CAT_BY_ID[id] || {}).name; }).join(" ")).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) > -1; });
     });
-    if (q) track("search", "", { q: q, n: list.length });
+    if (q) track("search", "", { q: q, n: list.length, ids: list.slice(0, 10).map(function (p) { return p.sku; }) });
     viewListing({ list: list, crumb: "Search", title: '“' + esc(q) + '”', sub: list.length ? list.length + " results" : "Nothing found. Try another word, like tee, black or fearless." });
   }
 
@@ -1212,6 +1213,7 @@
       btn.disabled = true;
       api("POST", "/api/contact", { name: f.name.value, email: f.email.value, phone: f.phone.value, subject: f.subject.value, message: f.message.value })
         .then(function () {
+          track("contact", "", { method: "Contact form" });
           f.innerHTML = '<h2 class="panel__title">Message sent</h2><p class="contact__note">Thanks, ' + esc(f.name.value.split(" ")[0]) + ". We'll get back to you within one working day.</p>";
         }, function (err) { showErrors(f, err); btn.disabled = false; });
     });
@@ -1416,8 +1418,10 @@
       btn.disabled = true;
       btn.firstChild.textContent = "Placing order… ";
       store.set("customer", body.customer);
+      track("payment", "", { method: body.paymentMethod === "cod" ? "Cash on delivery" : "Online payment" });
       api("POST", "/api/orders", body).then(function (r) {
         var o = r.order;
+        pixelMatch(body.customer);
         adEvent("purchase", "", { order: o });
         o.phone = body.customer.phone;
         rememberOrder(o);
@@ -1667,6 +1671,7 @@
         pollChat();
       });
     };
+    if (!chat.session) track("contact", "", { method: "Live chat" });
     var start = chat.session ? Promise.resolve() : api("POST", "/api/chat/start", { name: $("#chatName").value, page: location.hash }).then(function (r) {
       chat.session = { id: r.id, token: r.token };
       store.set("chat", chat.session);
@@ -1774,45 +1779,99 @@
     var fb = typeof window.fbq === "function" ? window.fbq : null, ga = typeof window.gtag === "function" ? window.gtag : null;
     if (!fb && !ga) return;
     info = info || {};
-    var p = productId ? BY_ID[productId] : null;
     var opt = eid ? { eventID: eid } : undefined;
-    var item = p ? { item_id: p.sku, item_name: p.name, item_variant: p.color, price: p.price, quantity: info.qty || 1 } : null;
+    var p = productId ? BY_ID[productId] : null, qty = info.qty || 1;
+    var catOf = function (x) { var c = CAT_BY_ID[x.categoryIds[x.categoryIds.length - 1]] || CAT_BY_ID[x.categoryIds[0]]; return c ? c.name : ""; };
+    var gaItem = function (x, q) { return { item_id: x.sku, item_name: x.name, item_variant: x.color, item_category: catOf(x), price: x.price, quantity: q || 1 }; };
+    var bag = function () {
+      var lines = cart.map(function (l) { var x = BY_ID[l.productId]; return x ? { p: x, qty: l.qty } : null; }).filter(Boolean);
+      return { lines: lines, value: lines.reduce(function (s, l) { return s + l.p.price * l.qty; }, 0), units: lines.reduce(function (s, l) { return s + l.qty; }, 0) };
+    };
+    // One product, in the shape Meta's catalog and Advantage+ ads expect
+    var one = function (x, q) {
+      return { content_ids: [x.sku], content_name: x.name, content_category: catOf(x), content_type: "product",
+        contents: [{ id: x.sku, quantity: q, item_price: x.price }], value: x.price * q, currency: "BDT" };
+    };
+    var many = function (b) {
+      return { content_ids: b.lines.map(function (l) { return l.p.sku; }), content_type: "product", contents: b.lines.map(function (l) { return { id: l.p.sku, quantity: l.qty, item_price: l.p.price }; }),
+        num_items: b.units, value: b.value, currency: "BDT" };
+    };
+    var send = function (name, params, custom) { if (fb) fb(custom ? "trackCustom" : "track", name, params || {}, opt); };
     try {
       if (type === "page") {
         // Every Pixel page view is sent from here (with an event ID). GA sends the first one itself.
-        if (fb) fb("track", "PageView", {}, opt);
+        send("PageView");
         if (adPages++ && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
       } else if (type === "view" && p) {
-        if (fb) fb("track", "ViewContent", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price, currency: "BDT" }, opt);
-        if (ga) ga("event", "view_item", { currency: "BDT", value: p.price, items: [item] });
+        send("ViewContent", one(p, 1));
+        if (ga) ga("event", "view_item", { currency: "BDT", value: p.price, items: [gaItem(p)] });
       } else if (type === "cart" && p) {
-        if (fb) fb("track", "AddToCart", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price * (info.qty || 1), currency: "BDT" }, opt);
-        if (ga) ga("event", "add_to_cart", { currency: "BDT", value: p.price * (info.qty || 1), items: [item] });
-      } else if (type === "checkout") {
-        var items = cart.map(function (l) { var x = BY_ID[l.productId]; return x ? { item_id: x.sku, item_name: x.name, price: x.price, quantity: l.qty } : null; }).filter(Boolean);
-        var value = items.reduce(function (s, x) { return s + x.price * x.quantity; }, 0);
-        if (fb) fb("track", "InitiateCheckout", { content_ids: items.map(function (x) { return x.item_id; }), content_type: "product", num_items: items.length, value: value, currency: "BDT" }, opt);
-        if (ga) ga("event", "begin_checkout", { currency: "BDT", value: value, items: items });
+        send("AddToCart", one(p, qty));
+        if (ga) ga("event", "add_to_cart", { currency: "BDT", value: p.price * qty, items: [gaItem(p, qty)] });
+      } else if (type === "wishlist" && p) {
+        send("AddToWishlist", one(p, 1));
+        if (ga) ga("event", "add_to_wishlist", { currency: "BDT", value: p.price, items: [gaItem(p)] });
+      } else if (type === "category") {
+        var ids = (info.ids || []).slice(0, 20);
+        send("ViewCategory", { content_category: info.name || "", content_ids: ids, content_type: "product" }, true);
+        if (ga) ga("event", "view_item_list", { item_list_name: info.name || "" });
+      } else if (type === "checkout" || type === "payment") {
+        var b = bag(), d = many(b);
+        if (type === "payment") d.payment_method = info.method || "";
+        send(type === "checkout" ? "InitiateCheckout" : "AddPaymentInfo", d);
+        if (ga) ga("event", type === "checkout" ? "begin_checkout" : "add_payment_info", Object.assign({ currency: "BDT", value: b.value, items: b.lines.map(function (l) { return gaItem(l.p, l.qty); }) },
+          type === "payment" ? { payment_type: info.method || "" } : {}));
       } else if (type === "search" && info.q) {
-        if (fb) fb("track", "Search", { search_string: info.q }, opt);
+        send("Search", { search_string: info.q, content_type: "product", content_ids: (info.ids || []).slice(0, 10) });
         if (ga) ga("event", "search", { search_term: info.q });
+      } else if (type === "lead") {
+        send("Lead", { content_name: info.topic || "Newsletter", content_category: "email signup" });
+        if (ga) ga("event", "generate_lead", { lead_source: info.topic || "newsletter" });
+      } else if (type === "contact") {
+        send("Contact", { content_name: info.method || "" });
+        if (ga) ga("event", "contact", { method: info.method || "" });
       } else if (type === "purchase" && info.order) {
-        var o = info.order, its = (o.items || []).map(function (l) { return { item_id: l.sku, item_name: l.name, price: l.price, quantity: l.qty }; });
+        var o = info.order;
         // The order number is the event ID, the same one the server sends to the Conversions API
-        if (fb) fb("track", "Purchase", { content_ids: its.map(function (x) { return x.item_id; }), content_type: "product", num_items: its.length, value: o.total, currency: "BDT" }, { eventID: o.number });
-        if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined, items: its });
+        if (fb) fb("track", "Purchase", { content_ids: o.items.map(function (l) { return l.sku; }), content_type: "product",
+          contents: o.items.map(function (l) { return { id: l.sku, quantity: l.qty, item_price: l.price }; }),
+          num_items: o.items.reduce(function (s, l) { return s + l.qty; }, 0), value: o.total, currency: "BDT", order_id: o.number }, { eventID: o.number });
+        if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined,
+          items: o.items.map(function (l) { return { item_id: l.sku, item_name: l.name, item_variant: l.color, price: l.price, quantity: l.qty }; }) });
       }
     } catch (e) {}
+  }
+  // Advanced matching: tell the Pixel who the shopper is when they have checked out before on this browser
+  var matched = false;
+  function pixelMatch(cu) {
+    var id = (S.settings.code || {}).pixelId;
+    if (!id || typeof window.fbq !== "function" || EDIT) return;
+    cu = cu || store.get("customer", null);
+    if (matched && !cu) return;
+    var ud = { external_id: sid, country: "bd" };
+    if (cu) {
+      var names = String(cu.name || "").trim().toLowerCase().split(/\s+/), ph = String(cu.phone || "").replace(/[^\d]/g, "");
+      if (ph) ud.ph = ph.length === 11 ? "88" + ph : ph;
+      if (cu.email) ud.em = String(cu.email).trim().toLowerCase();
+      if (names[0]) ud.fn = names[0];
+      if (names.length > 1) ud.ln = names[names.length - 1];
+      if (cu.city) ud.ct = String(cu.city).toLowerCase().replace(/[^a-z]/g, "");
+    }
+    try { window.fbq("init", id, ud); matched = true; } catch (e) {}
   }
   function track(type, productId, info) {
     if (EDIT) return;
     var eid = eventId();
+    if (!matched) pixelMatch();
     adEvent(type, productId, info, eid);
     var body = { type: type, productId: productId || "", sid: sid, eid: eid };
     if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
     var mi = metaInfo();
     body.fbp = mi.fbp; body.fbc = mi.fbc; body.url = mi.url;
-    if (type === "checkout") body.items = cart.map(function (l) { return { productId: l.productId, qty: l.qty }; });
+    if (type === "checkout" || type === "payment") body.items = cart.map(function (l) { return { productId: l.productId, qty: l.qty }; });
+    // Details the shopper gave at an earlier checkout; the server hashes them before they go to Meta
+    var cu = store.get("customer", null);
+    if (cu) body.cu = { name: cu.name || "", phone: cu.phone || "", email: cu.email || "", city: cu.city || "" };
     api("POST", "/api/track", body).catch(function () {});
   }
   function pagePath() {
@@ -1830,11 +1889,13 @@
   document.addEventListener("click", function (e) {
     var t = e.target;
     if (EDIT && t.closest("a") && !t.closest("[data-allow]")) { e.preventDefault(); }
+    var reach = t.closest('a[href*="wa.me/"], a[href^="tel:"], a[href*="m.me/"]');
+    if (reach && !EDIT) track("contact", "", { method: /wa\.me/.test(reach.href) ? "WhatsApp" : /m\.me/.test(reach.href) ? "Messenger" : "Phone call" });
     var save = t.closest("[data-save]");
     if (save) {
       e.preventDefault();
       var id = save.dataset.save, at = saved.indexOf(id);
-      if (at > -1) saved.splice(at, 1); else saved.push(id);
+      if (at > -1) saved.splice(at, 1); else { saved.push(id); track("wishlist", id); }
       store.set("saved", saved);
       $$('[data-save="' + id + '"]').forEach(function (b) { b.setAttribute("aria-pressed", at > -1 ? "false" : "true"); });
       toast(at > -1 ? "Removed from saved" : 'Saved · <a href="#saved">View saved</a>');
@@ -1879,6 +1940,7 @@
       e.preventDefault();
       var email = $("input[type=email]", f).value;
       var topic = f.dataset.notify || "new drops";
+      track("lead", "", { topic: topic, em: email });
       api("POST", "/api/contact", { name: "Drop alert", email: email, subject: "Drop alert: " + topic, message: "Please email me when " + topic + " is available." }).catch(function () {});
       f.hidden = true;
       var ok = f.id === "news" ? $("#newsOk") : f.nextElementSibling;
