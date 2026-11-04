@@ -361,8 +361,12 @@ button { font: inherit; color: inherit; }
 /* 3. House ---------------------------------------------------------------- */
 .house--shirts .section-head { grid-template-columns: 1fr auto; }
 .house--shirts .section-head .eyebrow--link { grid-column: 2; grid-row: 2; align-self: end; }
-.house--shirts .drop > img { top: auto; bottom: 0; height: 92%; right: 12%; transform-origin: 50% 100%; }
-.house--shirts .drop:hover > img { transform: translateY(-1.5%) scale(1.03); }
+.house--shirts .drop { aspect-ratio: 3 / 4; }
+.house--shirts .drop > img { inset: 0; top: 0; right: 0; width: 100%; height: 100%; object-fit: cover; }
+.house--shirts .drop:hover > img { transform: scale(1.03); }
+/* keep the titles readable over the full photos */
+.house--shirts .drop::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.5) 0%, rgba(0,0,0,.12) 34%, transparent 55%); }
+.house--shirts .drop__meta, .house--shirts .drop__title { z-index: 2; }
 .house { padding: 30px var(--gut-r) 130px var(--gut); max-width: var(--wrap); margin: 0 auto; }
 .section-head { display: grid; grid-template-columns: 1fr auto; gap: 14px 40px; align-items: end; margin-bottom: 40px; }
 .section-head .eyebrow { grid-column: 1 / -1; }

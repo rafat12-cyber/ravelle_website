@@ -189,8 +189,8 @@
       },
       house: {
         eyebrow: "New in", titleStart: "Trendy", accent: "oversized", titleEnd: "items.", linkLabel: "Shop all →", link: "#category/men",
-        card1: { image: "assets/img/home/h-tee-cat.webp", meta: "Shop T-shirts →", title: "Oversized\nT-shirt", link: "#category/t-shirt" },
-        card2: { image: "assets/img/home/h-shirt-cat.webp", meta: "Shop shirts →", title: "Boxy Fitted\nShirt", link: "#category/half-shirt" }
+        card1: { image: "assets/img/home/h-tee-cat-full.webp", meta: "Shop T-shirts →", title: "Oversized\nT-shirt", link: "#category/t-shirt" },
+        card2: { image: "assets/img/home/h-shirt-cat-full.webp", meta: "Shop shirts →", title: "Boxy Fitted\nShirt", link: "#category/half-shirt" }
       },
       poster: {
         kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",
