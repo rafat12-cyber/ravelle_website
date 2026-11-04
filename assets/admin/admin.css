@@ -273,6 +273,9 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 .menu-item { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; padding: 8px; border-radius: 10px; background: var(--panel); }
 .menu-kids { display: grid; gap: 6px; margin: 6px 0 4px 26px; }
 .menu-tools { display: flex; gap: 3px; }
+.menu-photo { grid-column: 1 / -1; display: flex; gap: 12px; align-items: flex-start; padding-top: 4px; }
+.menu-photo__frame { flex: none; width: 64px; aspect-ratio: 4 / 5; border-radius: 8px; overflow: hidden; background: var(--line, #e3e5e8); border: 1px dashed rgba(0,0,0,.18); }
+.menu-photo__frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 /* Chat */
 .inbox { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 57px - 140px); min-height: 460px; }

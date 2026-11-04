@@ -269,20 +269,16 @@
   var catLink = function (slug, label) { return { id: "mi_" + slug, label: label, url: "#category/" + slug, children: [] }; };
   var menus = {
     header: [
-      { id: "mi_shop", label: "Shop", url: "#shop", children: [
+      { id: "mi_shop", label: "Shop", url: "#shop", image: "assets/img/menu-shop.webp", children: [
         { id: "mi_all", label: "All products", url: "#shop", children: [] },
         { id: "mi_new", label: "New in", url: "#new-in", children: [] },
         { id: "mi_sale2", label: "On sale", url: "#on-sale", children: [] }
       ] },
-      { id: "mi_men", label: "Men", url: "#category/men", children: [
+      { id: "mi_men", label: "Men", url: "#category/men", image: "assets/img/menu-men.webp", children: [
         catLink("t-shirt", "T-shirt"), catLink("polo", "Polo"), catLink("half-shirt", "Half shirt"),
         catLink("full-shirt", "Full shirt"), catLink("trouser", "Trouser"), catLink("denim-pant", "Denim pant")
       ] },
       { id: "mi_women", label: "Women", url: "#category/women", children: [] },
-      { id: "mi_house", label: "The House", url: "#category/the-house", children: [
-        catLink("nior-division", "Nior Division"), catLink("saint-sinners", "Saint & Sinners Hype"), catLink("essential", "Essential Collection"),
-        catLink("obsedian", "Obsedian Virtue"), catLink("monarch-drop", "Monarch Drop")
-      ] },
       { id: "mi_newin", label: "New in", url: "#new-in", children: [] },
       { id: "mi_sale", label: "On sale", url: "#on-sale", children: [] }
     ],

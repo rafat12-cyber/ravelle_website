@@ -85,7 +85,7 @@ button { font: inherit; color: inherit; }
 .pill--arrow { padding-right: 5px; }
 .pill__arrow { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--paper); color: var(--ink); transition: transform .3s var(--ease); }
 .pill--arrow:hover .pill__arrow { transform: rotate(45deg); }
-.icon-btn { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); transition: transform .25s var(--ease); }
+.icon-btn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--ink); color: var(--paper); transition: transform .25s var(--ease); }
 .icon-btn:hover { transform: translateY(-2px); }
 .icon-btn--line { background: transparent; color: var(--ink); border: 1px solid rgba(17,18,20,.3); transition: background .2s, color .2s, transform .25s var(--ease); }
 .icon-btn--line:hover { background: var(--ink); color: var(--paper); }
@@ -128,7 +128,7 @@ button { font: inherit; color: inherit; }
   position: relative; z-index: 3;
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   padding: 12px 22px 0;
-  font-size: 11px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase;
+  font-size: 13px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase;
 }
 .nav__group { display: flex; align-items: center; gap: 24px; }
 .nav__group--end { justify-content: flex-end; gap: 8px; }
@@ -137,7 +137,7 @@ button { font: inherit; color: inherit; }
 .nav__group a:not(.pill):not(.icon-btn)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: currentColor; transform: scaleX(0); transform-origin: right; transition: transform .35s var(--ease); }
 .nav__group a:not(.pill):not(.icon-btn):hover::after { transform: scaleX(1); transform-origin: left; }
 .nav__brand { display: flex; align-items: center; margin-top: -6px; }
-.nav__brand img { height: 36px; width: auto; }
+.nav__brand img { height: 40px; width: auto; }
 
 .hero__copy { position: relative; z-index: 2; display: grid; justify-items: center; gap: 22px; padding: 58px 16px 0; }
 .hero__ctas { display: flex; gap: 6px; }
@@ -828,17 +828,20 @@ body.is-locked { overflow: hidden; }
 .nav__menu > li { position: relative; }
 .nav__menu > li.has-sub > a::before { content: ""; position: absolute; left: -12px; right: -12px; top: 100%; height: 16px; }
 .nav__sub {
-  position: absolute; top: calc(100% + 12px); left: -14px; z-index: 5; min-width: 200px;
-  display: grid; gap: 2px; padding: 8px; border-radius: 16px; background: var(--paper);
+  position: absolute; top: calc(100% + 12px); left: -14px; z-index: 5;
+  display: flex; align-items: stretch; gap: 14px; padding: 10px; border-radius: 18px; background: var(--paper);
   box-shadow: 0 24px 40px -22px rgba(17,18,20,.45);
   opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity .2s, transform .25s var(--ease), visibility .2s;
-  text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400;
+  text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 400;
 }
-.nav__sub a { display: block; padding: 8px 12px !important; border-radius: 10px; }
+/* dropdown photo: fixed 220 x 275 frame (upload 440 x 550 px) */
+.nav__sub-img { flex: none; margin: 0; width: 220px; aspect-ratio: 4 / 5; border-radius: 12px; overflow: hidden; background: var(--ground); }
+.nav__sub-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.nav__sub-list { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 6), auto); grid-auto-columns: minmax(170px, auto); align-content: start; gap: 2px 8px; padding: 4px 0; }
+.nav__sub a { display: block; padding: 9px 12px !important; border-radius: 10px; white-space: nowrap; }
 .nav__sub a::after { display: none; }
 .nav__sub a:hover { background: var(--ground); }
 .nav__menu > li:hover > .nav__sub, .nav__menu > li:focus-within > .nav__sub { opacity: 1; visibility: visible; transform: none; }
-.nav__links-end .nav__sub { left: auto; right: -14px; }
 
 /* Sticky header: slides down after the hero nav leaves the screen */
 .topbar {
@@ -854,7 +857,7 @@ body.is-locked { overflow: hidden; }
 }
 .topbar .nav { padding: 8px 10px 8px 22px; }
 .topbar .nav__brand { margin-top: 0; }
-.topbar .nav__brand img { height: 28px; }
+.topbar .nav__brand img { height: 32px; }
 .topbar .nav__sub { top: calc(100% + 16px); }
 .is-edit .topbar { display: none; }
 

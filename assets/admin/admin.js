@@ -1074,15 +1074,29 @@
       ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
     const linkSelect = `<select class="input input--sm" data-pick-link><option value="">Link to…</option>${links.map(([g, l]) => `<optgroup label="${g}">${l.map(([n, u]) => `<option value="${esc(u)}" data-label="${esc(n.replace(/^(— )+/, ""))}">${esc(n)}</option>`).join("")}</optgroup>`).join("")}</select>`;
     view.innerHTML = `<div class="head"><div><h1 class="h1">Menus</h1><p class="muted">The header menu (with dropdowns) and the footer columns. Link to categories, sub-categories, pages or any web address.</p></div><button class="btn btn--dark" id="mnSave" disabled>Saved</button></div>
-      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop the first half sits left of the logo, the rest on the right. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
+      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop all links sit left of the logo. A link with dropdown links opens a panel: its photo on the left, then the links in columns of six. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
         <div class="card"><div class="card__head"><h2 class="h2">Footer columns</h2><button class="btn btn--ghost btn--sm" data-add-col>+ Add column</button></div><div class="stack" id="mnFooter"></div></div></div>`;
     const setDirty = () => { dirty = true; $("#mnSave").disabled = false; $("#mnSave").textContent = "Save menus"; };
     const row = (it, path, canNest) => `<div><div class="menu-item" data-path="${path}"><input class="input input--sm" data-f="label" value="${esc(it.label)}" placeholder="Label">
       <div class="flex" style="flex-wrap:nowrap"><input class="input input--sm grow" data-f="url" value="${esc(it.url)}" placeholder="#shop or https://…">${linkSelect}</div>
-      <div class="menu-tools"><button class="icon" type="button" data-act="up" aria-label="Move up">↑</button><button class="icon" type="button" data-act="down" aria-label="Move down">↓</button>${canNest ? `<button class="icon" type="button" data-act="child" title="Add dropdown link">+</button>` : ""}<button class="icon" type="button" data-act="del" aria-label="Remove">✕</button></div></div>
+      <div class="menu-tools"><button class="icon" type="button" data-act="up" aria-label="Move up">↑</button><button class="icon" type="button" data-act="down" aria-label="Move down">↓</button>${canNest ? `<button class="icon" type="button" data-act="child" title="Add dropdown link">+</button>` : ""}<button class="icon" type="button" data-act="del" aria-label="Remove">✕</button></div>
+      ${path.indexOf("header.") === 0 ? `<div class="menu-photo"><span class="menu-photo__frame">${it.image ? `<img src="${esc(it.image)}" alt="" data-measure>` : ""}</span>
+        <div><b class="small">${canNest ? "Dropdown photo" : "Photo on hover (optional)"}</b><br><small class="muted">Upload <b>440 × 550 px</b> (4:5). It shows in a 220 × 275 frame${canNest ? " on the left of this link's dropdown" : " in place of the dropdown photo while this link is hovered"}.</small><br>
+        <small class="menu-photo__size" data-size></small>
+        <div class="flex" style="margin-top:6px"><button class="btn btn--ghost btn--sm" type="button" data-act="img">${it.image ? "Change photo" : "Choose photo"}</button>${it.image ? `<button class="btn btn--ghost btn--sm" type="button" data-act="noimg">Remove</button>` : ""}</div></div></div>` : ""}</div>
       ${canNest && it.children && it.children.length ? `<div class="menu-kids">${it.children.map((c, j) => row(c, path + ".children." + j, false)).join("")}</div>` : ""}</div>`;
     const draw = () => {
       $("#mnHeader").innerHTML = menus.header.map((it, i) => row(it, "header." + i, true)).join("") || `<p class="muted">No links.</p>`;
+      // show each photo's real size, so a wrong size is easy to spot
+      $$("#mnHeader img[data-measure]").forEach((im) => {
+        const show = () => {
+          const out = $("[data-size]", im.closest(".menu-photo")), w = im.naturalWidth, h = im.naturalHeight;
+          if (!w) return;
+          const ok = Math.abs(w / h - 0.8) < 0.02 && w >= 440;
+          out.innerHTML = `This photo: ${w} × ${h} px ${ok ? "· good fit" : `· <span style="color:#b3261e">${Math.abs(w / h - 0.8) >= 0.02 ? "not 4:5, the edges will be cropped" : "smaller than 440 × 550, may look soft"}</span>`}`;
+        };
+        if (im.complete) show(); else im.onload = show;
+      });
       $("#mnFooter").innerHTML = menus.footer.map((col, ci) => `<div class="attr"><div class="flex"><input class="input input--sm grow" data-col="${ci}" value="${esc(col.title)}" placeholder="Column title"><button class="btn btn--ghost btn--sm" data-add="footer.${ci}.items">+ Link</button><button class="icon" data-del-col="${ci}" aria-label="Remove column">✕</button></div>
         <div class="stack stack--sm">${col.items.map((it, i) => row(it, "footer." + ci + ".items." + i, false)).join("")}</div></div>`).join("");
     };
@@ -1113,6 +1127,8 @@
         if (act.dataset.act === "up" && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
         if (act.dataset.act === "down" && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
         if (act.dataset.act === "child") { const it = list[i]; it.children = it.children || []; it.children.push({ label: "", url: "", children: [] }); }
+        if (act.dataset.act === "img") { pickMedia({ title: "Menu photo (440 × 550 px)" }).then((u) => { if (u) { list[i].image = u[0]; setDirty(); draw(); } }); return; }
+        if (act.dataset.act === "noimg") delete list[i].image;
         setDirty(); draw();
       }
     });

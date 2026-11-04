@@ -966,8 +966,10 @@
     route("PUT", "/api/menus", "content", function (c) {
       var clean = function (items, depth) {
         return (items || []).slice(0, 30).map(function (it) {
-          return { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: str(it.url, 300),
+          var out = { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: str(it.url, 300),
             children: depth < 2 ? clean(it.children, depth + 1) : [] };
+          if (depth < 2 && str(it.image, 300)) out.image = str(it.image, 300); // dropdown photo (header menu only)
+          return out;
         }).filter(function (it) { return it.label; });
       };
       var m = c.body.menus || {};

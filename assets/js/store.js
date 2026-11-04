@@ -45,10 +45,10 @@
     return '<svg viewBox="0 0 24 24" width="' + n + '" height="' + n + '" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
   }
   var ICON = {
-    bag: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
-    user: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-    search: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
-    menu: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+    bag: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+    user: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    search: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+    menu: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
     close: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     chat: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
     ruler: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 15 15 3l6 6L9 21l-6-6Z M7 11l2 2M10 8l2 2M13 5l2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
@@ -294,22 +294,37 @@
   // ---------------------------------------------------------------------------
   // Header, menus and footer
   // ---------------------------------------------------------------------------
+  // Dropdown: photo on the left, links in columns of six (a seventh link starts a new column to the right).
+  // A sub-link with its own photo swaps the panel photo on hover.
   function menuItem(it) {
     var kids = it.children && it.children.length;
-    return '<li' + (kids ? ' class="has-sub"' : "") + '><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a>" +
-      (kids ? '<ul class="nav__sub">' + it.children.map(function (c) { return '<li><a href="' + esc(c.url) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul>" : "") + "</li>";
+    if (!kids) return '<li><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a></li>";
+    var img = it.image || "";
+    return '<li class="has-sub"><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a>" +
+      '<div class="nav__sub' + (img ? " has-img" : "") + '">' +
+        (img ? '<figure class="nav__sub-img"><img src="' + esc(img) + '" data-base="' + esc(img) + '" alt="" loading="lazy" decoding="async"></figure>' : "") +
+        '<ul class="nav__sub-list" style="--rows:' + Math.min(6, it.children.length) + '">' + it.children.map(function (c) {
+          return '<li><a href="' + esc(c.url) + '"' + (c.image ? ' data-img="' + esc(c.image) + '"' : "") + ">" + esc(c.label) + "</a></li>";
+        }).join("") + "</ul></div></li>";
   }
+  document.addEventListener("mouseover", function (e) {
+    var a = e.target.closest && e.target.closest(".nav__sub-list a");
+    var sub = e.target.closest && e.target.closest(".nav__sub");
+    if (!sub) return;
+    var im = $(".nav__sub-img img", sub);
+    if (!im) return;
+    var want = (a && a.dataset.img) || im.dataset.base;
+    if (im.getAttribute("src") !== want) im.setAttribute("src", want);
+  });
   function navHTML() {
     var items = S.menus.header || [];
-    var half = Math.min(4, Math.ceil(items.length / 2));
     return '<nav class="nav" aria-label="Main">' +
       '<div class="nav__group nav__start">' +
         '<button class="icon-btn icon-btn--line nav__burger" type="button" data-open-menu aria-label="Open menu">' + ICON.menu + "</button>" +
-        '<ul class="nav__group nav__menu">' + items.slice(0, half).map(menuItem).join("") + "</ul>" +
+        '<ul class="nav__group nav__menu">' + items.map(menuItem).join("") + "</ul>" +
       "</div>" +
       '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="assets/img/logo.webp" alt="Ravelle" width="100" height="54"></a>' +
       '<div class="nav__group nav__group--end">' +
-        '<ul class="nav__group nav__menu nav__links-end">' + items.slice(half).map(menuItem).join("") + "</ul>" +
         '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" +
         '<a class="icon-btn icon-btn--line nav__track" href="#track" aria-label="Track your order">' + ICON.user + "</a>" +
         '<button class="icon-btn bag-btn" type="button" data-open-bag aria-label="Open bag">' + ICON.bag + '<span class="bag-count" data-bag-count hidden>0</span></button>' +
