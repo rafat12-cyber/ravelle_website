@@ -140,6 +140,24 @@ button { font: inherit; color: inherit; }
 
 .hero__copy { position: relative; z-index: 2; display: grid; justify-items: center; gap: 22px; padding: 58px 16px 0; }
 .hero__ctas { display: flex; gap: 6px; }
+/* Hero heading: a little smaller, with a slow light sweep across the letters */
+.hero .display { font-size: clamp(28px, 4.3vw, 62px); }
+.hero .display [data-c] {
+  background: linear-gradient(100deg, var(--ink) 0%, var(--ink) 42%, #8d9096 50%, var(--ink) 58%, var(--ink) 100%) 100% 0 / 260% 100% no-repeat;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: heroShine 6s ease-in-out 3.2s infinite;
+}
+.hero .display .line:nth-child(2) [data-c] { animation-delay: 3.5s; }
+@keyframes heroShine { 0% { background-position: 100% 0; } 35%, 100% { background-position: 0 0; } }
+/* Hero buttons: a sheen that glides across, and a soft pulse on Shop now */
+.hero__ctas .pill { position: relative; overflow: hidden; isolation: isolate; }
+.hero__ctas .pill::after { content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; z-index: -1; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.38), transparent); transform: skewX(-20deg); animation: pillSheen 4.5s ease-in-out 3.4s infinite; }
+.hero__ctas .pill--light::after { background: linear-gradient(100deg, transparent, rgba(17,18,20,.09), transparent); animation-delay: 3.7s; }
+.hero__ctas .pill--dark { animation: pillPulse 3s ease-in-out 3.4s infinite; }
+@keyframes pillSheen { 0% { left: -60%; } 30%, 100% { left: 120%; } }
+@keyframes pillPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(17,18,20,.28); } 50% { box-shadow: 0 0 0 9px rgba(17,18,20,0); } }
+@media (prefers-reduced-motion: reduce) { .hero .display [data-c], .hero__ctas .pill, .hero__ctas .pill::after { animation: none !important; } }
 
 .hero__model {
   position: relative; z-index: 1; align-self: end; justify-self: center;
