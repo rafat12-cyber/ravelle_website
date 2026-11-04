@@ -516,10 +516,10 @@
     var items = look.items, sum = 0, was = 0;
     $("#tlPieces").textContent = items.length + (items.length === 1 ? " piece" : " pieces");
     $("#tlItems").innerHTML = items.map(function (p, k) {
-      var cur = tlSize(p), bottom = /trouser|pant|jean|short/i.test(p.line + " " + p.name);
+      var cur = tlSize(p);
       sum += p.price; was += Math.max(p.comparePrice || 0, p.price);
       return '<li class="tl__item" data-p="' + p.id + '">' +
-        '<a class="tl__thumb' + (bottom ? " tl__thumb--bottom" : "") + '" href="#product/' + p.slug + '" style="background-image:url(\'' + esc(look.image) + '\')" aria-label="' + esc(p.name) + '"><span class="mono">' + (k + 1) + "</span></a>" +
+        '<a class="tl__thumb" href="#product/' + p.slug + '" aria-label="' + esc(p.name) + '">' + (p.images[0] ? '<img src="' + esc(p.images[0]) + '" alt="" loading="lazy">' : "") + '<span class="mono">' + (k + 1) + "</span></a>" +
         '<div class="tl__info"><span class="tl__brand mono">' + esc(p.line) + '</span><a href="#product/' + p.slug + '">' + esc(shortName(p)) + "</a>" +
           '<p class="tl__price">' + taka(p.price) + (p.comparePrice > p.price ? " <s>" + taka(p.comparePrice) + "</s>" : "") + "</p>" +
           '<label class="tl__size mono"><span>Size</span><select data-size aria-label="Size for ' + esc(shortName(p)) + '">' + (p.variants || []).map(function (v) {
