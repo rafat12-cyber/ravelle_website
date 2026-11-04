@@ -1771,7 +1771,11 @@
     var ck = function (n) { var m = document.cookie.match(new RegExp("(?:^|; )" + n + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : ""; };
     var fbc = ck("_fbc"), click = (location.search.match(/[?&]fbclid=([^&#]+)/) || [])[1];
     if (!fbc && click) fbc = "fb.1." + Date.now() + "." + click;
-    return { fbp: ck("_fbp"), fbc: fbc, url: location.href.slice(0, 500), sid: sid };
+    // Google Analytics ids, so the server's purchase joins the visitor's session in GA
+    var gaCid = (ck("_ga").match(/^GA\d\.\d\.(.+)$/) || [])[1] || "";
+    var gid = ((S.settings.code || {}).gaId || "").replace(/^G-/, ""), gs = gid ? ck("_ga_" + gid) : "";
+    var gaSid = (gs.match(/^GS1\.\d\.(\d+)/) || gs.match(/^GS2\.\d\.s(\d+)/) || [])[1] || "";
+    return { fbp: ck("_fbp"), fbc: fbc, url: location.href.slice(0, 500), sid: sid, gaCid: gaCid, gaSid: gaSid };
   }
   function eventId() { return "ev." + Date.now().toString(36) + "." + Math.random().toString(36).slice(2, 10); }
   function adEvent(type, productId, info, eid) {
@@ -1831,13 +1835,13 @@
         send("Contact", { content_name: info.method || "" });
         if (ga) ga("event", "contact", { method: info.method || "" });
       } else if (type === "purchase" && info.order) {
-        var o = info.order;
+        var o = info.order, skuOf = function (l) { return (BY_ID[l.productId] || {}).sku || l.sku; };
         // The order number is the event ID, the same one the server sends to the Conversions API
-        if (fb) fb("track", "Purchase", { content_ids: o.items.map(function (l) { return l.sku; }), content_type: "product",
-          contents: o.items.map(function (l) { return { id: l.sku, quantity: l.qty, item_price: l.price }; }),
+        if (fb) fb("track", "Purchase", { content_ids: o.items.map(skuOf), content_type: "product",
+          contents: o.items.map(function (l) { return { id: skuOf(l), quantity: l.qty, item_price: l.price }; }),
           num_items: o.items.reduce(function (s, l) { return s + l.qty; }, 0), value: o.total, currency: "BDT", order_id: o.number }, { eventID: o.number });
         if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined,
-          items: o.items.map(function (l) { return { item_id: l.sku, item_name: l.name, item_variant: l.color, price: l.price, quantity: l.qty }; }) });
+          items: o.items.map(function (l) { return { item_id: skuOf(l), item_name: l.name, item_variant: l.color, price: l.price, quantity: l.qty }; }) });
       }
     } catch (e) {}
   }

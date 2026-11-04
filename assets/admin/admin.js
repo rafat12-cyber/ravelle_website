@@ -1442,6 +1442,9 @@
               <small>Sends Purchase, checkout, add to bag, product views, searches and page views to Meta from your own server, so ad blockers and iPhone settings don't hide them. Events Manager › your pixel › Settings › Conversions API › Generate access token.${code.capiTokenSet ? ` <a href="#" id="capiClear">Remove token</a>` : ""}</small></label>
             ${txt('data-c="1"', "capiTest", "Test event code (optional)", code.capiTest, "From Events Manager › Test events, e.g. TEST12345. Clear it when you're done testing.", "TEST12345")}</div>
           ${code.capiStatus ? `<p class="small" style="margin:0;color:${code.capiStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last server event: ${esc(code.capiStatus.event)} · ${esc(code.capiStatus.message)} · ${dateTime(code.capiStatus.at)}</p>` : code.capiTokenSet ? `<p class="muted small" style="margin:0">${window.Ravelle.mode === "demo" ? "The demo has no server, so nothing is sent to Meta from here." : "No server events sent yet. Open the store to send one."}</p>` : ""}
+          <div class="row row--2"><label class="field"><span>Google Analytics API secret</span><input class="input" type="password" autocomplete="off" data-c="1" name="gaSecret" value="" placeholder="${code.gaSecretSet ? "Saved. Paste a new one to replace it." : "Paste the secret from Google Analytics"}">
+              <small>Sends every purchase, and a refund when you cancel or return an order, to Google Analytics from your own server, so ad blockers don't hide sales. Google Analytics › Admin › Data streams › your site › Measurement Protocol API secrets › Create.${code.gaSecretSet ? ` <a href="#" id="gaClear">Remove secret</a>` : ""}</small></label>
+            <div class="field"><span>Google Analytics server status</span><p class="small" style="margin:6px 0 0;color:${code.gaStatus ? (code.gaStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)") : "inherit"}">${code.gaStatus ? `Last server event: ${esc(code.gaStatus.event)} · ${esc(code.gaStatus.message)} · ${dateTime(code.gaStatus.at)}` : code.gaSecretSet ? (window.Ravelle.mode === "demo" ? "The demo has no server, so nothing is sent from here." : "Nothing sent yet. It sends when an order is placed.") : "Add your G- ID and the API secret to turn it on."}</p></div></div>
           <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" data-c="1" name="head" rows="7" spellcheck="false" placeholder="&lt;!-- Paste Google Tag Manager, TikTok Pixel, Search Console verification, etc. --&gt;">${esc(code.head || "")}</textarea>
             <small>For Google Tag Manager, TikTok Pixel, site verification tags and other snippets that say “paste in the head”.</small></label>
           <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" data-c="1" name="bodyEnd" rows="5" spellcheck="false" placeholder="&lt;!-- e.g. Google Tag Manager (noscript) --&gt;">${esc(code.bodyEnd || "")}</textarea></label>
@@ -1450,6 +1453,7 @@
       </form>`;
     const form = $("#layForm");
     let dirty = false;
+    if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     wireImgFields(form, () => { dirty = true; });
     const prev = () => {
@@ -1471,6 +1475,8 @@
       $$("[data-c]", form).forEach((el) => { out.code[el.name] = el.value; });
       if (!out.code.capiToken) delete out.code.capiToken;
       if (form.dataset.capiClear) out.code.capiTokenClear = true;
+      if (!out.code.gaSecret) delete out.code.gaSecret;
+      if (form.dataset.gaClear) out.code.gaSecretClear = true;
       out.layout = layout; out.announcement = $("#announcement").value;
       try {
         await api("PUT", "/api/settings", { settings: out });

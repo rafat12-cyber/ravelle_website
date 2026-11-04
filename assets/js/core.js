@@ -142,7 +142,7 @@
   }
   function siteCode(s) {
     var c = (s && s.code) || {};
-    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "" };
+    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "", gaSecret: c.gaSecret || "" };
   }
   // The tracking snippets that go in <head>: Google Analytics 4, Meta Pixel, then any custom code
   function headCode(s) {
@@ -160,7 +160,7 @@
       payments: { cod: !!(s.payments && s.payments.cod), sslcommerz: !!(s.payments && s.payments.sslcommerz && s.payments.sslcommerz.enabled) },
       chat: { enabled: !!(s.chat && s.chat.enabled), greeting: s.chat && s.chat.greeting, title: s.chat && s.chat.title },
       seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock,
-      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd, pixelId: siteCode(s).pixelId }
+      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd, pixelId: siteCode(s).pixelId, gaId: siteCode(s).gaId }
     };
   }
 
@@ -418,6 +418,24 @@
         event: { event_name: name, event_time: Math.floor(now() / 1000), event_id: String(eventId).slice(0, 80), action_source: "website",
           event_source_url: str(m.url, 500) || undefined, user_data: user, custom_data: custom || undefined }
       });
+    }
+    // Google Analytics 4 Measurement Protocol: the server reports purchases and refunds itself, so sales
+    // still reach GA when an ad blocker stops the browser tag. GA drops a purchase it already has (same transaction_id).
+    // Ads and catalogs know a product by its main SKU, not the size SKU
+    function baseSku(db, it) { var p = findProduct(db, it.productId); return (p && p.sku) || it.sku; }
+    function gaServer(c, order, name) {
+      var code = siteCode(c.db.settings), ga = order.ga || {};
+      if (!host.gaEvent || !code.gaId || !code.gaSecret) return;
+      var params = {
+        transaction_id: order.number, currency: "BDT", value: order.total, engagement_time_msec: 1,
+        items: order.items.map(function (it) { return { item_id: baseSku(c.db, it), item_name: it.name, item_variant: it.color || undefined, price: it.price, quantity: it.qty }; })
+      };
+      if (name === "purchase") { params.shipping = order.shipping || 0; if (order.coupon) params.coupon = order.coupon; if (order.discount) params.discount = order.discount; }
+      if (ga.sid) params.session_id = ga.sid;
+      host.gaEvent({ measurementId: code.gaId, secret: code.gaSecret, body: {
+        client_id: ga.cid || ("rv." + (ga.vid || order.id)), timestamp_micros: (name === "purchase" ? order.createdAt : now()) * 1000,
+        events: [{ name: name, params: params }]
+      } });
     }
     function capiTrack(c, t, b) {
       var name = CAPI_NAMES[t];
@@ -763,10 +781,13 @@
       var cust = upsertCustomer(db, info);
       order.customerId = cust.id;
       db.orders.push(order);
+      var gm = b.meta || {};
+      order.ga = { cid: str(gm.gaCid, 60), sid: str(gm.gaSid, 30), vid: str(gm.sid, 40) };
       emit(db, "order.created", order);
+      gaServer(c, order, "purchase");
       capi(c, "Purchase", order.number, {
-        content_ids: order.items.map(function (it) { return it.sku; }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
-        contents: order.items.map(function (it) { return { id: it.sku, quantity: it.qty, item_price: it.price }; }), order_id: order.number
+        content_ids: order.items.map(function (it) { return baseSku(db, it); }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
+        contents: order.items.map(function (it) { return { id: baseSku(db, it), quantity: it.qty, item_price: it.price }; }), order_id: order.number
       }, order.customer);
       return { order: publicOrder(order) };
     }, { status: 201 });
@@ -1091,6 +1112,7 @@
         var was = o.status;
         o.status = b.status;
         if ((b.status === "cancelled" || b.status === "returned") && !o.restocked) restock(db, o);
+        if ((b.status === "cancelled" || b.status === "returned") && was !== "cancelled" && was !== "returned") gaServer(c, o, "refund");
         if ((was === "cancelled" || was === "returned") && o.restocked) {
           // Reopening takes the stock back out.
           o.items.forEach(function (it) {
@@ -1224,6 +1246,7 @@
       var s = clone(c.db.settings);
       s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
       s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
+      s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -1273,6 +1296,8 @@
         if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
         if (bc.capiToken) code.capiToken = String(bc.capiToken).trim().slice(0, 600);
         if (bc.capiTokenClear) code.capiToken = "";
+        if (bc.gaSecret) code.gaSecret = String(bc.gaSecret).trim().slice(0, 200);
+        if (bc.gaSecretClear) code.gaSecret = "";
         if (bc.capiTest !== undefined) code.capiTest = str(bc.capiTest, 30);
         if (bc.pixelId !== undefined) { code.pixelId = String(bc.pixelId || "").trim(); if (code.pixelId && !/^\d{6,20}$/.test(code.pixelId)) fail(400, "The Meta Pixel ID is a number, like 123456789012345."); }
         s.code = code;

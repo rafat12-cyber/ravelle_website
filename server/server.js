@@ -125,6 +125,24 @@ function metaEvent(job) {
   req.on("error", function (e) { capiStatus = { at: Date.now(), ok: false, event: job.event.event_name, message: e.message }; });
   req.end(body);
 }
+// Google Analytics 4 Measurement Protocol, straight from this server
+var gaStatus = null;
+function gaEvent(job) {
+  var body = JSON.stringify(job.body), base = process.env.GA_MP_URL || "https://www.google-analytics.com/mp/collect";
+  var url = base + "?measurement_id=" + encodeURIComponent(job.measurementId) + "&api_secret=" + encodeURIComponent(job.secret);
+  var name = job.body.events[0].name;
+  var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 8000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+    res.resume();
+    res.on("end", function () {
+      var ok = res.statusCode >= 200 && res.statusCode < 300;
+      gaStatus = { at: Date.now(), ok: ok, event: name, message: ok ? "Sent to Google Analytics" : "HTTP " + res.statusCode };
+      if (!ok) console.warn("GA Measurement Protocol: HTTP " + res.statusCode);
+    });
+  });
+  req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+  req.on("error", function (e) { gaStatus = { at: Date.now(), ok: false, event: name, message: e.message }; });
+  req.end(body);
+}
 function postJson(url, body, headers, cb) {
   var u;
   try { u = new URL(url); } catch (e) { return cb(e); }
@@ -159,8 +177,8 @@ function deleteMedia(url) {
 
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) s.code.capiStatus = capiStatus; },
-  metaEvent: metaEvent
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } },
+  metaEvent: metaEvent, gaEvent: gaEvent
 });
 
 // ---------------------------------------------------------------------------
