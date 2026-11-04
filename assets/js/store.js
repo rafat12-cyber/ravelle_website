@@ -443,7 +443,12 @@
     tlLayout();
     tlSelect(keep);
   }
-  function tlMeasure() { TL.unit = Math.max(96, Math.min(270, tlStage.clientWidth * 0.215)); }
+  function tlMeasure() {
+    var w = tlStage.clientWidth;
+    // Phones show three looks (one either side), wider screens show five
+    TL.edge = w < 700 ? 1.15 : 2.2;
+    TL.unit = w < 700 ? w * 0.34 : Math.max(96, Math.min(270, w * 0.215));
+  }
   function tlWrapD(d) { var n = TL.n; d = ((d % n) + n) % n; return d > n / 2 ? d - n : d; }
   // Place every model from the current position
   function tlLayout() {
@@ -456,7 +461,7 @@
       var y = -Math.min(a, 4) * 16;
       var blur = Math.max(0, a - 0.6) * 1.5;
       // Five on stage: the middle one and two either side; the rest fade out behind
-      var op = a > 2.2 ? Math.max(0, 1 - (a - 2.2) / 0.6) : 1;
+      var op = a > TL.edge ? Math.max(0, 1 - (a - TL.edge) / 0.6) : 1;
       m.style.transform = "translate3d(calc(-50% + " + x.toFixed(1) + "px)," + y.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
       m.style.zIndex = String(100 - Math.round(a * 10));
       m.style.opacity = op.toFixed(3);
