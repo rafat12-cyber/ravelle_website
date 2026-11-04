@@ -435,7 +435,6 @@
     TL.looks = looks; TL.n = looks.length;
     tlTrack.innerHTML = looks.map(function (l, i) {
       return '<div class="tl__model" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
-        '<img class="tl__ghost" src="' + esc(l.image) + '" alt="" draggable="false">' +
         '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false">' +
         '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></div>";
     }).join("");
@@ -466,18 +465,16 @@
       var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * 0.86 + Math.max(0, Math.min(a, 4) - 2) * u * 0.6);
       var sc = 1 - Math.min(a, 4) * 0.13;
       var y = -Math.min(a, 4) * 16;
-      var blur = Math.max(0, a - 0.6) * 1.5;
       // Five on stage: the middle one and two either side; the rest fade out behind
       var op = a > TL.edge ? Math.max(0, 1 - (a - TL.edge) / 0.6) : 1;
       m.style.transform = "translate3d(calc(-50% + " + x.toFixed(1) + "px)," + y.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
       m.style.zIndex = String(100 - Math.round(a * 10));
       m.style.opacity = op.toFixed(3);
       m.style.visibility = op <= 0.01 ? "hidden" : "visible";
-      // Phones get no filters at all (Safari can paint filtered, moving
-      // photos as white boxes); models further back just fade a little
-      var sh = Math.min(a, 3) * 0.06, img = m._img || (m._img = m.querySelector(".tl__img"));
-      if (TL_TOUCH) { img.style.filter = ""; img.style.opacity = (1 - Math.min(a, 3) * 0.1).toFixed(3); }
-      else img.style.filter = blur < 0.05 && sh < 0.01 ? "none" : "blur(" + blur.toFixed(2) + "px) brightness(" + (1 + sh).toFixed(3) + ") saturate(" + (1 - sh).toFixed(3) + ")";
+      // No CSS filters on the photos: some browsers paint a filtered photo's
+      // transparent box as a faint tinted rectangle. Models further back just fade.
+      var img = m._img || (m._img = m.querySelector(".tl__img"));
+      img.style.opacity = (1 - Math.min(a, 3) * 0.12).toFixed(3);
     });
   }
   function tlSelect(i) {
