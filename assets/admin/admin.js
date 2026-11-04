@@ -1438,6 +1438,10 @@
           <p class="muted small" style="margin:0">Added to every store page. Your store's own visitor numbers are on the <a href="#/analytics">Analytics</a> page either way.</p>
           <div class="row row--2">${txt('data-c="1"', "gaId", "Google Analytics 4 measurement ID", code.gaId, "In Google Analytics: Admin › Data streams › your site. Starts with G-.", "G-XXXXXXXXXX")}
             ${txt('data-c="1"', "pixelId", "Meta (Facebook) Pixel ID", code.pixelId, "In Meta Events Manager › Data sources. Numbers only.", "123456789012345")}</div>
+          <div class="row row--2"><label class="field"><span>Conversions API access token</span><input class="input" type="password" autocomplete="off" data-c="1" name="capiToken" value="" placeholder="${code.capiTokenSet ? "Saved. Paste a new one to replace it." : "Paste the token from Events Manager"}">
+              <small>Sends Purchase, checkout, add to bag, product views, searches and page views to Meta from your own server, so ad blockers and iPhone settings don't hide them. Events Manager › your pixel › Settings › Conversions API › Generate access token.${code.capiTokenSet ? ` <a href="#" id="capiClear">Remove token</a>` : ""}</small></label>
+            ${txt('data-c="1"', "capiTest", "Test event code (optional)", code.capiTest, "From Events Manager › Test events, e.g. TEST12345. Clear it when you're done testing.", "TEST12345")}</div>
+          ${code.capiStatus ? `<p class="small" style="margin:0;color:${code.capiStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last server event: ${esc(code.capiStatus.event)} · ${esc(code.capiStatus.message)} · ${dateTime(code.capiStatus.at)}</p>` : code.capiTokenSet ? `<p class="muted small" style="margin:0">${window.Ravelle.mode === "demo" ? "The demo has no server, so nothing is sent to Meta from here." : "No server events sent yet. Open the store to send one."}</p>` : ""}
           <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" data-c="1" name="head" rows="7" spellcheck="false" placeholder="&lt;!-- Paste Google Tag Manager, TikTok Pixel, Search Console verification, etc. --&gt;">${esc(code.head || "")}</textarea>
             <small>For Google Tag Manager, TikTok Pixel, site verification tags and other snippets that say “paste in the head”.</small></label>
           <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" data-c="1" name="bodyEnd" rows="5" spellcheck="false" placeholder="&lt;!-- e.g. Google Tag Manager (noscript) --&gt;">${esc(code.bodyEnd || "")}</textarea></label>
@@ -1446,6 +1450,7 @@
       </form>`;
     const form = $("#layForm");
     let dirty = false;
+    if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     wireImgFields(form, () => { dirty = true; });
     const prev = () => {
       const p = $("#annPrev");
@@ -1464,6 +1469,8 @@
       layout.header.logo = $('input[name="logo"]', form).value;
       $$("[data-s]", form).forEach((el) => { out[el.dataset.s][el.name] = el.value; });
       $$("[data-c]", form).forEach((el) => { out.code[el.name] = el.value; });
+      if (!out.code.capiToken) delete out.code.capiToken;
+      if (form.dataset.capiClear) out.code.capiTokenClear = true;
       out.layout = layout; out.announcement = $("#announcement").value;
       try {
         await api("PUT", "/api/settings", { settings: out });

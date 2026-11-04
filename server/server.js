@@ -106,6 +106,25 @@ function deliver(job, attempt) {
     if (!ok && attempt < 3) setTimeout(function () { deliver(job, attempt + 1); }, attempt === 1 ? 5000 : 30000);
   });
 }
+// Meta Conversions API: send one event straight to Meta from this server (no Google Tag Manager or other app)
+var capiStatus = null;
+function metaEvent(job) {
+  var body = JSON.stringify(Object.assign({ data: [job.event] }, job.testCode ? { test_event_code: job.testCode } : {}));
+  var url = (process.env.META_GRAPH_URL || "https://graph.facebook.com/v21.0") + "/" + encodeURIComponent(job.pixelId) + "/events?access_token=" + encodeURIComponent(job.token);
+  var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 8000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+    var chunks = "";
+    res.on("data", function (d) { if (chunks.length < 2000) chunks += d; });
+    res.on("end", function () {
+      var msg = "";
+      try { var j = JSON.parse(chunks); msg = j.error ? j.error.message : "Received " + (j.events_received || 0) + " event"; } catch (e) { msg = "HTTP " + res.statusCode; }
+      capiStatus = { at: Date.now(), ok: res.statusCode === 200, event: job.event.event_name, message: String(msg).slice(0, 300) };
+      if (res.statusCode !== 200) console.warn("Meta Conversions API:", msg);
+    });
+  });
+  req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+  req.on("error", function (e) { capiStatus = { at: Date.now(), ok: false, event: job.event.event_name, message: e.message }; });
+  req.end(body);
+}
 function postJson(url, body, headers, cb) {
   var u;
   try { u = new URL(url); } catch (e) { return cb(e); }
@@ -140,7 +159,8 @@ function deleteMedia(url) {
 
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); }
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) s.code.capiStatus = capiStatus; },
+  metaEvent: metaEvent
 });
 
 // ---------------------------------------------------------------------------

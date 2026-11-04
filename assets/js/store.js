@@ -1404,7 +1404,7 @@
         customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value },
         items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }),
         zone: checkoutState.zone, couponCode: checkoutState.coupon ? checkoutState.coupon.code : "",
-        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource()
+        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo()
       };
       var errs = {};
       if (!body.customer.name.trim()) errs.name = "Enter your name.";
@@ -1761,35 +1761,44 @@
   }
   // Shopping events for Meta Pixel (fbq) and Google Analytics 4 (gtag), when their IDs are set in Admin > Header & footer
   var adPages = 0;
-  function adEvent(type, productId, info) {
+  // Meta cookies and page address, sent along so the server copy of each event matches the browser one
+  function metaInfo() {
+    var ck = function (n) { var m = document.cookie.match(new RegExp("(?:^|; )" + n + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : ""; };
+    var fbc = ck("_fbc"), click = (location.search.match(/[?&]fbclid=([^&#]+)/) || [])[1];
+    if (!fbc && click) fbc = "fb.1." + Date.now() + "." + click;
+    return { fbp: ck("_fbp"), fbc: fbc, url: location.href.slice(0, 500), sid: sid };
+  }
+  function eventId() { return "ev." + Date.now().toString(36) + "." + Math.random().toString(36).slice(2, 10); }
+  function adEvent(type, productId, info, eid) {
     if (EDIT) return;
     var fb = typeof window.fbq === "function" ? window.fbq : null, ga = typeof window.gtag === "function" ? window.gtag : null;
     if (!fb && !ga) return;
     info = info || {};
     var p = productId ? BY_ID[productId] : null;
+    var opt = eid ? { eventID: eid } : undefined;
     var item = p ? { item_id: p.sku, item_name: p.name, item_variant: p.color, price: p.price, quantity: info.qty || 1 } : null;
     try {
       if (type === "page") {
-        // The first page view is sent by the Pixel and GA code itself; later ones are page changes inside the store
-        if (adPages++ && fb) fb("track", "PageView");
-        if (adPages > 1 && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
+        // Every Pixel page view is sent from here (with an event ID). GA sends the first one itself.
+        if (fb) fb("track", "PageView", {}, opt);
+        if (adPages++ && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
       } else if (type === "view" && p) {
-        if (fb) fb("track", "ViewContent", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price, currency: "BDT" });
+        if (fb) fb("track", "ViewContent", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price, currency: "BDT" }, opt);
         if (ga) ga("event", "view_item", { currency: "BDT", value: p.price, items: [item] });
       } else if (type === "cart" && p) {
-        if (fb) fb("track", "AddToCart", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price * (info.qty || 1), currency: "BDT" });
+        if (fb) fb("track", "AddToCart", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price * (info.qty || 1), currency: "BDT" }, opt);
         if (ga) ga("event", "add_to_cart", { currency: "BDT", value: p.price * (info.qty || 1), items: [item] });
       } else if (type === "checkout") {
         var items = cart.map(function (l) { var x = BY_ID[l.productId]; return x ? { item_id: x.sku, item_name: x.name, price: x.price, quantity: l.qty } : null; }).filter(Boolean);
         var value = items.reduce(function (s, x) { return s + x.price * x.quantity; }, 0);
-        if (fb) fb("track", "InitiateCheckout", { content_ids: items.map(function (x) { return x.item_id; }), content_type: "product", num_items: items.length, value: value, currency: "BDT" });
+        if (fb) fb("track", "InitiateCheckout", { content_ids: items.map(function (x) { return x.item_id; }), content_type: "product", num_items: items.length, value: value, currency: "BDT" }, opt);
         if (ga) ga("event", "begin_checkout", { currency: "BDT", value: value, items: items });
       } else if (type === "search" && info.q) {
-        if (fb) fb("track", "Search", { search_string: info.q });
+        if (fb) fb("track", "Search", { search_string: info.q }, opt);
         if (ga) ga("event", "search", { search_term: info.q });
       } else if (type === "purchase" && info.order) {
         var o = info.order, its = (o.items || []).map(function (l) { return { item_id: l.sku, item_name: l.name, price: l.price, quantity: l.qty }; });
-        // eventID lets Meta drop duplicates if the same order is also sent from a server later
+        // The order number is the event ID, the same one the server sends to the Conversions API
         if (fb) fb("track", "Purchase", { content_ids: its.map(function (x) { return x.item_id; }), content_type: "product", num_items: its.length, value: o.total, currency: "BDT" }, { eventID: o.number });
         if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined, items: its });
       }
@@ -1797,9 +1806,13 @@
   }
   function track(type, productId, info) {
     if (EDIT) return;
-    adEvent(type, productId, info);
-    var body = { type: type, productId: productId || "", sid: sid };
+    var eid = eventId();
+    adEvent(type, productId, info, eid);
+    var body = { type: type, productId: productId || "", sid: sid, eid: eid };
     if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
+    var mi = metaInfo();
+    body.fbp = mi.fbp; body.fbc = mi.fbc; body.url = mi.url;
+    if (type === "checkout") body.items = cart.map(function (l) { return { productId: l.productId, qty: l.qty }; });
     api("POST", "/api/track", body).catch(function () {});
   }
   function pagePath() {

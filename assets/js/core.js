@@ -142,7 +142,7 @@
   }
   function siteCode(s) {
     var c = (s && s.code) || {};
-    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "" };
+    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "" };
   }
   // The tracking snippets that go in <head>: Google Analytics 4, Meta Pixel, then any custom code
   function headCode(s) {
@@ -151,7 +151,7 @@
       "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','" + c.gaId + "');</script>\n";
     if (c.pixelId) out += "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
       "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];" +
-      "s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','" + c.pixelId + "');fbq('track','PageView');</script>\n";
+      "s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','" + c.pixelId + "');</script>\n";
     return out + c.head;
   }
   function publicSettings(s) {
@@ -392,6 +392,45 @@
         if (v) v.stock += it.qty; else p.stock = int(p.stock) + it.qty;
       });
       o.restocked = true;
+    }
+    // Meta Conversions API: the server sends the same event as the browser Pixel, with the same event ID,
+    // so Meta counts it once even when an ad blocker stops the browser copy. Only the Node server sends it.
+    var CAPI_NAMES = { page: "PageView", view: "ViewContent", cart: "AddToCart", checkout: "InitiateCheckout", search: "Search" };
+    function hashed(v) { v = String(v || "").trim().toLowerCase(); return v ? sha256(v) : undefined; }
+    function capi(c, name, eventId, custom, person) {
+      var code = siteCode(c.db.settings), req = c.req || {}, h = req.headers || {}, m = (c.body && c.body.meta) || c.body || {};
+      if (!host.metaEvent || !code.pixelId || !code.capiToken || !eventId) return;
+      person = person || {};
+      var phone = person.phone ? "88" + normPhone(person.phone) : "";
+      var names = String(person.name || "").trim().split(/\s+/);
+      var user = {
+        client_ip_address: req.ip || undefined, client_user_agent: h["user-agent"] || undefined,
+        fbp: str(m.fbp, 120) || undefined, fbc: str(m.fbc, 300) || undefined,
+        external_id: m.sid || person.phone ? [hashed(person.phone ? phone : m.sid)] : undefined,
+        ph: phone ? [hashed(phone)] : undefined, em: person.email ? [hashed(person.email)] : undefined,
+        fn: names[0] ? [hashed(names[0])] : undefined, ln: names.length > 1 ? [hashed(names[names.length - 1])] : undefined,
+        ct: person.city ? [hashed(String(person.city).replace(/[^a-z]/gi, ""))] : undefined, country: [hashed("bd")]
+      };
+      Object.keys(user).forEach(function (k) { if (user[k] === undefined || (Array.isArray(user[k]) && !user[k][0])) delete user[k]; });
+      host.metaEvent({
+        pixelId: code.pixelId, token: code.capiToken, testCode: code.capiTest,
+        event: { event_name: name, event_time: Math.floor(now() / 1000), event_id: String(eventId).slice(0, 80), action_source: "website",
+          event_source_url: str(m.url, 500) || undefined, user_data: user, custom_data: custom || undefined }
+      });
+    }
+    function capiTrack(c, t, b) {
+      var name = CAPI_NAMES[t];
+      if (!name || !host.metaEvent) return;
+      var p = b.productId ? findProduct(c.db, str(b.productId, 40)) : null, custom = null;
+      if ((t === "view" || t === "cart") && !p) return;
+      if (p) custom = { content_ids: [p.sku], content_name: p.name, content_type: "product", currency: "BDT", value: p.price * (t === "cart" ? Math.max(1, int(b.qty, 1)) : 1) };
+      if (t === "checkout") {
+        var items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map(function (l) { var x = findProduct(c.db, str(l.productId, 40)); return x ? { id: x.sku, quantity: Math.max(1, int(l.qty, 1)), item_price: x.price } : null; }).filter(Boolean);
+        custom = { content_ids: items.map(function (x) { return x.id; }), contents: items, content_type: "product", num_items: items.length, currency: "BDT",
+          value: items.reduce(function (s, x) { return s + x.item_price * x.quantity; }, 0) };
+      }
+      if (t === "search") custom = { search_string: str(b.q, 60) };
+      capi(c, name, str(b.eid, 80), custom, null);
     }
     // Add one to a counter in a map, folding rare keys into "Other" so a day stays small
     function bump(map, key, by, cap) {
@@ -656,6 +695,7 @@
       track(c.db, t, str(b.productId, 40), str(b.sid, 40), 0, {
         path: str(b.path, 80), src: str(b.src, 40), dev: str(b.dev, 20), br: str(b.br, 30), os: str(b.os, 20), nv: !!b.nv, q: str(b.q, 60), n: int(b.n)
       });
+      capiTrack(c, t, b);
       return { ok: true };
     }, { quiet: true });
 
@@ -711,6 +751,10 @@
       order.customerId = cust.id;
       db.orders.push(order);
       emit(db, "order.created", order);
+      capi(c, "Purchase", order.number, {
+        content_ids: order.items.map(function (it) { return it.sku; }), content_type: "product", num_items: order.items.length, currency: "BDT", value: order.total,
+        contents: order.items.map(function (it) { return { id: it.sku, quantity: it.qty, item_price: it.price }; }), order_id: order.number
+      }, order.customer);
       return { order: publicOrder(order) };
     }, { status: 201 });
 
@@ -1166,6 +1210,7 @@
     route("GET", "/api/settings", "settings", function (c) {
       var s = clone(c.db.settings);
       s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
+      s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -1213,6 +1258,9 @@
         if (bc.head !== undefined) code.head = String(bc.head || "").slice(0, 20000);
         if (bc.bodyEnd !== undefined) code.bodyEnd = String(bc.bodyEnd || "").slice(0, 20000);
         if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
+        if (bc.capiToken) code.capiToken = String(bc.capiToken).trim().slice(0, 600);
+        if (bc.capiTokenClear) code.capiToken = "";
+        if (bc.capiTest !== undefined) code.capiTest = str(bc.capiTest, 30);
         if (bc.pixelId !== undefined) { code.pixelId = String(bc.pixelId || "").trim(); if (code.pixelId && !/^\d{6,20}$/.test(code.pixelId)) fail(400, "The Meta Pixel ID is a number, like 123456789012345."); }
         s.code = code;
       }
