@@ -8,8 +8,8 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  // Product photos: front, front close-up, side, back (assets/img/products/<name>-1..4.jpg)
-  var photos = function (name, count) { var out = []; for (var i = 1; i <= count; i++) out.push("assets/img/products/" + name + "-" + i + ".jpg"); return out; };
+  // Product photos: front, front close-up, side, back (assets/img/products/<name>-1..4.webp)
+  var photos = function (name, count) { var out = []; for (var i = 1; i <= count; i++) out.push("assets/img/products/" + name + "-" + i + ".webp"); return out; };
   var T0 = Date.UTC(2026, 9, 20);
 
   // ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@
       id: "prd_" + r[5].replace(/-/g, "_").slice(0, 40), slug: r[5], sku: sku, status: "published",
       name: type.name(line, color), line: line, color: color, hex: r[2],
       price: r[3], comparePrice: r[4], description: LINE[line].about, details: FIT.slice(),
-      images: r[6], sizeGuide: "assets/img/size-guide-sample.png",
+      images: r[6], sizeGuide: "assets/img/size-guide-sample.webp",
       categoryIds: ["cat_men", type.cat], isNew: r[7], featured: r[8], trackStock: true, stock: 0,
       attributes: [{ name: "Size", values: SIZES.slice() }],
       variants: SIZES.map(function (s) { return { id: "var_" + i + "_" + s.toLowerCase(), sku: sku + "-" + s, options: { Size: s }, price: null, stock: STOCK[s] - (i % 4) * 2 }; }),

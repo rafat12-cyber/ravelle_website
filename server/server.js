@@ -290,6 +290,13 @@ function serveStatic(req, res, p) {
   var base = p.indexOf("/uploads/") === 0 ? UPLOADS : ROOT;
   if (path.resolve(file).indexOf(base) !== 0) return text(res, 403, "Forbidden");
   fs.stat(file, function (err, st) {
+    // Site images are WebP now; older saved data may still point at the .jpg/.png name
+    if ((err || !st.isFile()) && base === ROOT && /\.(jpe?g|png)$/i.test(file)) {
+      return fs.stat(file.replace(/\.(jpe?g|png)$/i, ".webp"), function (e2, st2) {
+        if (e2 || !st2.isFile()) return text(res, 404, "Not found");
+        res.writeHead(301, { Location: p.replace(/\.(jpe?g|png)$/i, ".webp") }); res.end();
+      });
+    }
     if (err || !st.isFile()) return text(res, 404, "Not found");
     var ext = path.extname(file).toLowerCase();
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };

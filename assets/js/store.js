@@ -306,7 +306,7 @@
         '<button class="icon-btn icon-btn--line nav__burger" type="button" data-open-menu aria-label="Open menu">' + ICON.menu + "</button>" +
         '<ul class="nav__group nav__menu">' + items.slice(0, half).map(menuItem).join("") + "</ul>" +
       "</div>" +
-      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="assets/img/logo.png" alt="Ravelle" width="100" height="54"></a>' +
+      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="assets/img/logo.webp" alt="Ravelle" width="100" height="54"></a>' +
       '<div class="nav__group nav__group--end">' +
         '<ul class="nav__group nav__menu nav__links-end">' + items.slice(half).map(menuItem).join("") + "</ul>" +
         '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" +
