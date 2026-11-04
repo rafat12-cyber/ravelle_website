@@ -10,7 +10,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,200..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="assets/css/style.css?v=1128">
+<link rel="preload" as="image" href="assets/img/home/h-hero-fearless.webp" imagesrcset="assets/img/home/h-hero-fearless-m.webp 820w, assets/img/home/h-hero-fearless.webp 1200w" imagesizes="(max-width: 700px) 60vw, 960px" fetchpriority="high">
+<link rel="stylesheet" href="assets/css/style.css?v=1129">
 <script>try{if(!matchMedia("(prefers-reduced-motion: reduce)").matches&&!/[?&](preview|edit)\b/.test(location.search))document.documentElement.classList.add("js-intro")}catch(e){}</script>
 </head>
 <body>
@@ -40,7 +41,7 @@
 
 
     <figure class="hero__model">
-      <img src="assets/img/home/h-hero-fearless.webp" alt="Two models in the Fearless tee in black and in ocean blue" width="1386" height="1400" data-ci="hero.image" data-calt="hero.imageAlt">
+      <img src="assets/img/home/h-hero-fearless.webp" srcset="assets/img/home/h-hero-fearless-m.webp 820w, assets/img/home/h-hero-fearless.webp 1200w" sizes="(max-width: 700px) 60vw, 960px" fetchpriority="high" decoding="async" alt="Two models in the Fearless tee in black and in ocean blue" width="1386" height="1400" data-ci="hero.image" data-calt="hero.imageAlt">
     </figure>
 
 
@@ -87,12 +88,12 @@
 
   <div class="house__cards">
     <a class="drop reveal slat dark" href="#category/t-shirt" data-chref="house.card1.link">
-      <img class="cutout" src="assets/img/home/h-tee-cat-full.webp" alt="Model in an oversized T-shirt in brick red with black trousers" loading="lazy" data-ci="house.card1.image">
+      <img class="cutout" src="assets/img/home/h-tee-cat-full.webp" srcset="assets/img/home/h-tee-cat-full-m.webp 640w, assets/img/home/h-tee-cat-full.webp 900w" sizes="(max-width: 700px) 45vw, 600px" decoding="async" alt="Model in an oversized T-shirt in brick red with black trousers" loading="lazy" data-ci="house.card1.image">
       <span class="drop__meta mono" data-c="house.card1.meta">Shop T-shirts →</span>
       <span class="drop__title" data-lines="house.card1.title"><span data-scramble>Oversized</span><span class="fade" data-scramble>T-shirt</span></span>
     </a>
     <a class="drop reveal slat dark" href="#category/half-shirt" data-chref="house.card2.link">
-      <img class="cutout" src="assets/img/home/h-shirt-cat-full.webp" alt="Model in a boxy fitted shirt with a daisy print and black trousers" loading="lazy" data-ci="house.card2.image">
+      <img class="cutout" src="assets/img/home/h-shirt-cat-full.webp" srcset="assets/img/home/h-shirt-cat-full-m.webp 640w, assets/img/home/h-shirt-cat-full.webp 900w" sizes="(max-width: 700px) 45vw, 600px" decoding="async" alt="Model in a boxy fitted shirt with a daisy print and black trousers" loading="lazy" data-ci="house.card2.image">
       <span class="drop__meta mono" data-c="house.card2.meta">Shop shirts →</span>
       <span class="drop__title" data-lines="house.card2.title"><span data-scramble>Boxy Fitted</span><span class="fade" data-scramble>Shirt</span></span>
     </a>
@@ -110,7 +111,7 @@
     <div class="poster__frame">
       <p class="marquee marquee--a" data-drift="-1" aria-hidden="true" data-marquee="poster.marqueeTop">RAINING OFFERS FOR HOT SUMMER ✕ RAINING OFFERS FOR HOT SUMMER ✕</p>
       <div class="poster__card reveal slat dark">
-        <img class="poster__img" src="assets/img/home/h-poster-rv.webp" alt="Model from behind in the RV Core Hustle T-shirt with black baggy trousers" loading="lazy" data-ci="poster.image" data-calt="poster.imageAlt">
+        <img class="poster__img" src="assets/img/home/h-poster-rv.webp" srcset="assets/img/home/h-poster-rv-m.webp 640w, assets/img/home/h-poster-rv.webp 900w" sizes="(max-width: 700px) 50vw, 470px" decoding="async" alt="Model from behind in the RV Core Hustle T-shirt with black baggy trousers" loading="lazy" data-ci="poster.image" data-calt="poster.imageAlt">
         <a class="pill pill--light pill--sm poster__cta" href="#on-sale" data-chref="poster.ctaLink" data-c="poster.cta">Shop the sale</a>
       </div>
       <p class="marquee marquee--b" data-drift="1" aria-hidden="true" data-marquee="poster.marqueeBottom">OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕ OWN THE STREET ✕</p>
@@ -140,9 +141,9 @@
   <div class="lookbook__sticky">
     <p class="marquee marquee--back" data-drift="-1.4" aria-hidden="true" data-marquee="lookbook.marqueeBack" data-sep="·">FRESH FITS FOR YOUR NEXT MOVE · FRESH FITS FOR YOUR NEXT MOVE ·</p>
     <div class="look" id="look">
-      <img class="look__img is-on" data-ci="lookbook.looks.0.image" src="assets/img/home/lb-1.webp" alt="Look 1: Fearless tee in ocean blue">
-      <img class="look__img" data-ci="lookbook.looks.1.image" src="assets/img/home/lb-2.webp" alt="Look 2: Brand New Day tee in black">
-      <img class="look__img" data-ci="lookbook.looks.2.image" src="assets/img/home/lb-3.webp" alt="Look 3: Starlight tee in black">
+      <img class="look__img is-on" data-ci="lookbook.looks.0.image" src="assets/img/home/lb-1.webp" srcset="assets/img/home/lb-1-m.webp 640w, assets/img/home/lb-1.webp 900w" sizes="(max-width: 700px) 50vw, 430px" loading="lazy" decoding="async" alt="Look 1: Fearless tee in ocean blue">
+      <img class="look__img" data-ci="lookbook.looks.1.image" src="assets/img/home/lb-2.webp" srcset="assets/img/home/lb-2-m.webp 640w, assets/img/home/lb-2.webp 900w" sizes="(max-width: 700px) 50vw, 430px" loading="lazy" decoding="async" alt="Look 2: Brand New Day tee in black">
+      <img class="look__img" data-ci="lookbook.looks.2.image" src="assets/img/home/lb-3.webp" srcset="assets/img/home/lb-3-m.webp 640w, assets/img/home/lb-3.webp 900w" sizes="(max-width: 700px) 50vw, 430px" loading="lazy" decoding="async" alt="Look 3: Starlight tee in black">
       <span class="look__tl mono" id="lookName">Fearless tee<br>Ocean blue</span>
       <span class="look__count mono" id="lookCount">01 / 03</span>
     </div>
@@ -274,7 +275,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="assets/js/client.js?v=1128"></script>
-<script src="assets/js/store.js?v=1128"></script>
+<script src="assets/js/client.js?v=1129"></script>
+<script src="assets/js/store.js?v=1129"></script>
 </body>
 </html>

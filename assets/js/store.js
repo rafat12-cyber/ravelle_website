@@ -130,7 +130,7 @@
     });
     $$("[data-ci]", root).forEach(function (el) {
       var v = pick(data, el.dataset.ci);
-      if (v && el.getAttribute("src") !== v) el.setAttribute("src", v);
+      if (v && el.getAttribute("src") !== v) { el.removeAttribute("srcset"); el.setAttribute("src", v); }
     });
     $$("[data-calt]", root).forEach(function (el) { var v = pick(data, el.dataset.calt); if (typeof v === "string") el.setAttribute("alt", v); });
     $$("[data-chref]", root).forEach(function (el) { var v = pick(data, el.dataset.chref); if (v) el.setAttribute("href", v); });
@@ -266,7 +266,10 @@
       var prog = Math.min(0.999, Math.max(0, -b.top / (b.height - vh)));
       var idx = Math.floor(prog * imgs.length);
       if (idx !== current && imgs[idx]) {
+        // cross-fade: the new photo fades in over the old one, then the old one fades away
+        imgs.forEach(function (im) { im.classList.remove("is-prev"); });
         imgs[current].classList.remove("is-on");
+        imgs[current].classList.add("is-prev");
         imgs[idx].classList.add("is-on");
         drawLook(idx);
         current = idx;
@@ -456,7 +459,7 @@
     TL.looks = looks; TL.n = looks.length;
     tlTrack.innerHTML = looks.map(function (l, i) {
       return '<div class="tl__model" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
-        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false">' +
+        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false" decoding="async"' + (i > 4 ? ' loading="lazy"' : "") + ">" +
         '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></div>";
     }).join("");
     tlModels = $$(".tl__model", tlTrack);
