@@ -460,7 +460,8 @@ button { font: inherit; color: inherit; }
 
 /* 6. Lookbook ------------------------------------------------------------- */
 .grid__empty { grid-column: 1 / -1; text-align: center; padding: 64px 0; color: var(--ink-2); }
-.lookbook { height: 300vh; position: relative; }
+/* about 1.2 screens of scrolling per photo */
+.lookbook { height: 460vh; position: relative; }
 .lookbook__sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; display: grid; place-items: center; }
 .marquee--back { position: absolute; top: 16%; left: 0; z-index: 0; }
 .marquee--front { position: absolute; bottom: 13%; left: -40%; z-index: 2; color: rgba(255,255,255,.55); }
