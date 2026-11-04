@@ -108,7 +108,7 @@ button { font: inherit; color: inherit; }
   position: relative; overflow: hidden;
   border-radius: var(--r-lg);
   background:
-    linear-gradient(180deg, #ffffff 0%, #f1f1f1 38%, #d6d7d8 100%);
+    linear-gradient(180deg, #ffffff 0%, #e4e5e6 35%, #a9abae 100%);
   min-height: min(860px, calc(100vh - 20px));
   display: grid; grid-template-rows: auto auto 1fr;
 }
