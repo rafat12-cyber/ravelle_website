@@ -194,7 +194,7 @@
       },
       poster: {
         kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",
-        image: "assets/img/home/h-poster-rv.webp", imageAlt: "Model from behind in the RV Core Hustle T-shirt with black baggy trousers",
+        image: "assets/img/home/h-poster-fearless.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with black baggy trousers, in front of a Fearless flag",
         marqueeTop: "RAINING OFFERS FOR HOT SUMMER", marqueeBottom: "OWN THE STREET"
       },
       arrivals: {
