@@ -1418,6 +1418,7 @@
       store.set("customer", body.customer);
       api("POST", "/api/orders", body).then(function (r) {
         var o = r.order;
+        adEvent("purchase", "", { order: o });
         o.phone = body.customer.phone;
         rememberOrder(o);
         cart = []; store.set("cart", cart); checkoutState.coupon = null; syncCount(); drawBag();
@@ -1521,7 +1522,7 @@
     }
     if (line) line.qty += qty; else cart.push({ productId: p.id, variantId: v ? v.id : null, qty: qty });
     saveCart();
-    track("cart", p.id);
+    track("cart", p.id, { qty: qty });
     if (!quiet) toast("Added to bag · " + esc(shortName(p)) + (v ? " · " + esc(optText(v.options)) : ""));
     return true;
   }
@@ -1758,8 +1759,45 @@
     var os = /Android/.test(ua) ? "Android" : /iPhone|iPad|iPod/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /CrOS/.test(ua) ? "ChromeOS" : /Linux/.test(ua) ? "Linux" : "Other";
     return { dev: dev, br: br, os: os };
   }
+  // Shopping events for Meta Pixel (fbq) and Google Analytics 4 (gtag), when their IDs are set in Admin > Header & footer
+  var adPages = 0;
+  function adEvent(type, productId, info) {
+    if (EDIT) return;
+    var fb = typeof window.fbq === "function" ? window.fbq : null, ga = typeof window.gtag === "function" ? window.gtag : null;
+    if (!fb && !ga) return;
+    info = info || {};
+    var p = productId ? BY_ID[productId] : null;
+    var item = p ? { item_id: p.sku, item_name: p.name, item_variant: p.color, price: p.price, quantity: info.qty || 1 } : null;
+    try {
+      if (type === "page") {
+        // The first page view is sent by the Pixel and GA code itself; later ones are page changes inside the store
+        if (adPages++ && fb) fb("track", "PageView");
+        if (adPages > 1 && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
+      } else if (type === "view" && p) {
+        if (fb) fb("track", "ViewContent", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price, currency: "BDT" });
+        if (ga) ga("event", "view_item", { currency: "BDT", value: p.price, items: [item] });
+      } else if (type === "cart" && p) {
+        if (fb) fb("track", "AddToCart", { content_ids: [p.sku], content_name: p.name, content_type: "product", value: p.price * (info.qty || 1), currency: "BDT" });
+        if (ga) ga("event", "add_to_cart", { currency: "BDT", value: p.price * (info.qty || 1), items: [item] });
+      } else if (type === "checkout") {
+        var items = cart.map(function (l) { var x = BY_ID[l.productId]; return x ? { item_id: x.sku, item_name: x.name, price: x.price, quantity: l.qty } : null; }).filter(Boolean);
+        var value = items.reduce(function (s, x) { return s + x.price * x.quantity; }, 0);
+        if (fb) fb("track", "InitiateCheckout", { content_ids: items.map(function (x) { return x.item_id; }), content_type: "product", num_items: items.length, value: value, currency: "BDT" });
+        if (ga) ga("event", "begin_checkout", { currency: "BDT", value: value, items: items });
+      } else if (type === "search" && info.q) {
+        if (fb) fb("track", "Search", { search_string: info.q });
+        if (ga) ga("event", "search", { search_term: info.q });
+      } else if (type === "purchase" && info.order) {
+        var o = info.order, its = (o.items || []).map(function (l) { return { item_id: l.sku, item_name: l.name, price: l.price, quantity: l.qty }; });
+        // eventID lets Meta drop duplicates if the same order is also sent from a server later
+        if (fb) fb("track", "Purchase", { content_ids: its.map(function (x) { return x.item_id; }), content_type: "product", num_items: its.length, value: o.total, currency: "BDT" }, { eventID: o.number });
+        if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined, items: its });
+      }
+    } catch (e) {}
+  }
   function track(type, productId, info) {
     if (EDIT) return;
+    adEvent(type, productId, info);
     var body = { type: type, productId: productId || "", sid: sid };
     if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
     api("POST", "/api/track", body).catch(function () {});
