@@ -595,7 +595,7 @@ body.is-locked { overflow: hidden; }
 /* Shop filters on the page header: design + colour left, size + sort right */
 .pagehead { position: relative; }
 .pagehead.has-tools .pagehead__panel { padding-bottom: 92px; }
-.pagehead__tools { position: absolute; z-index: 6; left: calc(var(--gut) + 26px); right: calc(var(--gut-r) + 26px); bottom: 26px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; }
+.pagehead__tools { position: absolute; z-index: 6; left: calc(var(--gut) + 26px); right: calc(var(--gut-r) + 26px); bottom: 48px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; }
 .tools__side { display: flex; gap: 10px; pointer-events: auto; }
 .sort select, .cdrop__btn { box-shadow: 0 8px 18px -12px rgba(17,18,20,.4); }
 .cdrop { position: relative; }

@@ -770,7 +770,7 @@
         (chips.length ? '<label class="sort"><span class="sr">Design</span><select id="chipFilter"><option value="">' + (subcats.length > 1 ? "All types" : "All designs") + "</option>" +
           chips.map(function (c) { return '<option value="' + esc(c.key) + '">' + esc(c.label) + "</option>"; }).join("") + "</select></label>" : "") +
         (colors.length > 1 ? '<div class="cdrop" id="colorDrop"><button class="cdrop__btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Colour">' +
-          '<span class="cdrop__dot" aria-hidden="true"></span><span class="cdrop__txt">Colour</span>' + CHEVRON + "</button>" +
+          '<span class="cdrop__txt">Colour</span>' + CHEVRON + "</button>" +
           '<div class="cdrop__pop" role="group" aria-label="Colour" hidden>' +
             '<button class="swatch swatch--any" type="button" data-color="" aria-pressed="true"><span class="sr">Any colour</span></button>' +
             colors.map(function (c) { return '<button class="swatch" type="button" data-color="' + esc(c.name) + '" style="--sw:' + esc(c.hex) + '" aria-pressed="false"><span class="sr">' + esc(c.name) + "</span></button>"; }).join("") +
@@ -814,7 +814,6 @@
       $$(".swatch", drop).forEach(function (x) { x.setAttribute("aria-pressed", (x.dataset.color || null) === state.color ? "true" : "false"); });
       var on = colors.filter(function (c) { return c.name === state.color; })[0];
       drop.classList.toggle("is-set", !!on);
-      $(".cdrop__dot", drop).style.background = on ? on.hex : "";
     }
     function openDrop(open) {
       $(".cdrop__pop", drop).hidden = !open;
