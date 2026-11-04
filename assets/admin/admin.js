@@ -201,18 +201,57 @@
       });
     });
   }
+  // Recommended size and file weight for each image slot, so uploads stay sharp and fast
+  const IMG_SPECS = [
+    [/^hero\.image$/, 1200, 1212, "see-through background (PNG or WebP cutout)", 250],
+    [/^tryLook\.looks\.\d+\.image$/, 400, 1200, "model cutout with a see-through background", 80],
+    [/^house\.card\d+\.image$/, 900, 1200, "3:4 photo", 150],
+    [/^poster\.image$/, 900, 1125, "4:5 photo", 200],
+    [/^lookbook\.looks\.\d+\.image$/, 900, 1200, "3:4 photo", 180],
+    [/^sizeGuide$/, 1200, 0, "width", 120],
+    [/^image$/, 900, 1200, "3:4 photo", 150],
+    [/^product$/, 690, 862, "4:5 photo", 80]
+  ];
+  function imgSpec(name) {
+    const s = IMG_SPECS.find((x) => x[0].test(name)) || [null, 1200, 0, "longest side", 200];
+    return { w: s[1], h: s[2], what: s[3], kb: s[4],
+      text: `Best size: ${s[2] ? `${s[1]} × ${s[2]} px` : `${s[1]} px on the ${s[3]}`}${s[2] ? ` (${s[3]})` : ""} · WebP · under ${s[4]} KB` };
+  }
+  // Show an image's real size and weight, with a warning when it is far off the recommended one
+  function measureImg(url, spec, out) {
+    if (!out) return;
+    if (!url) { out.textContent = ""; return; }
+    const im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth, h = im.naturalHeight;
+      fetch(url).then((r) => r.blob()).then((b) => b.size, () => 0).then((bytes) => {
+        const kb = Math.round(bytes / 1024), warn = [];
+        if (spec.h && Math.abs(w / h - spec.w / spec.h) > 0.03) warn.push("different shape, the edges will be cropped");
+        if (w < spec.w * 0.8) warn.push("smaller than recommended, may look soft");
+        if (kb && kb > spec.kb * 1.5) warn.push(`heavy file, aim for under ${spec.kb} KB`);
+        out.innerHTML = `This image: ${w} × ${h} px${kb ? ` · ${kb} KB` : ""} ${warn.length ? `· <span style="color:#b3261e">${esc(warn.join("; "))}</span>` : "· good fit"}`;
+      });
+    };
+    im.onerror = () => { out.textContent = ""; };
+    im.src = url;
+  }
   function imgField(name, value, label, hint, wide) {
+    const spec = imgSpec(name);
     return `<div class="field" data-imgfield="${esc(name)}"><span>${esc(label)}</span>
       <div class="imgfield"><img class="imgfield__prev${wide ? " imgfield__prev--wide" : ""}" src="${esc(value || "")}" alt="" ${value ? "" : "hidden"}>
       <div class="stack stack--sm"><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-pick>${value ? "Change" : "Choose image"}</button>
-      <button class="btn btn--ghost btn--sm" type="button" data-clear ${value ? "" : "hidden"}>Remove</button></div>${hint ? `<small>${esc(hint)}</small>` : ""}</div></div>
+      <button class="btn btn--ghost btn--sm" type="button" data-clear ${value ? "" : "hidden"}>Remove</button></div>${hint ? `<small>${esc(hint)}</small>` : ""}
+      <small class="imgfield__spec">${esc(spec.text)}</small><small class="imgfield__real" data-real></small></div></div>
       <input type="hidden" name="${esc(name)}" value="${esc(value || "")}"></div>`;
   }
   function wireImgFields(root, onChange) {
     $$("[data-imgfield]", root).forEach((f) => {
       const input = $("input[type=hidden]", f), prev = $(".imgfield__prev", f);
+      const spec = imgSpec(f.dataset.imgfield);
+      measureImg(input.value, spec, $("[data-real]", f));
       const set = (u) => {
         input.value = u || "";
+        measureImg(u || "", spec, $("[data-real]", f));
         prev.hidden = !u; if (u) prev.src = u;
         $("[data-pick]", f).textContent = u ? "Change" : "Choose image";
         $("[data-clear]", f).hidden = !u;
@@ -618,7 +657,7 @@
           <div class="card"><label class="field"><span>Product name</span><input class="input" name="name" required value="${esc(draft.name)}" placeholder="Fearless Oversized T-shirt – Black"></label>
             <label class="field"><span>Description</span><textarea class="input" name="description" rows="3">${esc(draft.description || "")}</textarea></label>
             <label class="field"><span>Details &amp; fit</span><textarea class="input" name="details" rows="4" placeholder="One point per line">${esc(draft.details)}</textarea><small>One point per line. Shown under “Details &amp; fit”.</small></label></div>
-          <div class="card"><div class="card__head"><h2 class="h2">Photos</h2><small class="muted">The first photo is the main one. Drag order with the arrows.</small></div><div class="gallery" id="gallery"></div></div>
+          <div class="card"><div class="card__head"><h2 class="h2">Photos</h2><small class="muted">The first photo is the main one. Drag order with the arrows. Best size: 690 × 862 px (4:5) · WebP · under 80 KB each.</small></div><div class="gallery" id="gallery"></div></div>
           <div class="card"><h2 class="h2">Price</h2><div class="row row--3">
             <label class="field"><span>Price (৳)</span><input class="input" name="price" type="number" min="0" required value="${esc(draft.price)}"></label>
             <label class="field"><span>Compare-at price (৳)</span><input class="input" name="comparePrice" type="number" min="0" value="${esc(draft.comparePrice || "")}"><small>The old price, shown crossed out.</small></label>
@@ -1017,6 +1056,8 @@
       return "";
     }).join("");
     $("#peForm").innerHTML = build(draft, "", 0) + `<datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#lookbook", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
+    // opening a section scrolls it into view, so its fields are not hidden below the fold
+    if (!$("#peForm")._tog && ($("#peForm")._tog = true)) $("#peForm").addEventListener("toggle", (e) => { if (e.target.open) setTimeout(() => e.target.scrollIntoView({ block: "start", behavior: "smooth" }), 40); }, true);
     $("#peForm").addEventListener("input", (e) => {
       const el = e.target.closest("[data-p]");
       if (!el) return;
