@@ -146,14 +146,13 @@ button { font: inherit; color: inherit; }
 .hero__model img { width: 100%; height: auto; filter: drop-shadow(0 30px 40px rgba(40,55,62,.18)); }
 
 .hero__side { position: absolute; left: 30px; bottom: 64px; width: 210px; z-index: 2; display: grid; gap: 18px; }
-/* Social links: fixed, stacked above the chat button and centred on it */
-.social-dock { position: fixed; right: calc(max(16px, env(safe-area-inset-right, 0px)) + 6px); bottom: calc(82px + env(safe-area-inset-bottom, 0px)); z-index: 34; display: grid; gap: 10px; }
+/* Social links: fixed bottom-left, side by side, level with the chat button */
+.social-dock { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 34; display: flex; gap: 10px; }
 .social-dock a { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.86); color: #16181a; border: 1px solid rgba(22,24,26,.12);
   box-shadow: 0 10px 22px -12px rgba(17,18,20,.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background .3s, color .3s, transform .3s var(--ease); }
 .social-dock a:hover { background: #16181a; color: #fff; transform: translateY(-2px); }
 .social-dock svg { width: 18px; height: 18px; fill: currentColor; }
 .social-dock svg[fill="none"] { fill: none; }
-.social-dock:has(+ .chat[hidden]) { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 .hero__side p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--ink-2); text-indent: 3.2em; }
 .hero__link { display: inline-flex; gap: 6px; color: var(--ink); width: max-content; border-bottom: 1px solid currentColor; padding-bottom: 2px; }
 .avatars { display: flex; }
