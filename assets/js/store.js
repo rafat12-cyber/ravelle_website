@@ -443,7 +443,7 @@
     tlLayout();
     tlSelect(keep);
   }
-  function tlMeasure() { TL.unit = Math.max(96, Math.min(190, tlStage.clientWidth * 0.165)); }
+  function tlMeasure() { TL.unit = Math.max(96, Math.min(270, tlStage.clientWidth * 0.215)); }
   function tlWrapD(d) { var n = TL.n; d = ((d % n) + n) % n; return d > n / 2 ? d - n : d; }
   // Place every model from the current position
   function tlLayout() {
@@ -451,11 +451,12 @@
     tlModels.forEach(function (m, k) {
       var d = tlWrapD(k - TL.pos), a = Math.abs(d), sg = d < 0 ? -1 : 1;
       // Each step back adds less sideways distance, so the rows tuck in behind
-      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * 0.72 + Math.max(0, Math.min(a, 4) - 2) * u * 0.55);
+      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * 0.86 + Math.max(0, Math.min(a, 4) - 2) * u * 0.6);
       var sc = 1 - Math.min(a, 4) * 0.13;
       var y = -Math.min(a, 4) * 16;
       var blur = Math.max(0, a - 0.6) * 1.5;
-      var op = a > 3.2 ? Math.max(0, 1 - (a - 3.2) / 0.8) : 1;
+      // Five on stage: the middle one and two either side; the rest fade out behind
+      var op = a > 2.2 ? Math.max(0, 1 - (a - 2.2) / 0.6) : 1;
       m.style.transform = "translate3d(calc(-50% + " + x.toFixed(1) + "px)," + y.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
       m.style.zIndex = String(100 - Math.round(a * 10));
       m.style.opacity = op.toFixed(3);
