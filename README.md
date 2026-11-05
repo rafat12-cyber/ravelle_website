@@ -37,7 +37,7 @@ The online store for [Ravelle – A Life Style Brand](https://ravellebd.com/): s
 - `/sitemap.xml` and `/robots.txt` are generated from the catalog.
 - Product feeds that update themselves: `/feeds/meta.csv` for Meta Commerce Manager (catalog ads, Shop) and `/feeds/google.xml` for Google Merchant Center (Shopping, free listings). The product id is the SKU, the same id the Pixel and GA4 send. Setup steps are in **Admin → Pixel & Analytics**. With a catalog ID and access token filled in there, every product create, edit, delete, stock change and order is also pushed to the Meta catalog within seconds (Graph API `items_batch`), and **Send all products to Meta now** pushes everything.
 - Products and categories have optional "Title in Google" and "Description in Google" fields; categories also have a short text under the product grid.
-- Text files and API replies are gzip-compressed; site photos are cached for a day.
+- Text files and API replies are gzip-compressed; site photos are cached for 30 days and fonts for a year. Fonts are served from the site itself (`assets/fonts/`), not from Google. Phones and small cards load the smaller `-s` copy of each product photo.
 - Set `PUBLIC_URL=https://ravellebd.com` in `.env` on the live server. Canonical links, the sitemap, feeds and emails use it.
 
 **API and webhooks:** read and write orders, products, stock, customers and chats with API keys, and get signed webhooks when things happen. See [docs/API.md](docs/API.md). This is how an AI chat reply tool connects.
@@ -132,4 +132,4 @@ Open `index.html` straight from the folder, add `?demo` to the address (ignored 
 | `server/test.js` | End-to-end test |
 | `docs/API.md` | API and webhook guide |
 
-Product photos live in `assets/img/products/` (front, front close-up, side and back for each product). Photos you add in the admin are stored in the data folder. If a photo can't load, the card shows the product name on a colour panel instead.
+Product photos live in `assets/img/products/` (front, front close-up, side and back for each product). Each one has a smaller copy, `<name>-s.webp` (360 px wide), for phones and product cards; make it with `convert <name>.webp -resize 360x -strip -quality 80 <name>-s.webp` (ImageMagick). Try the Look models in `assets/img/home/look-N.webp` get one 600 px tall (`-resize x600`). If a copy is missing the server sends the full photo, so nothing breaks, it only loads slower. `npm test` lists any that are missing. To replace a photo in `assets/`, save it under a new file name, because browsers keep site photos for 30 days. Photos you add in the admin are stored in the data folder. If a photo can't load, the card shows the product name on a colour panel instead.

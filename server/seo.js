@@ -289,6 +289,8 @@ function render(html, head) {
     html = html.replace('<div data-view="home" data-page="home">', '<div data-view="home" data-page="home" hidden>')
       .replace('<div data-view="page" hidden>', '<div data-view="page">')
       .replace(/<link rel="preload" as="image"[^>]*>\n?/, "")
+      // the home page's hero photo is hidden on this page: don't download it
+      .replace(/(<figure class="hero__model">\s*<img )([^>]*?)fetchpriority="high"/, '$1$2loading="lazy"')
       .replace('<main id="page" class="page"></main>', '<main id="page" class="page"><section class="ssr">' + head.body + "</section></main>");
   }
   return html
@@ -382,4 +384,14 @@ function metaItem(db, base, p) {
 }
 function catalogProducts(db) { return published(db).filter(function (p) { return p.sku && p.price > 0 && (p.images || []).length; }); }
 
-module.exports = { metaItem: metaItem, catalogProducts: catalogProducts, resolve: resolve, render: render, sitemap: sitemap, robots: robots, googleFeed: googleFeed, metaFeed: metaFeed };
+// The announcement bar, drawn into the page by the server so it is there from the first paint
+// (when the script added it later, the whole page jumped down: Google counts that as layout shift)
+function announce(html, settings) {
+  var head = ((settings || {}).layout || {}).header || {}, text = (settings || {}).announcement;
+  if (!text || head.announce === false) return html;
+  var color = function (c) { return c && /^[#\w(),.%\s-]{1,40}$/.test(c) ? c : ""; };
+  var style = (color(head.announceBg) ? "background:" + color(head.announceBg) + ";" : "") + (color(head.announceColor) ? "color:" + color(head.announceColor) + ";" : "");
+  return html.replace('<p class="announce mono" id="announce" hidden></p>', '<p class="announce mono" id="announce"' + (style ? ' style="' + esc(style) + '"' : "") + ">" + esc(text) + "</p>");
+}
+
+module.exports = { announce: announce, metaItem: metaItem, catalogProducts: catalogProducts, resolve: resolve, render: render, sitemap: sitemap, robots: robots, googleFeed: googleFeed, metaFeed: metaFeed };
