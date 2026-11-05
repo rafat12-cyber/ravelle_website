@@ -63,14 +63,20 @@ Forgot an admin password? Use **Forgot password?** on the admin sign-in page: it
 | Setting | Meaning |
 |---|---|
 | `PORT` | Port to listen on (default 3000) |
-| `PUBLIC_URL` | Your public address, like `https://ravellebd.com`. Used for SSLCOMMERZ return links |
+| `PUBLIC_URL` | Your public address, like `https://ravellebd.com`. Used for SSLCOMMERZ return links and email links. When it starts with `https`, admin sign-in only works at exactly `PUBLIC_URL/admin` (see below) |
 | `DATA_DIR` | Where the database, daily backups and uploaded images are kept (default `data`) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | First admin account, only used when there are no users yet |
 | `SSLC_STORE_ID`, `SSLC_STORE_PASSWORD` | SSLCOMMERZ merchant credentials |
+| `TRUST_PROXY` | `1` behind nginx, Caddy, cPanel or Cloudflare, so rate limits see the visitor's real address |
+| `ADMIN_LOCK` | Leave empty. `0` turns off the admin address lock (only for testing on another address) |
+
+### Admin address lock
+
+On the live site (`PUBLIC_URL=https://ravellebd.com`) the admin panel only signs in at **https://ravellebd.com/admin**. `/admin.html` is gone, `/admin` opened on `www.`, the server IP, a hosting preview address or plain `http` is sent to that address, and the sign-in, forgot-password and reset calls are refused unless they come from that page. Signed-in staff and API keys for other software (Acore) work as before.
 
 ### Hosting
 
-Any host that runs Node.js works: a VPS (DigitalOcean, Vultr, a Bangladeshi VPS), cPanel with "Setup Node.js App", Render, Railway or Fly.io. Static-only hosting such as GitHub Pages or Netlify **can't** run the checkout, admin or API.
+Any host that runs Node.js works: a VPS (DigitalOcean, Vultr, a Bangladeshi VPS), cPanel with "Setup Node.js App" (set the startup file to `server/server.js`, `TRUST_PROXY=1`, and `DATA_DIR` to a folder outside the app, like `/home/<user>/ravelle-data`), Render, Railway or Fly.io. Static-only hosting such as GitHub Pages or Netlify **can't** run the checkout, admin or API.
 
 On a VPS:
 
