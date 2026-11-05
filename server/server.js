@@ -16,6 +16,7 @@ var fs = require("fs");
 var path = require("path");
 var crypto = require("crypto");
 var querystring = require("querystring");
+var zlib = require("zlib");
 
 var ROOT = path.resolve(__dirname, "..");
 loadEnv(path.join(ROOT, ".env"));
@@ -35,6 +36,7 @@ var TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || "");
 
 var Core = require(path.join(ROOT, "assets/js/core.js"));
 var SEED = require(path.join(ROOT, "assets/js/seed.js"));
+var Seo = require("./seo.js");
 
 fs.mkdirSync(UPLOADS, { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, "backups"), { recursive: true });
@@ -421,7 +423,7 @@ function validatePayment(valId, cb) {
 function paymentCallback(kind, body, res) {
   var orderId = body.tran_id;
   var order = db.orders.filter(function (o) { return o.id === orderId; })[0];
-  var back = function (state) { redirect(res, "/#order/" + (order ? order.number : "") + "?payment=" + state); };
+  var back = function (state) { redirect(res, "/order/" + (order ? order.number : "") + "?payment=" + state); };
   if (!order) return back("missing");
   // Only online-payment orders can be touched by these callbacks (a forged "fail" can't cancel a cash-on-delivery order)
   if (order.paymentMethod !== "sslcommerz") return kind === "ipn" ? sendJson(res, 200, { ok: false }) : back("missing");
@@ -485,7 +487,7 @@ var server = http.createServer(function (req, res) {
   if (HTTPS_SITE) res.setHeader("Strict-Transport-Security", "max-age=31536000");
   try {
     if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
-    return serveStatic(req, res, p);
+    return serveStatic(req, res, p, u.search);
   } catch (e) {
     console.error(e);
     if (!res.headersSent) text(res, 500, "Something went wrong on the server.");
@@ -570,31 +572,85 @@ var ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe
 function serveAdmin(req, res) {
   fs.readFile(path.join(ROOT, "admin.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP });
-    res.end(req.method === "HEAD" ? "" : versioned(html));
+    send(req, res, 200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP }, versioned(html));
   });
 }
-// The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
-function serveIndex(req, res) {
+// Sends a reply, gzip-compressed when the browser accepts it (text files shrink by about 70%)
+var COMPRESS = /^(text\/|application\/(json|javascript|xml|rss\+xml)|image\/svg)/;
+function send(req, res, status, headers, body) {
+  var buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body == null ? "" : body), "utf8");
+  if (buf.length > 1024 && COMPRESS.test(headers["Content-Type"] || "") && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    buf = zlib.gzipSync(buf, { level: 6 });
+    headers["Content-Encoding"] = "gzip";
+  }
+  headers.Vary = "Accept-Encoding";
+  headers["Content-Length"] = buf.length;
+  res.writeHead(status, headers);
+  res.end(req.method === "HEAD" ? undefined : buf);
+}
+// The public address used in links search engines see: PUBLIC_URL, or the address the visitor used
+function siteBase(req) {
+  if (process.env.PUBLIC_URL) return PUBLIC_URL;
+  var host = String(req.headers.host || "localhost:" + PORT).replace(/[^\w.:-]/g, "");
+  var proto = TRUST_PROXY && /^https$/i.test(String(req.headers["x-forwarded-proto"] || "")) ? "https" : "http";
+  return proto + "://" + host;
+}
+// The store page, with this page's title, description, link-preview tags and structured data (server/seo.js),
+// and the tracking code from Admin > Header & footer placed in <head> and before </body>
+function serveIndex(req, res, p, search) {
+  var page = Seo.resolve(db, siteBase(req), p || "/");
+  if (page.redirect) { res.writeHead(301, { Location: page.redirect + (search || "") }); return res.end(); }
   fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
     var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
-    html = versioned(html).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+    html = Seo.render(versioned(html), page).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
       .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
-    res.end(req.method === "HEAD" ? "" : html);
+    send(req, res, page.status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" }, html);
   });
 }
-function serveStatic(req, res, p) {
+// Static text files, compressed once and kept in memory until the file changes
+var gzCache = {};
+function sendFile(req, res, file, st, headers) {
+  var ext = path.extname(file).toLowerCase();
+  if (!COMPRESS.test(headers["Content-Type"]) || st.size < 1024 || st.size > 5e6 || !/\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    res.writeHead(200, Object.assign(headers, ext === ".webp" || COMPRESS.test(headers["Content-Type"]) ? { Vary: "Accept-Encoding" } : {}));
+    if (req.method === "HEAD") return res.end();
+    return fs.createReadStream(file).pipe(res);
+  }
+  var key = file + "|" + st.mtimeMs, hit = gzCache[file];
+  var done = function (gz) {
+    delete headers["Content-Length"];
+    headers["Content-Encoding"] = "gzip"; headers["Content-Length"] = gz.length; headers.Vary = "Accept-Encoding";
+    res.writeHead(200, headers);
+    res.end(req.method === "HEAD" ? undefined : gz);
+  };
+  if (hit && hit.key === key) return done(hit.gz);
+  fs.readFile(file, function (err, raw) {
+    if (err) { res.writeHead(500); return res.end(); }
+    zlib.gzip(raw, { level: 9 }, function (e2, gz) {
+      if (e2) { res.writeHead(200, headers); return res.end(raw); }
+      gzCache[file] = { key: key, gz: gz };
+      done(gz);
+    });
+  });
+}
+function serveStatic(req, res, p, search) {
   if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405); return res.end(); }
   var file;
-  if (p === "/" || p === "/index.html") return serveIndex(req, res);
+  if (p === "/index.html") { res.writeHead(301, { Location: "/" }); return res.end(); }
   else if (p === "/admin/") { res.writeHead(301, { Location: "/admin" }); return res.end(); }
   else if (p === "/admin" || p === "/admin.html") return serveAdmin(req, res);
-  else if (p === "/robots.txt") return text(res, 200, "User-agent: *\nDisallow: /admin\nDisallow: /api/\n");
+  else if (p === "/robots.txt") return send(req, res, 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" }, Seo.robots(siteBase(req)));
+  else if (p === "/sitemap.xml") return send(req, res, 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" }, Seo.sitemap(db, siteBase(req)));
+  // Product feeds for Meta Commerce Manager and Google Merchant Center (they fetch these on a schedule)
+  else if (p === "/feeds/google.xml") return send(req, res, 200, { "Content-Type": "application/rss+xml; charset=utf-8", "Cache-Control": "public, max-age=900" }, Seo.googleFeed(db, siteBase(req)));
+  else if (p === "/feeds/meta.csv") return send(req, res, 200, { "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "public, max-age=900" }, Seo.metaFeed(db, siteBase(req)));
   else if (p.indexOf("/assets/") === 0) file = path.join(ROOT, p);
   else if (p.indexOf("/uploads/") === 0) file = path.join(UPLOADS, p.slice(9));
   else if (p === "/docs/API.md") file = path.join(ROOT, "docs/API.md");
+  // Everything else is a store page: /product/<slug>, /product-category/<slug>, /shop, /about...
+  // (unknown addresses get the store's "not found" page with a 404 status)
+  else if (!/\.[a-z0-9]{2,5}$/i.test(p)) return serveIndex(req, res, p, search);
   else return text(res, 404, "Not found");
   var base = p.indexOf("/uploads/") === 0 ? UPLOADS : ROOT;
   // Files must stay inside /assets (or the uploads folder): never the database, backups, .env or the server code
@@ -613,13 +669,14 @@ function serveStatic(req, res, p) {
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };
     // Uploads never change name; CSS/JS with ?v= are cached for a year (a new version = a new URL); anything else is re-checked each time
     var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
-    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" : "no-cache";
+    // Site photos and fonts change only with an update: kept a day, then refreshed in the background
+    var media = /\.(webp|jpe?g|png|gif|avif|svg|ico|woff2)$/.test(ext);
+    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" :
+      media ? "public, max-age=86400, stale-while-revalidate=604800" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
     if (base === UPLOADS) { headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"; if (ext === ".pdf") headers["Content-Disposition"] = "inline"; }
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }
-    res.writeHead(200, headers);
-    if (req.method === "HEAD") return res.end();
-    fs.createReadStream(file).pipe(res);
+    sendFile(req, res, file, st, headers);
   });
 }
 
@@ -636,6 +693,7 @@ function readBody(req, max, cb) {
 function readAll(res, cb) { var b = []; res.on("data", function (c) { b.push(c); }); res.on("end", function () { cb(Buffer.concat(b).toString("utf8")); }); }
 function sendJson(res, status, obj) {
   var body = JSON.stringify(obj);
+  if (res.req) return send(res.req, res, status, { "Content-Type": "application/json; charset=utf-8" }, body);
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(body) });
   res.end(body);
 }

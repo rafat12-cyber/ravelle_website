@@ -562,7 +562,7 @@
         <div><p class="h3">Bill to</p><p style="margin:0">${esc(o.customer.name)}<br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</p></div>
         <table class="t"><thead><tr><th>Item</th><th>SKU</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead><tbody>${o.items.map((it) => `<tr><td>${esc(it.name)}<br><small class="muted">${esc(optText(it.options))}</small></td><td class="mono">${esc(it.sku)}</td><td class="right">${it.qty}</td><td class="right">${taka(it.price)}</td><td class="right">${taka(it.lineTotal)}</td></tr>`).join("")}</tbody></table>
         <div class="totals" style="margin-left:auto;width:min(300px,100%)"><div><span>Subtotal</span><span>${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount</span><span>−${taka(o.discount)}</span></div>` : ""}<div><span>Delivery</span><span>${taka(o.shipping)}</span></div><div class="grand"><span>Total</span><span>${taka(o.total)}</span></div></div>
-        <p class="small muted">Thank you for shopping with ${esc(st.name || "Ravelle")}. Exchanges and returns within 7 days of delivery: ${esc((st.website || "").replace(/^https?:\/\//, ""))}/#refund</p>
+        <p class="small muted">Thank you for shopping with ${esc(st.name || "Ravelle")}. Exchanges and returns within 7 days of delivery: ${esc((st.website || "").replace(/^https?:\/\//, ""))}/refund</p>
       </div>`;
     view.querySelector("[data-print]").onclick = () => window.print();
   }
@@ -732,7 +732,10 @@
             <div class="field"><span>Shop filter colour</span><input type="hidden" name="colorGroup" value="${esc(draft.colorGroup || "")}">
               <div class="chips" id="cgPick">${[["", "Auto"]].concat(FILTER_COLORS).map(([n, h]) => `<button type="button" class="chipbtn${(draft.colorGroup || "") === n ? " is-on" : ""}" data-cg="${esc(n)}">${h ? `<span class="sw" style="background:${h}"></span>` : ""}${esc(n || "Auto")}</button>`).join("")}</div>
               <small>The colour this product is listed under in the shop's colour filter. Auto picks it from the colour name.</small></div></div>
-          <div class="card"><h2 class="h2">Web address</h2><label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(draft.slug || "")}" placeholder="Made from the name"><small>ravellebd.com/#product/<b>${esc(draft.slug || "…")}</b></small></label></div>
+          <div class="card"><h2 class="h2">Web address</h2><label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(draft.slug || "")}" placeholder="Made from the name"><small>ravellebd.com/product/<b>${esc(draft.slug || "…")}</b></small></label></div>
+          <div class="card"><h2 class="h2">Search engines</h2>
+            <label class="field"><span>Title in Google</span><input class="input" name="seoTitle" maxlength="80" value="${esc(draft.seoTitle || "")}" placeholder="${esc(draft.name || "Product name")}"><small>Leave empty to use the product name. " | Ravelle" is added.</small></label>
+            <label class="field"><span>Description in Google</span><textarea class="input" name="seoDescription" rows="2" maxlength="200" placeholder="Made from the description and price">${esc(draft.seoDescription || "")}</textarea><small>About 150 characters. Also shown when the link is shared on Facebook or WhatsApp.</small></label></div>
         </div>
         <div class="sticky-save" style="grid-column:1/-1"><span class="small">${isNew ? "New product" : "Editing " + esc(p.name)}</span>
           <div class="flex">${isNew ? "" : `<button class="btn btn--danger btn--sm" type="button" id="pDel">Delete</button><button class="btn btn--ghost btn--sm" type="button" id="pDup">Duplicate</button>`}<button class="btn btn--dark" type="submit">${isNew ? "Create product" : "Save product"}</button></div></div>
@@ -841,7 +844,7 @@
       const b = formData(form);
       const body = {
         name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, colorGroup: b.colorGroup || "", price: b.price, comparePrice: b.comparePrice || 0,
-        description: b.description, details: b.details, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value,
+        description: b.description, details: b.details, seoTitle: b.seoTitle, seoDescription: b.seoDescription, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value,
         categoryIds: $$("[name=cat]:checked", form).map((x) => x.value), isNew: b.isNew, featured: b.featured, trackStock: b.trackStock, stock: b.stock,
         attributes: draft.attributes.filter((a) => a.values.length), variants: draft.variants
       };
@@ -926,6 +929,9 @@
         <label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(c.slug || "")}" placeholder="Made from the name"></label>
         <label class="field"><span>Description</span><textarea class="input" name="description" rows="2">${esc(c.description || "")}</textarea></label>
         ${imgField("image", c.image, "Image", "Used on collection cards and the coming-soon page.")}
+        <label class="field"><span>Title in Google</span><input class="input" name="seoTitle" maxlength="80" value="${esc(c.seoTitle || "")}" placeholder="${esc(c.name || "")}"><small>Like "Oversized T-shirts in Bangladesh". Leave empty to use the name.</small></label>
+        <label class="field"><span>Description in Google</span><textarea class="input" name="seoDescription" rows="2" maxlength="200" placeholder="Made from the description and prices">${esc(c.seoDescription || "")}</textarea></label>
+        <label class="field"><span>Text under the products</span><textarea class="input" name="seoText" rows="3" maxlength="2000">${esc(c.seoText || "")}</textarea><small>A short paragraph shown below the product grid, for search engines. Keep it to 2 or 3 sentences.</small></label>
         <div class="modal__foot">${isNew ? "" : `<button class="btn btn--danger" type="button" id="catDel" style="margin-right:auto">Delete</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save</button></div></form>`);
       wireImgFields(body);
       $("#catForm").onsubmit = async (e) => {

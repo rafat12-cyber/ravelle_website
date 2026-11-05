@@ -231,6 +231,9 @@
       if (b.slug !== undefined || !p.slug) p.slug = uniqueSlug(db.products, str(b.slug) || p.name, p.id);
       ["line", "color", "description"].forEach(function (k) { if (b[k] !== undefined) p[k] = str(b[k], k === "description" ? 4000 : 120); });
       if (b.colorGroup !== undefined) p.colorGroup = str(b.colorGroup, 30);
+      // Search engine title and description; left empty, the store writes them from the name, price and description
+      if (b.seoTitle !== undefined) p.seoTitle = str(b.seoTitle, 80);
+      if (b.seoDescription !== undefined) p.seoDescription = str(b.seoDescription, 200);
       if (b.hex !== undefined) p.hex = /^#[0-9a-f]{6}$/i.test(b.hex) ? b.hex : (p.hex || "#888888");
       if (b.sku !== undefined) p.sku = str(b.sku, 60).toUpperCase();
       if (b.status !== undefined) p.status = b.status === "draft" ? "draft" : "published";
@@ -920,15 +923,15 @@
           row("Delivery" + (o.shippingZone ? " · " + h(o.shippingZone.name) : ""), money(o.shipping)) + row("Total", money(o.total), true) + row("Payment", pay) + "</table>" +
         '<table role="presentation" width="100%" style="font-size:13px;margin-top:20px;background:#f6f7f8;border-radius:12px"><tr><td style="padding:14px 16px;line-height:1.6"><b>Delivery to</b><br>' + h(o.customer.name) + "<br>" + h(o.customer.address) + (o.customer.city ? ", " + h(o.customer.city) : "") + "<br>" + h(o.customer.phone) +
           (o.shippingZone && o.shippingZone.days ? '<br><span style="color:#5f6368">Delivery in ' + h(o.shippingZone.days) + "</span>" : "") + (o.note ? '<br><span style="color:#5f6368">Note: ' + h(o.note) + "</span>" : "") + "</td></tr></table>" +
-        button(site ? site + "/#track" : "", "Track your order");
+        button(site ? site + "/track" : "", "Track your order");
       var text = "Thanks for your order " + o.number + ".\n\n" + o.items.map(function (it) { return it.qty + " × " + it.name + " – " + money(it.lineTotal); }).join("\n") +
-        "\n\nTotal: " + money(o.total) + " (" + pay + ")\nDelivery to: " + o.customer.name + ", " + o.customer.address + (o.customer.city ? ", " + o.customer.city : "") + "\n" + (site ? "\nTrack your order: " + site + "/#track\n" : "");
+        "\n\nTotal: " + money(o.total) + " (" + pay + ")\nDelivery to: " + o.customer.name + ", " + o.customer.address + (o.customer.city ? ", " + o.customer.city : "") + "\n" + (site ? "\nTrack your order: " + site + "/track\n" : "");
       var subject = "Your order " + o.number + " · invoice from " + ((db.settings.store || {}).name || "Ravelle");
       if (to.length) sendEmail(db, to[0], subject, emailShell(db, "Order received", body), text, "invoice", o.number);
       copy.forEach(function (e) { sendEmail(db, e, "New order " + o.number + " · " + money(o.total) + " · " + o.customer.name, emailShell(db, "New order", body), text, "invoice-copy", o.number); });
     }
     function reminderEmail(db, cart, n) {
-      var cs = cartSettings(db), site = siteUrl(db), link = site ? site + "/#restore/" + cart.token : "";
+      var cs = cartSettings(db), site = siteUrl(db), link = site ? site + "/restore/" + cart.token : "";
       var subject = n === 1 ? cs.subject1 : cs.subject2, intro = n === 1 ? cs.text1 : cs.text2;
       var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h((cart.customer.name || "there").split(" ")[0]) + ", " + h(intro) + "</p>" + itemsTable(db, cart.items) +
         '<p style="margin:12px 0 0;font-size:15px;text-align:right"><b>' + money(cart.total) + "</b></p>" +
@@ -937,7 +940,7 @@
       var text = intro + "\n\n" + cart.items.map(function (it) { return it.qty + " × " + it.name; }).join("\n") + (n === 2 && cs.coupon ? "\n\nUse code " + cs.coupon + " at checkout." : "") + (link ? "\n\nComplete your order: " + link : "");
       return sendEmail(db, cart.customer.email, subject, emailShell(db, "", body), text, "cart-reminder-" + n, cart.id);
     }
-    function restoreLink(db, cart) { var site = siteUrl(db); return (site || "") + "/#restore/" + cart.token; }
+    function restoreLink(db, cart) { var site = siteUrl(db); return (site || "") + "/restore/" + cart.token; }
 
     // Checkout details are saved as the customer types, so an unfinished checkout can be followed up
     route("POST", "/api/carts/capture", null, function (c) {
@@ -1399,6 +1402,9 @@
         c.parentId = pid;
       }
       ["description", "image", "mood"].forEach(function (k) { if (b[k] !== undefined) c[k] = str(b[k], k === "image" ? 4000000 : 600); });
+      if (b.seoTitle !== undefined) c.seoTitle = str(b.seoTitle, 80);
+      if (b.seoDescription !== undefined) c.seoDescription = str(b.seoDescription, 200);
+      if (b.seoText !== undefined) c.seoText = str(b.seoText, 2000);
       if (b.order !== undefined) c.order = int(b.order);
       if (b.showInShop !== undefined) c.showInShop = bool(b.showInShop);
       return c;
@@ -2077,7 +2083,7 @@
     ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
-    db.upgrades = ["stores-franchise", "popup"];
+    db.upgrades = ["stores-franchise", "popup", "seo-text"];
     return db;
   }
   // Brings an older saved database up to date: new pages and lists, once
@@ -2095,6 +2101,15 @@
         if (!has("#franchise")) col.items.push({ id: "f_franchise", label: "Franchise", url: "#franchise", children: [] });
       }
       done.push("stores-franchise");
+      changed = true;
+    }
+    if (done.indexOf("seo-text") < 0) {
+      (db.categories || []).forEach(function (c) {
+        var s = (seed.categories || []).filter(function (x) { return x.slug === c.slug; })[0];
+        if (s && s.seoText && !c.seoText) c.seoText = s.seoText;
+        if (s && s.seoTitle && !c.seoTitle) c.seoTitle = s.seoTitle;
+      });
+      done.push("seo-text");
       changed = true;
     }
     if (done.indexOf("popup") < 0) {
