@@ -16,6 +16,7 @@ var fs = require("fs");
 var path = require("path");
 var crypto = require("crypto");
 var querystring = require("querystring");
+var zlib = require("zlib");
 
 var ROOT = path.resolve(__dirname, "..");
 loadEnv(path.join(ROOT, ".env"));
@@ -32,9 +33,15 @@ var HTTPS_SITE = /^https:/.test(PUBLIC_URL);
 // Only trust X-Forwarded-For when the store runs behind your own proxy (nginx, Caddy, cPanel's Node app, Cloudflare).
 // Otherwise anyone can send a fake address in that header and skip every rate limit.
 var TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || "");
+// On the live site (PUBLIC_URL starts with https) the admin sign-in only works at exactly PUBLIC_URL/admin:
+// www., the server IP, a hosting preview address or /admin.html all send you there or refuse,
+// and the sign-in API refuses requests made from any other page.
+var SITE = new URL(PUBLIC_URL);
+var ADMIN_LOCK = HTTPS_SITE && process.env.ADMIN_LOCK !== "0";
 
 var Core = require(path.join(ROOT, "assets/js/core.js"));
 var SEED = require(path.join(ROOT, "assets/js/seed.js"));
+var Seo = require("./seo.js");
 
 fs.mkdirSync(UPLOADS, { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, "backups"), { recursive: true });
@@ -90,6 +97,7 @@ function hashPassword(pw, salt) { return "scrypt$" + crypto.scryptSync(String(pw
 // ---------------------------------------------------------------------------
 var outbox = [];
 function emit(event, data, database, onlyHook) {
+  if (!onlyHook) catalogWatch(event, data);
   (database.webhooks || []).forEach(function (w) {
     if (onlyHook ? w.id !== onlyHook : !w.active || !(w.events.indexOf("*") > -1 || w.events.indexOf(event) > -1)) return;
     outbox.push({ hook: w, event: event, data: data, id: "evt_" + random(8), at: Date.now() });
@@ -112,6 +120,65 @@ function deliver(job, attempt) {
     if (live) live.lastStatus = { ok: ok, status: err ? "error" : status, at: Date.now() };
     save();
     if (!ok && attempt < 3) setTimeout(function () { deliver(job, attempt + 1); }, attempt === 1 ? 5000 : 30000);
+  });
+}
+// Meta catalog: every product change is pushed to the catalog in Commerce Manager a few seconds after it's saved,
+// so catalog ads and the Shop show the new price, photos and stock without waiting for the feed to be re-read.
+var catalogPending = {}, catalogTimer = null, catalogStatus = null;
+function catalogConf() {
+  var c = Core.siteCode(db.settings);
+  return c.catalogId && (c.catalogToken || c.capiToken) ? { id: c.catalogId, token: c.catalogToken || c.capiToken } : null;
+}
+function catalogWatch(event, data) {
+  if (!catalogConf() || !data) return;
+  var mark = function (pid, sku) { if (pid) catalogPending[pid] = catalogPending[pid] || sku || true; };
+  if (event === "product.created" || event === "product.updated") mark(data.id, data.sku);
+  else if (event === "product.deleted") catalogPending["deleted:" + data.sku] = data.sku;
+  else if (event === "stock.updated") mark(data.productId, data.sku);
+  // Orders take stock out (and cancelled or returned ones put it back)
+  else if (event === "order.created" || event === "order.updated") (data.items || []).forEach(function (i) { mark(i.productId); });
+  else return;
+  clearTimeout(catalogTimer);
+  catalogTimer = setTimeout(catalogFlush, 3000);
+}
+function catalogFlush() {
+  var conf = catalogConf(), keys = Object.keys(catalogPending), base = PUBLIC_URL;
+  catalogPending = {};
+  if (!conf || !keys.length) return;
+  var requests = [];
+  keys.forEach(function (k) {
+    if (k.indexOf("deleted:") === 0) return requests.push({ method: "DELETE", data: { id: k.slice(8) } });
+    var p = db.products.filter(function (x) { return x.id === k; })[0];
+    var item = p && p.status !== "draft" ? Seo.metaItem(db, base, p) : null;
+    if (item) requests.push({ method: "UPDATE", data: item });
+    else if (p && p.sku) requests.push({ method: "DELETE", data: { id: p.sku } });
+  });
+  catalogSend(conf, requests, "update");
+}
+function catalogSyncAll() {
+  var conf = catalogConf();
+  var requests = Seo.catalogProducts(db).map(function (p) { return { method: "UPDATE", data: Seo.metaItem(db, PUBLIC_URL, p) }; }).filter(function (r) { return r.data; });
+  catalogSend(conf, requests, "sync");
+  return { ok: true, sent: requests.length, message: "Sending " + requests.length + " products to the Meta catalog. The result shows here in a few seconds." };
+}
+function catalogSend(conf, requests, kind) {
+  if (!requests.length) return;
+  var chunks = [];
+  for (var i = 0; i < requests.length; i += 1000) chunks.push(requests.slice(i, i + 1000));
+  chunks.forEach(function (chunk) {
+    var body = JSON.stringify({ access_token: conf.token, item_type: "PRODUCT_ITEM", allow_upsert: true, requests: chunk });
+    var url = (process.env.META_GRAPH_URL || "https://graph.facebook.com/v21.0") + "/" + encodeURIComponent(conf.id) + "/items_batch";
+    var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 15000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+      readAll(res, function (txt) {
+        var msg;
+        try { var j = JSON.parse(txt); msg = j.error ? j.error.message : (kind === "sync" ? "Sent all " : "Updated ") + chunk.length + " product" + (chunk.length === 1 ? "" : "s"); } catch (e) { msg = "HTTP " + res.statusCode; }
+        catalogStatus = { at: Date.now(), ok: res.statusCode === 200, count: chunk.length, message: String(msg).slice(0, 300) };
+        if (res.statusCode !== 200) console.warn("Meta catalog:", msg);
+      });
+    });
+    req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+    req.on("error", function (e) { catalogStatus = { at: Date.now(), ok: false, count: chunk.length, message: e.message }; });
+    req.end(body);
   });
 }
 // Meta Conversions API: send one event straight to Meta from this server (no Google Tag Manager or other app)
@@ -389,8 +456,8 @@ setInterval(function () { run({ method: "POST", path: "/api/internal/cart-remind
 
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia, trashMedia: trashMedia, restoreMedia: restoreMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
-  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; s.code.catalogStatus = catalogStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
+  metaEvent: metaEvent, gaEvent: gaEvent, catalogSync: catalogSyncAll, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });
 
 // ---------------------------------------------------------------------------
@@ -436,7 +503,7 @@ function validatePayment(valId, cb) {
 function paymentCallback(kind, body, res) {
   var orderId = body.tran_id;
   var order = db.orders.filter(function (o) { return o.id === orderId; })[0];
-  var back = function (state) { redirect(res, "/#order/" + (order ? order.number : "") + "?payment=" + state); };
+  var back = function (state) { redirect(res, "/order/" + (order ? order.number : "") + "?payment=" + state); };
   if (!order) return back("missing");
   // Only online-payment orders can be touched by these callbacks (a forged "fail" can't cancel a cash-on-delivery order)
   if (order.paymentMethod !== "sslcommerz") return kind === "ipn" ? sendJson(res, 200, { ok: false }) : back("missing");
@@ -456,7 +523,7 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/auth/forgot": [5, 60e3], "/api/auth/reset": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3],
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/auth/forgot": [5, 60e3], "/api/auth/reset": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3], "/api/subscribe": [10, 60e3],
   "/api/orders/track": [15, 60e3], "/api/chat/start": [10, 60e3], "/api/payments": [60, 60e3], "/api/auth/reset/": [20, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
@@ -480,6 +547,20 @@ function clientIp(req) {
   var list = String(req.headers["x-forwarded-for"] || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
   return list[list.length - 1] || direct;
 }
+// Is this request for the real site address over https? (behind cPanel/Cloudflare the proxy tells us the scheme)
+function onSite(req) {
+  var host = String(req.headers.host || "").toLowerCase();
+  if (host !== SITE.host) return false;
+  var proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  return !(TRUST_PROXY && proto === "http");
+}
+// Sign-in calls must come from the admin page on the real site address
+var SIGN_IN = /^\/api\/auth\/(login|forgot|reset)(\/|$)/;
+function fromAdminPage(req) {
+  var from = req.headers.origin || req.headers.referer || "";
+  try { from = new URL(from); } catch (e) { return false; }
+  return from.origin === SITE.origin && onSite(req);
+}
 function run(req) {
   var out = core.handle(req, db);
   if (out.changed && out.status < 400) save();
@@ -499,8 +580,9 @@ var server = http.createServer(function (req, res) {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   if (HTTPS_SITE) res.setHeader("Strict-Transport-Security", "max-age=31536000");
   try {
+    if (ADMIN_LOCK && (p === "/admin" || p === "/admin/") && !onSite(req)) { res.writeHead(301, { Location: PUBLIC_URL + "/admin" + u.search }); return res.end(); }
     if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
-    return serveStatic(req, res, p);
+    return serveStatic(req, res, p, u.search);
   } catch (e) {
     console.error(e);
     if (!res.headersSent) text(res, 500, "Something went wrong on the server.");
@@ -517,6 +599,7 @@ function api(req, res, u, p) {
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
   var ip = clientIp(req);
   if (limited(ip, p, req.method)) return sendJson(res, 429, { error: "Too many requests. Wait a minute and try again." });
+  if (ADMIN_LOCK && SIGN_IN.test(p) && !fromAdminPage(req)) return sendJson(res, 403, { error: "Sign in at " + PUBLIC_URL + "/admin" });
   // Large bodies (photo uploads) only for signed-in staff, so nobody can tie up the server's memory with huge anonymous requests
   var signedIn = /^Bearer\s+\S/i.test(req.headers.authorization || "") || !!req.headers["x-api-key"];
   var max = signedIn && (p === "/api/media" || p === "/api/files" || /^\/api\/(pages|products|categories)/.test(p)) ? 16e6 : /^\/api\/chat\/[^/]+\/messages$/.test(p) ? 5e6 : 1e6;
@@ -585,31 +668,85 @@ var ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe
 function serveAdmin(req, res) {
   fs.readFile(path.join(ROOT, "admin.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP });
-    res.end(req.method === "HEAD" ? "" : versioned(html));
+    send(req, res, 200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP }, versioned(html));
   });
 }
-// The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
-function serveIndex(req, res) {
+// Sends a reply, gzip-compressed when the browser accepts it (text files shrink by about 70%)
+var COMPRESS = /^(text\/|application\/(json|javascript|xml|rss\+xml)|image\/svg)/;
+function send(req, res, status, headers, body) {
+  var buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body == null ? "" : body), "utf8");
+  if (buf.length > 1024 && COMPRESS.test(headers["Content-Type"] || "") && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    buf = zlib.gzipSync(buf, { level: 6 });
+    headers["Content-Encoding"] = "gzip";
+  }
+  headers.Vary = "Accept-Encoding";
+  headers["Content-Length"] = buf.length;
+  res.writeHead(status, headers);
+  res.end(req.method === "HEAD" ? undefined : buf);
+}
+// The public address used in links search engines see: PUBLIC_URL, or the address the visitor used
+function siteBase(req) {
+  if (process.env.PUBLIC_URL) return PUBLIC_URL;
+  var host = String(req.headers.host || "localhost:" + PORT).replace(/[^\w.:-]/g, "");
+  var proto = TRUST_PROXY && /^https$/i.test(String(req.headers["x-forwarded-proto"] || "")) ? "https" : "http";
+  return proto + "://" + host;
+}
+// The store page, with this page's title, description, link-preview tags and structured data (server/seo.js),
+// and the tracking code from Admin > Header & footer placed in <head> and before </body>
+function serveIndex(req, res, p, search) {
+  var page = Seo.resolve(db, siteBase(req), p || "/");
+  if (page.redirect) { res.writeHead(301, { Location: page.redirect + (search || "") }); return res.end(); }
   fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
     var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
-    html = versioned(html).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+    html = Seo.render(versioned(html), page).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
       .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
-    res.end(req.method === "HEAD" ? "" : html);
+    send(req, res, page.status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" }, html);
   });
 }
-function serveStatic(req, res, p) {
+// Static text files, compressed once and kept in memory until the file changes
+var gzCache = {};
+function sendFile(req, res, file, st, headers) {
+  var ext = path.extname(file).toLowerCase();
+  if (!COMPRESS.test(headers["Content-Type"]) || st.size < 1024 || st.size > 5e6 || !/\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    res.writeHead(200, Object.assign(headers, ext === ".webp" || COMPRESS.test(headers["Content-Type"]) ? { Vary: "Accept-Encoding" } : {}));
+    if (req.method === "HEAD") return res.end();
+    return fs.createReadStream(file).pipe(res);
+  }
+  var key = file + "|" + st.mtimeMs, hit = gzCache[file];
+  var done = function (gz) {
+    delete headers["Content-Length"];
+    headers["Content-Encoding"] = "gzip"; headers["Content-Length"] = gz.length; headers.Vary = "Accept-Encoding";
+    res.writeHead(200, headers);
+    res.end(req.method === "HEAD" ? undefined : gz);
+  };
+  if (hit && hit.key === key) return done(hit.gz);
+  fs.readFile(file, function (err, raw) {
+    if (err) { res.writeHead(500); return res.end(); }
+    zlib.gzip(raw, { level: 9 }, function (e2, gz) {
+      if (e2) { res.writeHead(200, headers); return res.end(raw); }
+      gzCache[file] = { key: key, gz: gz };
+      done(gz);
+    });
+  });
+}
+function serveStatic(req, res, p, search) {
   if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405); return res.end(); }
   var file;
-  if (p === "/" || p === "/index.html") return serveIndex(req, res);
+  if (p === "/index.html") { res.writeHead(301, { Location: "/" }); return res.end(); }
   else if (p === "/admin/") { res.writeHead(301, { Location: "/admin" }); return res.end(); }
-  else if (p === "/admin" || p === "/admin.html") return serveAdmin(req, res);
-  else if (p === "/robots.txt") return text(res, 200, "User-agent: *\nDisallow: /admin\nDisallow: /api/\n");
+  else if (p === "/admin") return serveAdmin(req, res);
+  else if (p === "/robots.txt") return send(req, res, 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" }, Seo.robots(siteBase(req)));
+  else if (p === "/sitemap.xml") return send(req, res, 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" }, Seo.sitemap(db, siteBase(req)));
+  // Product feeds for Meta Commerce Manager and Google Merchant Center (they fetch these on a schedule)
+  else if (p === "/feeds/google.xml") return send(req, res, 200, { "Content-Type": "application/rss+xml; charset=utf-8", "Cache-Control": "public, max-age=900" }, Seo.googleFeed(db, siteBase(req)));
+  else if (p === "/feeds/meta.csv") return send(req, res, 200, { "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "public, max-age=900" }, Seo.metaFeed(db, siteBase(req)));
   else if (p.indexOf("/assets/") === 0) file = path.join(ROOT, p);
   else if (p.indexOf("/uploads/") === 0) file = path.join(UPLOADS, p.slice(9));
   else if (p === "/docs/API.md") file = path.join(ROOT, "docs/API.md");
+  // Everything else is a store page: /product/<slug>, /product-category/<slug>, /shop, /about...
+  // (unknown addresses get the store's "not found" page with a 404 status)
+  else if (!/\.[a-z0-9]{2,5}$/i.test(p)) return serveIndex(req, res, p, search);
   else return text(res, 404, "Not found");
   var base = p.indexOf("/uploads/") === 0 ? UPLOADS : ROOT;
   // Files must stay inside /assets (or the uploads folder): never the database, backups, .env or the server code
@@ -628,13 +765,14 @@ function serveStatic(req, res, p) {
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };
     // Uploads never change name; CSS/JS with ?v= are cached for a year (a new version = a new URL); anything else is re-checked each time
     var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
-    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" : "no-cache";
+    // Site photos and fonts change only with an update: kept a day, then refreshed in the background
+    var media = /\.(webp|jpe?g|png|gif|avif|svg|ico|woff2)$/.test(ext);
+    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" :
+      media ? "public, max-age=86400, stale-while-revalidate=604800" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
     if (base === UPLOADS) { headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"; if (ext === ".pdf") headers["Content-Disposition"] = "inline"; }
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }
-    res.writeHead(200, headers);
-    if (req.method === "HEAD") return res.end();
-    fs.createReadStream(file).pipe(res);
+    sendFile(req, res, file, st, headers);
   });
 }
 
@@ -651,6 +789,7 @@ function readBody(req, max, cb) {
 function readAll(res, cb) { var b = []; res.on("data", function (c) { b.push(c); }); res.on("end", function () { cb(Buffer.concat(b).toString("utf8")); }); }
 function sendJson(res, status, obj) {
   var body = JSON.stringify(obj);
+  if (res.req) return send(res.req, res, status, { "Content-Type": "application/json; charset=utf-8" }, body);
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(body) });
   res.end(body);
 }
@@ -668,5 +807,6 @@ server.listen(PORT, function () {
   console.log("Ravelle is running at " + PUBLIC_URL + "  (admin: " + PUBLIC_URL + "/admin)");
   var ssl = db.settings.payments.sslcommerz || {};
   if (ssl.enabled && ssl.sandbox && HTTPS_SITE) console.warn("\n  WARNING: SSLCOMMERZ is in sandbox (test) mode. Test cards will mark real orders as paid.\n  Turn sandbox off in Admin > Settings > Payments before taking real orders.\n");
+  if (ADMIN_LOCK) console.log("  Admin sign-in only works at " + PUBLIC_URL + "/admin");
   if (!TRUST_PROXY && HTTPS_SITE) console.log("  Tip: behind nginx, Caddy, cPanel or Cloudflare, set TRUST_PROXY=1 so rate limits see each visitor's real address.");
 });

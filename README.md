@@ -20,12 +20,25 @@ The online store for [Ravelle – A Life Style Brand](https://ravellebd.com/): s
 - **Dashboard:** revenue, orders, average order, visitors, conversion, daily charts, orders by status, payment and area, product analytics (views, add-to-bags, orders, units, revenue, conversion), revenue by category, new and returning customers, low stock, recent orders and a setup checklist.
 - **Orders:** filter, search, date range, CSV export, status and payment updates, courier tracking, notes, printable invoice. Cancelled and returned orders go back into stock.
 - **Customers:** list with orders and spend, profile, tags and notes, CSV export.
-- **Coupons:** percentage, fixed or free delivery; minimum order, cap, usage limit and dates.
+- **Coupons & offers:** percentage, fixed or free delivery; minimum order, minimum items, only for some categories, cap, usage limit and dates. **Automatic offers** apply without a code (like "buy 2 tees, save ৳200") and the bag nudges "add 1 more". Codes can belong to an **influencer** with a commission, and a sales report shows orders, revenue and payout per code and per influencer.
+- **Subscribers:** emails and phone numbers from the popup sign-up, the footer box and coming-soon pages, with CSV export and one-click **ad audience** files for Meta Custom Audiences and Google Customer Match.
+- **Popup banner** can ask for an email or phone and hand out a welcome code, which is applied at checkout by itself.
+- **Email:** invoice on every order, emails when an order is confirmed, shipped (with the courier tracking) and delivered, abandoned-cart reminders.
 - **Products:** photos, prices, categories, variations with their own SKU, price and stock, size guide image, draft or published, duplicate. **Stock** shows every SKU on one page.
 - **Categories** and sub-categories, **Variations** (Size, Colour or any type you add).
 - **Pages:** a visual editor. Click text in the live preview to type over it, click a photo to change it. The design stays fixed.
 - **Menus:** header menu with dropdowns and footer columns, linking categories, pages or any address.
 - **Media library**, **Live chat** inbox, contact **Messages**, **Users** with roles (owner, manager, content editor, support), **Settings** and **API & webhooks**.
+
+**Search engines and ads** (`server/seo.js`)
+
+- Every page has a real address: `/product/<slug>`, `/product-category/<slug>`, `/shop`, `/new-in`, `/on-sale`, `/about`, `/contact`, `/store-locations`, `/franchise`, `/terms`, `/privacy`, `/refund`, `/delivery`. Old WooCommerce addresses (trailing slash, `/product-category/parent/child/`, `/cart`, `/my-account`, `/refund_returns`…) and old `#` links redirect to them, so old Google results and Facebook posts keep working.
+- The server writes each page's own title, description, canonical address, Facebook/WhatsApp/X preview tags and schema.org data (Product with price, stock, shipping and return policy; breadcrumbs; Organization; WebSite search; ClothingStore for each shop) and sends readable page content before the JavaScript runs. Checkout, order, search and saved pages are `noindex`.
+- `/sitemap.xml` and `/robots.txt` are generated from the catalog.
+- Product feeds that update themselves: `/feeds/meta.csv` for Meta Commerce Manager (catalog ads, Shop) and `/feeds/google.xml` for Google Merchant Center (Shopping, free listings). The product id is the SKU, the same id the Pixel and GA4 send. Setup steps are in **Admin → Pixel & Analytics**. With a catalog ID and access token filled in there, every product create, edit, delete, stock change and order is also pushed to the Meta catalog within seconds (Graph API `items_batch`), and **Send all products to Meta now** pushes everything.
+- Products and categories have optional "Title in Google" and "Description in Google" fields; categories also have a short text under the product grid.
+- Text files and API replies are gzip-compressed; site photos are cached for a day.
+- Set `PUBLIC_URL=https://ravellebd.com` in `.env` on the live server. Canonical links, the sitemap, feeds and emails use it.
 
 **API and webhooks:** read and write orders, products, stock, customers and chats with API keys, and get signed webhooks when things happen. See [docs/API.md](docs/API.md). This is how an AI chat reply tool connects.
 
@@ -63,14 +76,20 @@ Forgot an admin password? Use **Forgot password?** on the admin sign-in page: it
 | Setting | Meaning |
 |---|---|
 | `PORT` | Port to listen on (default 3000) |
-| `PUBLIC_URL` | Your public address, like `https://ravellebd.com`. Used for SSLCOMMERZ return links |
+| `PUBLIC_URL` | Your public address, like `https://ravellebd.com`. Used for SSLCOMMERZ return links and email links. When it starts with `https`, admin sign-in only works at exactly `PUBLIC_URL/admin` (see below) |
 | `DATA_DIR` | Where the database, daily backups and uploaded images are kept (default `data`) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | First admin account, only used when there are no users yet |
 | `SSLC_STORE_ID`, `SSLC_STORE_PASSWORD` | SSLCOMMERZ merchant credentials |
+| `TRUST_PROXY` | `1` behind nginx, Caddy, cPanel or Cloudflare, so rate limits see the visitor's real address |
+| `ADMIN_LOCK` | Leave empty. `0` turns off the admin address lock (only for testing on another address) |
+
+### Admin address lock
+
+On the live site (`PUBLIC_URL=https://ravellebd.com`) the admin panel only signs in at **https://ravellebd.com/admin**. `/admin.html` is gone, `/admin` opened on `www.`, the server IP, a hosting preview address or plain `http` is sent to that address, and the sign-in, forgot-password and reset calls are refused unless they come from that page. Signed-in staff and API keys for other software (Acore) work as before.
 
 ### Hosting
 
-Any host that runs Node.js works: a VPS (DigitalOcean, Vultr, a Bangladeshi VPS), cPanel with "Setup Node.js App", Render, Railway or Fly.io. Static-only hosting such as GitHub Pages or Netlify **can't** run the checkout, admin or API.
+Any host that runs Node.js works: a VPS (DigitalOcean, Vultr, a Bangladeshi VPS), cPanel with "Setup Node.js App" (set the startup file to `server/server.js`, `TRUST_PROXY=1`, and `DATA_DIR` to a folder outside the app, like `/home/<user>/ravelle-data`), Render, Railway or Fly.io. Static-only hosting such as GitHub Pages or Netlify **can't** run the checkout, admin or API.
 
 On a VPS:
 
