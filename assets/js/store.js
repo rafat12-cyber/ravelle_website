@@ -61,12 +61,24 @@
     ruler: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 15 15 3l6 6L9 21l-6-6Z M7 11l2 2M10 8l2 2M13 5l2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
   };
 
+  // Smaller copies of the site's own photos sit next to them as "<name>-s.webp" (360 px wide for products,
+  // 600 px tall for Try the Look models). Phones and small cards load those instead of the full photo.
+  // If a small copy is missing the server sends the full photo, so a new photo never shows as broken.
+  var SMALL_RE = /^(\/?assets\/img\/(?:products\/[\w.-]+|home\/look-\d+))\.webp$/;
+  function smallOf(src) { var m = SMALL_RE.exec(src || ""); return m && !/-s$/.test(m[1]) ? m[1] + "-s.webp" : ""; }
+  function imgSet(src, smallW, fullW, sizes) {
+    var s = smallOf(src);
+    return s ? ' srcset="' + esc(s) + " " + smallW + "w, " + esc(src) + " " + fullW + 'w" sizes="' + sizes + '"' : "";
+  }
+  function thumb(src) { return smallOf(src) || src; }
+  var CARD_SIZES = "(max-width: 700px) 46vw, 300px";
+
   function card(p, i, shop) {
     var off = offOf(p), img = p.images[0] || "";
     return (
       '<a class="card' + (soldOut(p) ? " is-out" : "") + '" data-line="' + esc(p.line) + '" href="#product/' + p.slug + '" style="--tone:' + esc(p.hex || "#7b7e83") + '">' +
-        (img ? '<img class="card__img" src="' + esc(img) + '" alt="' + esc(p.name) + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' : "") +
-        (shop && img && p.images[1] ? '<img class="card__img card__img--alt" src="' + esc(p.images[1]) + '" alt="" aria-hidden="true" loading="lazy">' : "") +
+        (img ? '<img class="card__img" src="' + esc(img) + '"' + imgSet(img, 360, 690, CARD_SIZES) + ' alt="' + esc(p.name) + '" loading="' + (i < 4 ? "eager" : "lazy") + '" decoding="async">' : "") +
+        (shop && img && p.images[1] ? '<img class="card__img card__img--alt" src="' + esc(p.images[1]) + '"' + imgSet(p.images[1], 360, 690, CARD_SIZES) + ' alt="" aria-hidden="true" loading="lazy">' : "") +
         '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
         '<span class="card__top">' + (soldOut(p) ? '<span class="chip chip--out">Sold out</span>' : off ? '<span class="chip">−' + off + "%</span>" : p.isNew ? '<span class="chip">New</span>' : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
@@ -178,6 +190,9 @@
   function scramble(el) {
     if (EDIT) return;
     var final = el.textContent, frame = 0, total = final.length * 3 + 8;
+    // Keep the word's width while its letters change, so the line around it never re-wraps (no layout shift)
+    var lock = el.getClientRects().length === 1 && getComputedStyle(el).display === "inline";
+    if (lock) { el.style.width = el.getBoundingClientRect().width + "px"; el.style.display = "inline-block"; el.style.whiteSpace = "nowrap"; }
     (function tick() {
       var out = "";
       for (var i = 0; i < final.length; i++) {
@@ -186,7 +201,7 @@
       }
       el.textContent = out;
       if (++frame <= total) requestAnimationFrame(tick);
-      else el.textContent = final;
+      else { el.textContent = final; if (lock) { el.style.width = el.style.display = el.style.whiteSpace = ""; } }
     })();
   }
 
@@ -536,7 +551,7 @@
     TL.looks = looks; TL.n = looks.length;
     tlTrack.innerHTML = looks.map(function (l, i) {
       return '<div class="tl__model" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
-        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false" decoding="async"' + (i > 4 ? ' loading="lazy"' : "") + ">" +
+        '<img class="tl__img" src="' + esc(l.image) + '"' + imgSet(l.image, 200, 400, "(max-width: 700px) 110px, 160px") + ' width="400" height="1200" alt="' + esc(l.alt) + '" draggable="false" decoding="async" loading="lazy">' +
         '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></div>";
     }).join("");
     tlModels = $$(".tl__model", tlTrack);
@@ -617,7 +632,7 @@
       var cur = tlSize(p);
       sum += p.price; was += Math.max(p.comparePrice || 0, p.price);
       return '<li class="tl__item" data-p="' + p.id + '">' +
-        '<a class="tl__thumb" href="#product/' + p.slug + '" aria-label="' + esc(p.name) + '">' + (p.images[0] ? '<img src="' + esc(p.images[0]) + '" alt="" loading="lazy">' : "") + '<span class="mono">' + (k + 1) + "</span></a>" +
+        '<a class="tl__thumb" href="#product/' + p.slug + '" aria-label="' + esc(p.name) + '">' + (p.images[0] ? '<img src="' + esc(thumb(p.images[0])) + '" alt="" loading="lazy">' : "") + '<span class="mono">' + (k + 1) + "</span></a>" +
         '<div class="tl__info"><span class="tl__brand mono">' + esc(p.line) + '</span><a href="#product/' + p.slug + '">' + esc(shortName(p)) + "</a>" +
           '<p class="tl__price">' + taka(p.price) + (p.comparePrice > p.price ? " <s>" + taka(p.comparePrice) + "</s>" : "") + "</p>" +
           '<label class="tl__size mono"><span>Size</span><select data-size aria-label="Size for ' + esc(shortName(p)) + '">' + (p.variants || []).map(function (v) {
@@ -995,14 +1010,14 @@
       '<section class="pd">' +
         '<div class="pd__gallery">' +
           '<div class="pd__main slat" data-fallback style="--tone:' + esc(p.hex || "#7b7e83") + '">' +
-            (p.images[0] ? '<img id="pdMain" data-guard src="' + esc(p.images[0]) + '" alt="' + esc(p.name) + '">' : "") +
+            (p.images[0] ? '<img id="pdMain" data-guard src="' + esc(p.images[0]) + '" alt="' + esc(p.name) + '" fetchpriority="high">' : "") +
             '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
             (off ? '<span class="pd__tag mono">−' + off + "% off</span>" : "") +
           "</div>" +
           '<div class="pd__thumbs" role="group" aria-label="Photos">' +
             p.images.map(function (src, i) {
               return '<button class="pd__thumb' + (i ? "" : " is-on") + '" type="button" data-src="' + esc(src) + '" data-fallback style="--tone:' + esc(p.hex || "#7b7e83") + '" aria-label="Photo ' + (i + 1) + '">' +
-                '<img data-guard src="' + esc(src) + '" alt="" loading="lazy"><span class="card__type" aria-hidden="true"><small>' + (i + 1) + "</small></span></button>";
+                '<img data-guard src="' + esc(thumb(src)) + '" alt="" loading="lazy"><span class="card__type" aria-hidden="true"><small>' + (i + 1) + "</small></span></button>";
             }).join("") +
           "</div>" +
         "</div>" +
@@ -1418,7 +1433,7 @@
       (o.history && o.history.some(function (h) { return h.note; }) ? '<ol class="order__log">' + o.history.filter(function (h) { return h.note; }).slice().reverse().map(function (h) {
           return "<li><b>" + esc(h.note) + "</b><span class=\"mono\">" + new Date(h.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + "</span></li>"; }).join("") + "</ol>" : "") +
       '<div class="order__items">' + o.items.map(function (it) {
-        return '<div class="line-item"><span class="line-item__img" data-fallback style="--tone:#7b7e83">' + (it.image ? '<img data-guard src="' + esc(it.image) + '" alt="">' : "") + '<span class="card__type" aria-hidden="true"><small>' + it.qty + "×</small></span></span>" +
+        return '<div class="line-item"><span class="line-item__img" data-fallback style="--tone:#7b7e83">' + (it.image ? '<img data-guard src="' + esc(thumb(it.image)) + '" alt="" loading="lazy">' : "") + '<span class="card__type" aria-hidden="true"><small>' + it.qty + "×</small></span></span>" +
           '<div class="line-item__info"><span class="line-item__name">' + esc(it.name) + '</span><p class="mono">' + esc(optText(it.options)) + " · Qty " + it.qty + " · SKU " + esc(it.sku) + '</p></div><div class="line-item__end"><b>' + taka(it.lineTotal) + "</b></div></div>";
       }).join("") + "</div>" +
       '<dl class="totals"><div><dt>Subtotal</dt><dd>' + taka(o.subtotal) + "</dd></div>" +
@@ -1732,12 +1747,35 @@
     popupTimer = setTimeout(function () {
       var h = currentRoute().h;
       if ((h && h !== "home" && !HOME_ANCHORS[h]) || (popupSeen() && !force)) return;
-      showPopup(p);
+      // Load the photo first, so the box opens at its final size instead of jumping when the photo arrives
+      var src = p.image ? (p.mobileImage && matchMedia("(max-width: 640px)").matches ? p.mobileImage : popupMobile(p) && (devicePixelRatio || 1) * (innerWidth <= 640 ? innerWidth * .92 : 390) <= 640 ? popupMobile(p) : p.image) : "";
+      if (!src) return showPopup(p);
+      var pre = new Image(), go = function () {
+        go = function () {};
+        var h2 = currentRoute().h;
+        if ((h2 && h2 !== "home" && !HOME_ANCHORS[h2]) || $("#popup")) return; // the visitor left the home page meanwhile
+        if (pre.naturalWidth) { p._w = pre.naturalWidth; p._h = pre.naturalHeight; }
+        showPopup(p);
+      };
+      pre.onload = pre.onerror = function () { go(); };
+      pre.src = src;
+      setTimeout(function () { go(); }, 4000);
     }, Math.max(0, (+p.delay || 2)) * 1000);
+  }
+  // Phones get the smaller "-m" copy of a site photo when no mobile image is set (the server falls back to the full photo)
+  function popupMobile(p) {
+    if (p.mobileImage) return p.mobileImage;
+    if (!PATHS) return ""; // the demo has no server to fall back on
+    var m = /^(\/?assets\/img\/home\/[\w.-]+?)\.webp$/.exec(p.image || "");
+    return m && !/-m$/.test(m[1]) ? m[1] + "-m.webp" : "";
   }
   function showPopup(p) {
     try { sessionStorage.setItem("ravelle:popup", popupKey()); } catch (e) {}
-    var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '" alt="' + esc(p.imageAlt || p.title || "") + '"></picture>' : "";
+    // A mobile image set in Admin is used on phones; otherwise the site photo's smaller "-m" copy is offered to any screen that doesn't need more
+    var small = !p.mobileImage && popupMobile(p);
+    var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '"' +
+      (small ? ' srcset="' + esc(small) + " 640w, " + esc(p.image) + ' 900w" sizes="(max-width: 640px) 92vw, 390px"' : "") + ' alt="' + esc(p.imageAlt || p.title || "") + '"' +
+      (p._w ? ' width="' + p._w + '" height="' + p._h + '"' : "") + "></picture>" : "";
     var link = p.buttonLink || "", ext = /^https?:/i.test(link);
     // Sign-up popup: asks for an email or phone, then shows the welcome code (Admin › Popup banner)
     var cap = p.capture && p.capture !== "off" ? p.capture : "";
@@ -1963,7 +2001,7 @@
   function lineHTML(l, i) {
     var p = BY_ID[l.productId], v = variantOf(p, l.variantId), price = priceOf(p, v);
     return '<div class="line-item" data-i="' + i + '">' +
-      '<a class="line-item__img" href="#product/' + p.slug + '" data-fallback style="--tone:' + esc(p.hex || "#7b7e83") + '">' + (p.images[0] ? '<img data-guard src="' + esc(p.images[0]) + '" alt="">' : "") + '<span class="card__type" aria-hidden="true"><small>' + esc(p.line) + "</small></span></a>" +
+      '<a class="line-item__img" href="#product/' + p.slug + '" data-fallback style="--tone:' + esc(p.hex || "#7b7e83") + '">' + (p.images[0] ? '<img data-guard src="' + esc(thumb(p.images[0])) + '" alt="" loading="lazy">' : "") + '<span class="card__type" aria-hidden="true"><small>' + esc(p.line) + "</small></span></a>" +
       '<div class="line-item__info"><a class="line-item__name" href="#product/' + p.slug + '">' + esc(shortName(p)) + "</a>" +
         '<p class="mono">' + esc([p.color, v ? optText(v.options) : ""].filter(Boolean).join(" · ")) + "</p>" +
         '<div class="qty qty--sm"><button type="button" data-line-q="-1" aria-label="Fewer">−</button><span>' + l.qty + '</span><button type="button" data-line-q="1" aria-label="More">+</button></div></div>' +
@@ -2040,7 +2078,7 @@
       return words.every(function (w) { return hay.indexOf(w) > -1; });
     }).slice(0, 6) : S.products.filter(function (p) { return p.featured; }).slice(0, 4);
     $("#searchResults").innerHTML = (words.length ? "" : '<p class="mono search__hint">Popular now</p>') + (list.length ? list.map(function (p) {
-      return '<a class="search__item" href="#product/' + p.slug + '"><span class="search__img" style="--tone:' + esc(p.hex) + '" data-fallback>' + (p.images[0] ? '<img data-guard src="' + esc(p.images[0]) + '" alt="">' : "") + "</span>" +
+      return '<a class="search__item" href="#product/' + p.slug + '"><span class="search__img" style="--tone:' + esc(p.hex) + '" data-fallback>' + (p.images[0] ? '<img data-guard src="' + esc(thumb(p.images[0])) + '" alt="" loading="lazy">' : "") + "</span>" +
         "<span><b>" + esc(shortName(p)) + '</b><span class="mono">' + esc(p.color) + " · " + taka(p.price) + "</span></span></a>";
     }).join("") : '<p class="search__none">No products match “' + esc(q) + '”.</p>') +
       (words.length ? '<a class="pill pill--light pill--sm search__all" href="#search/' + encodeURIComponent(q) + '">See all results</a>' : "");

@@ -14,7 +14,7 @@
   --paper: #ffffff;
   --sale: #9a3b2a;        /* brick red, from the Stride Out tee */
 
-  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-display: "Archivo", "Archivo Fallback", "Helvetica Neue", Arial, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 
   --r-lg: 30px;
@@ -48,8 +48,12 @@ button { font: inherit; color: inherit; }
 .center { display: flex; justify-content: center; }
 
 /* Type ------------------------------------------------------------------ */
+/* Until Archivo arrives the browser shows a system font sized to take the same room, so lines don't
+   re-wrap and push the page around when Archivo swaps in (Google's "layout shift" score) */
+@font-face { font-family: "Archivo Fallback"; src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("Helvetica"), local("Roboto"); size-adjust: 98%; }
+@font-face { font-family: "Archivo Display Fallback"; src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("Helvetica"), local("Roboto"); size-adjust: 90%; }
 .display, .h2 {
-  font-family: var(--f-display);
+  font-family: "Archivo", "Archivo Display Fallback", "Helvetica Neue", Arial, sans-serif;
   font-weight: 600;
   font-stretch: 92%;
   text-transform: uppercase;
@@ -152,6 +156,8 @@ button { font: inherit; color: inherit; }
 }
 .hero .display .line:nth-child(2) [data-c] { animation-delay: 3.5s; }
 /* "attention!" eases in once: letters drift together from a wide spacing */
+/* While the words drift together they stay on one line, so the heading never changes height (no layout shift) */
+.js-intro .hero .display .line:nth-child(2) > span { white-space: nowrap; }
 .js-intro .hero .display .alt[data-c] { animation: trackIn 1.25s cubic-bezier(.2,.7,.2,1) 2.25s both, heroShine 6s ease-in-out 3.5s infinite; }
 @keyframes trackIn { from { letter-spacing: .32em; opacity: 0; filter: blur(4px); } to { letter-spacing: -.01em; opacity: 1; filter: none; } }
 @keyframes heroShine { 0% { background-position: 100% 0; } 35%, 100% { background-position: 0 0; } }
@@ -580,6 +586,11 @@ body.is-locked { overflow: hidden; }
 .pagehead__sub { margin: 0; color: var(--ink-2); font-size: 13.5px; max-width: 46ch; }
 .page { min-height: 50vh; }
 /* What the server sends inside a page before the store's JavaScript draws it (search engines read this) */
+/* The plain copy the server puts in the page (for search engines and link previews) stays invisible while the
+   store's script draws the real page over it, so visitors don't see it flash and jump. If the script fails,
+   it shows after 4 seconds. */
+.js .ssr, .js #page:has(> .ssr) { visibility: hidden; animation: ssrShow 0s linear 4s forwards; }
+@keyframes ssrShow { to { visibility: visible; } }
 .ssr { padding: 120px var(--gut-r) 80px var(--gut); max-width: 760px; margin: 0 auto; line-height: 1.6; }
 .ssr h1 { font-size: clamp(28px, 5vw, 48px); line-height: 1.05; margin: 10px 0 12px; text-transform: uppercase; }
 .ssr img { width: 100%; max-width: 420px; height: auto; border-radius: 16px; display: block; margin: 16px 0; }
