@@ -106,7 +106,7 @@
   var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   var PAYMENT_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   var EVENTS = ["order.created", "order.updated", "product.created", "product.updated", "product.deleted", "stock.updated", "stock.low",
-    "customer.created", "chat.message.created", "contact.created", "coupon.used", "franchise.created"];
+    "customer.created", "chat.message.created", "contact.created", "coupon.used", "franchise.created", "subscriber.created"];
 
   // ---------------------------------------------------------------------------
   // Shapes
@@ -119,7 +119,7 @@
   function publicProduct(p) {
     return {
       id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex, colorGroup: p.colorGroup || "",
-      price: p.price, comparePrice: p.comparePrice || 0, description: p.description, details: p.details || [],
+      price: p.price, comparePrice: p.comparePrice || 0, description: p.description, details: p.details || [], seoTitle: p.seoTitle || "",
       images: p.images || [], sizeGuide: p.sizeGuide || "", categoryIds: p.categoryIds || [],
       attributes: p.attributes || [], isNew: !!p.isNew, featured: !!p.featured, trackStock: !!p.trackStock,
       stock: productStock(p), createdAt: p.createdAt,
@@ -308,19 +308,63 @@
       code = str(code, 40).toUpperCase();
       return db.coupons.filter(function (c) { return c.code === code; })[0];
     }
-    function applyCoupon(db, code, subtotal) {
-      var c = findCoupon(db, code), t = now();
-      if (!c || !c.active) fail(400, "That coupon code isn't valid.");
-      if (c.startsAt && t < c.startsAt) fail(400, "That coupon isn't active yet.");
-      if (c.endsAt && t > c.endsAt) fail(400, "That coupon has expired.");
-      if (c.maxUses && c.used >= c.maxUses) fail(400, "That coupon has been used up.");
-      if (c.minOrder && subtotal < c.minOrder) fail(400, "Spend at least ৳" + c.minOrder.toLocaleString("en-US") + " to use this coupon.");
+    // Is the product in one of these categories (or in a sub-category of one)?
+    function inCats(db, p, ids) {
+      if (!ids || !ids.length) return true;
+      return (p.categoryIds || []).some(function (id) {
+        var walk = id, n = 0;
+        while (walk && n++ < 10) {
+          if (ids.indexOf(walk) > -1) return true;
+          var cat = db.categories.filter(function (x) { return x.id === walk; })[0];
+          walk = cat ? cat.parentId : null;
+        }
+        return false;
+      });
+    }
+    // Works out a coupon or automatic offer for a bag. cart = { lines, subtotal } (lines can be empty when only the total is known).
+    // Returns { error } or the discount.
+    function evalCoupon(db, c, cart) {
+      var t = now();
+      if (!c || !c.active) return { error: "That coupon code isn't valid." };
+      if (c.startsAt && t < c.startsAt) return { error: "That coupon isn't active yet." };
+      if (c.endsAt && t > c.endsAt) return { error: "That coupon has expired." };
+      if (c.maxUses && c.used >= c.maxUses) return { error: "That coupon has been used up." };
+      if (c.minOrder && cart.subtotal < c.minOrder) return { error: "Spend at least ৳" + c.minOrder.toLocaleString("en-US") + " to use this " + (c.auto ? "offer" : "coupon") + "." };
+      var lines = cart.lines || [], scoped = !!(c.categoryIds && c.categoryIds.length && lines.length);
+      var mine = scoped ? lines.filter(function (l) { var p = findProduct(db, l.productId); return p && inCats(db, p, c.categoryIds); }) : lines;
+      var sub = scoped ? mine.reduce(function (s, l) { return s + l.lineTotal; }, 0) : cart.subtotal;
+      var qty = mine.reduce(function (s, l) { return s + l.qty; }, 0);
+      var names = function () { return (c.categoryIds || []).map(function (id) { var x = db.categories.filter(function (k) { return k.id === id; })[0]; return x ? x.name : ""; }).filter(Boolean).join(", "); };
+      if (scoped && !mine.length) return { error: "This " + (c.auto ? "offer" : "code") + " is only for " + names() + "." };
+      if (c.minQty && lines.length && qty < c.minQty) return { error: "Add " + (c.minQty - qty) + " more " + (scoped ? names() + " " : "") + (c.minQty - qty === 1 ? "piece" : "pieces") + " to use this " + (c.auto ? "offer" : "code") + ".", short: c.minQty - qty };
       var discount = 0, freeShipping = false;
-      if (c.type === "percent") discount = Math.round(subtotal * Math.min(100, c.value) / 100);
-      else if (c.type === "fixed") discount = Math.min(subtotal, c.value);
+      if (c.type === "percent") discount = Math.round(sub * Math.min(100, c.value) / 100);
+      else if (c.type === "fixed") discount = Math.min(sub, c.value);
       else if (c.type === "shipping") freeShipping = true;
       if (c.maxDiscount && discount > c.maxDiscount) discount = c.maxDiscount;
-      return { coupon: c, code: c.code, discount: discount, freeShipping: freeShipping, label: c.description || couponLabel(c) };
+      return { coupon: c, code: c.code, discount: discount, freeShipping: freeShipping, label: c.description || couponLabel(c), auto: !!c.auto };
+    }
+    function applyCoupon(db, code, cart) {
+      if (typeof cart === "number") cart = { lines: [], subtotal: cart };
+      var c = findCoupon(db, code);
+      if (c && c.auto) fail(400, "That offer applies by itself when your bag qualifies. No code needed.");
+      var r = evalCoupon(db, c, cart);
+      if (r.error) fail(400, r.error);
+      return r;
+    }
+    // The best automatic offer (a discount with no code, like "buy 2 tees, save ৳200") the bag qualifies for
+    function autoOffer(db, cart) {
+      var best = null;
+      db.coupons.forEach(function (c) {
+        if (!c.auto) return;
+        var r = evalCoupon(db, c, cart);
+        if (!r.error && (r.discount > 0 || r.freeShipping) && (!best || r.discount > best.discount)) best = r;
+      });
+      return best;
+    }
+    function publicOffer(c) {
+      return { code: c.code, label: c.description || couponLabel(c), type: c.type, value: c.value, minQty: c.minQty || 0, minOrder: c.minOrder || 0,
+        maxDiscount: c.maxDiscount || 0, categoryIds: c.categoryIds || [], endsAt: c.endsAt || null };
     }
     function couponLabel(c) {
       return c.type === "percent" ? c.value + "% off" : c.type === "fixed" ? "৳" + c.value + " off" : "Free delivery";
@@ -339,6 +383,14 @@
       if (b.active !== undefined) c.active = bool(b.active);
       if (c.active === undefined) c.active = true;
       if (b.description !== undefined) c.description = str(b.description, 120);
+      // Automatic offer: applies without a code when the bag qualifies
+      if (b.auto !== undefined) c.auto = bool(b.auto);
+      if (b.minQty !== undefined) c.minQty = Math.max(0, Math.min(50, int(b.minQty)));
+      if (b.categoryIds !== undefined) c.categoryIds = (Array.isArray(b.categoryIds) ? b.categoryIds : []).filter(function (id) { return db.categories.some(function (x) { return x.id === id; }); }).slice(0, 20);
+      // Influencer or partner who shares this code, and their commission on its sales
+      if (b.owner !== undefined) c.owner = str(b.owner, 60);
+      if (b.commission !== undefined) c.commission = Math.max(0, Math.min(100, num(b.commission, 0)));
+      if (c.auto && c.type === "shipping" && !c.minOrder && !c.minQty) fail(400, "Give an automatic free-delivery offer a minimum order or number of items.");
       return c;
     }
 
@@ -381,11 +433,14 @@
     function quote(db, b) {
       var cart = priceCart(db, b.items);
       var c = null;
-      if (b.couponCode) c = applyCoupon(db, b.couponCode, cart.subtotal);
+      if (b.couponCode) c = applyCoupon(db, b.couponCode, cart);
+      // An automatic offer applies too, unless the customer's code is worth more (they don't add up)
+      var a = autoOffer(db, cart);
+      if (a && (!c || (a.discount > c.discount && !c.freeShipping))) c = a;
       var discount = c ? c.discount : 0;
       var ship = b.zone ? shippingFee(db, b.zone, cart.subtotal - discount) : { fee: 0, zone: null };
       var fee = c && c.freeShipping ? 0 : ship.fee;
-      return { lines: cart.lines, subtotal: cart.subtotal, discount: discount, coupon: c ? { code: c.code, label: c.label } : null,
+      return { lines: cart.lines, subtotal: cart.subtotal, discount: discount, coupon: c ? { code: c.code, label: c.label, auto: !!c.auto } : null,
         shipping: fee, zone: ship.zone, total: cart.subtotal - discount + fee };
     }
     function upsertCustomer(db, info) {
@@ -754,10 +809,111 @@
         categories: db.categories.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); }),
         attributes: db.attributes,
         products: db.products.filter(function (p) { return p.status === "published"; }).map(publicProduct),
-        pages: db.pages,
-        menus: db.menus
+        pages: publicPages(db.pages),
+        menus: db.menus,
+        offers: db.coupons.filter(function (x) { var t = now(); return x.auto && x.active && (!x.startsAt || x.startsAt <= t) && (!x.endsAt || x.endsAt >= t) && (!x.maxUses || x.used < x.maxUses); }).map(publicOffer)
       };
     });
+    // The popup's welcome code is only handed out after someone signs up
+    function publicPages(pages) {
+      if (!pages.popup || !pages.popup.welcomeCode) return pages;
+      var out = Object.assign({}, pages);
+      out.popup = Object.assign({}, pages.popup);
+      delete out.popup.welcomeCode;
+      out.popup.hasCode = true;
+      return out;
+    }
+
+    // --- Subscribers: email or phone left in the popup, the footer "Notify me" box and coming-soon pages ----------
+    route("POST", "/api/subscribe", null, function (c) {
+      var db = c.db, b = c.body || {};
+      var email = str(b.email, 120).toLowerCase(), phone = str(b.phone, 20), source = str(b.source, 60) || "newsletter";
+      var okE = email && isEmail(email), okP = phone && isPhone(phone);
+      if (email && !okE) fail(400, "That email doesn't look right.");
+      if (phone && !okP) fail(400, "Enter a Bangladeshi mobile number, like 01712345678.");
+      if (!okE && !okP) fail(400, "Enter your email or phone number.");
+      if (okP) phone = normPhone(phone); else phone = "";
+      if (!okE) email = "";
+      db.subscribers = db.subscribers || [];
+      var s = db.subscribers.filter(function (x) { return (email && x.email === email) || (phone && x.phone === phone); })[0];
+      var isNew = !s;
+      if (!s) { s = { id: newId("sub"), email: email, phone: phone, source: source, sources: [source], createdAt: now() }; db.subscribers.push(s); }
+      else {
+        if (email && !s.email) s.email = email;
+        if (phone && !s.phone) s.phone = phone;
+        if ((s.sources || []).indexOf(source) < 0) s.sources = (s.sources || [s.source]).concat(source).slice(-10);
+        s.updatedAt = now();
+      }
+      if (b.name) s.name = str(b.name, 80);
+      if (db.subscribers.length > 50000) db.subscribers = db.subscribers.slice(-50000);
+      if (isNew) emit(db, "subscriber.created", s);
+      // The popup's welcome code, when it is set and still valid
+      var out = { ok: true };
+      var pop = db.pages.popup || {};
+      if (source === "popup" && pop.welcomeCode) {
+        var cp = findCoupon(db, pop.welcomeCode), r = cp ? evalCoupon(db, cp, { lines: [], subtotal: 1e9 }) : { error: 1 };
+        if (!r.error) { out.code = cp.code; out.label = cp.description || couponLabel(cp); }
+      }
+      return out;
+    }, { status: 201 });
+    route("GET", "/api/subscribers", "customers", function (c) {
+      var q = str(c.query.q).toLowerCase();
+      var list = (c.db.subscribers || []).filter(function (s) { return !q || ((s.email || "") + " " + (s.phone || "") + " " + (s.name || "") + " " + (s.sources || []).join(" ")).toLowerCase().indexOf(q) > -1; })
+        .slice().sort(function (a, b) { return b.createdAt - a.createdAt; });
+      return { subscribers: list.slice(0, int(c.query.limit, 5000)), total: list.length };
+    }, { readonly: true });
+    route("DELETE", "/api/subscribers/:id", "customers", function (c) {
+      var before = (c.db.subscribers || []).length;
+      c.db.subscribers = (c.db.subscribers || []).filter(function (s) { return s.id !== c.params.id; });
+      if (c.db.subscribers.length === before) fail(404, "Subscriber not found.");
+      return { ok: true };
+    });
+    // Customer list for ad audiences: Meta Custom Audiences and Google Customer Match.
+    // who = buyers | subscribers | all. The platforms hash the file themselves when it's uploaded.
+    route("GET", "/api/audience", "customers", function (c) {
+      var db = c.db, who = str(c.query.who) || "all", rows = [], seen = {};
+      var split = function (n) { var w = String(n || "").trim().split(/\s+/); return { fn: w[0] || "", ln: w.length > 1 ? w[w.length - 1] : "" }; };
+      var add = function (r) {
+        var k = (r.phone || "") + "|" + (r.email || "");
+        if (k === "|" || seen[r.phone] || seen[r.email]) return;
+        if (r.phone) seen[r.phone] = 1;
+        if (r.email) seen[r.email] = 1;
+        rows.push(r);
+      };
+      var e164 = function (p) { p = String(p || "").replace(/\D/g, ""); return p ? "+" + (p.length === 11 ? "88" + p : p) : ""; };
+      if (who !== "subscribers") db.customers.forEach(function (cu) {
+        var st = customerStats(db, cu), nm = split(cu.name);
+        if (!st.orders) return;
+        add({ email: (cu.email || "").toLowerCase(), phone: e164(cu.phone), fn: nm.fn, ln: nm.ln, ct: cu.city || "", country: "BD", value: st.spent || 0, kind: "buyer" });
+      });
+      if (who !== "buyers") (db.subscribers || []).forEach(function (s) {
+        var nm = split(s.name);
+        add({ email: s.email || "", phone: e164(s.phone), fn: nm.fn, ln: nm.ln, ct: "", country: "BD", value: 0, kind: "subscriber" });
+      });
+      return { rows: rows, total: rows.length };
+    }, { readonly: true });
+    // Sales by coupon and by the influencer who shares it, for a date range
+    route("GET", "/api/coupons/report", "coupons", function (c) {
+      var db = c.db, to = num(c.query.to, 0) || now(), from = num(c.query.from, 0) || to - num(c.query.days, 30) * 864e5;
+      var by = {};
+      db.orders.forEach(function (o) {
+        if (!o.coupon || o.createdAt < from || o.createdAt > to || o.status === "cancelled" || o.paymentStatus === "failed") return;
+        var cp = findCoupon(db, o.coupon) || {}, k = o.coupon;
+        var r = by[k] = by[k] || { code: k, owner: cp.owner || "", commission: cp.commission || 0, auto: !!cp.auto, orders: 0, units: 0, revenue: 0, discount: 0, returned: 0, delivered: 0 };
+        if (o.status === "returned") { r.returned++; return; }
+        r.orders++; r.revenue += o.total; r.discount += o.discount || 0;
+        r.units += o.items.reduce(function (s, i) { return s + i.qty; }, 0);
+        if (o.status === "delivered") r.delivered++;
+      });
+      var codes = Object.keys(by).map(function (k) { var r = by[k]; r.payout = Math.round((r.revenue - 0) * r.commission / 100); return r; }).sort(function (a, b) { return b.revenue - a.revenue; });
+      var owners = {};
+      codes.forEach(function (r) {
+        if (!r.owner) return;
+        var o = owners[r.owner] = owners[r.owner] || { owner: r.owner, codes: [], orders: 0, revenue: 0, discount: 0, payout: 0 };
+        o.codes.push(r.code); o.orders += r.orders; o.revenue += r.revenue; o.discount += r.discount; o.payout += r.payout;
+      });
+      return { from: from, to: to, codes: codes, owners: Object.keys(owners).map(function (k) { return owners[k]; }).sort(function (a, b) { return b.revenue - a.revenue; }) };
+    }, { readonly: true });
     route("POST", "/api/track", null, function (c) {
       var t = str(c.body.type, 10), b = c.body;
       if (["visit", "view", "cart", "page", "search", "checkout", "wishlist", "category", "payment", "lead", "contact"].indexOf(t) < 0) fail(400, "Unknown event.");
@@ -774,7 +930,8 @@
       return { subtotal: q.subtotal, discount: q.discount, coupon: q.coupon, shipping: q.shipping, total: q.total, lines: q.lines };
     }, { readonly: true });
     route("POST", "/api/coupons/validate", null, function (c) {
-      var r = applyCoupon(c.db, c.body.code, Math.max(0, int(c.body.subtotal)));
+      var cart = Array.isArray(c.body.items) && c.body.items.length ? priceCart(c.db, c.body.items.slice(0, 50)) : { lines: [], subtotal: Math.max(0, int(c.body.subtotal)) };
+      var r = applyCoupon(c.db, c.body.code, cart);
       return { code: r.code, label: r.label, discount: r.discount, freeShipping: r.freeShipping };
     }, { readonly: true });
 
@@ -865,7 +1022,8 @@
     // =========================================================================
     // Email (company Gmail over SMTP) and abandoned carts
     // =========================================================================
-    var EMAIL_DEFAULTS = { enabled: false, host: "smtp.gmail.com", port: 465, user: "", password: "", fromName: "Ravelle", replyTo: "", invoice: true, copyTo: "" };
+    var EMAIL_DEFAULTS = { enabled: false, host: "smtp.gmail.com", port: 465, user: "", password: "", fromName: "Ravelle", replyTo: "", invoice: true, copyTo: "",
+      notifyConfirmed: true, notifyShipped: true, notifyDelivered: true };
     var CART_DEFAULTS = { enabled: true, delay1: 20, delay2: 24, subject1: "You left something in your bag", text1: "Your pieces are still waiting. Sizes sell out fast, so finish your order while they're in stock.",
       subject2: "Still thinking it over?", text2: "Your bag is saved. Complete your order today with cash on delivery all over Bangladesh.", coupon: "" };
     function emailSettings(db) { return Object.assign({}, EMAIL_DEFAULTS, (db.settings || {}).email || {}); }
@@ -929,6 +1087,35 @@
       var subject = "Your order " + o.number + " · invoice from " + ((db.settings.store || {}).name || "Ravelle");
       if (to.length) sendEmail(db, to[0], subject, emailShell(db, "Order received", body), text, "invoice", o.number);
       copy.forEach(function (e) { sendEmail(db, e, "New order " + o.number + " · " + money(o.total) + " · " + o.customer.name, emailShell(db, "New order", body), text, "invoice-copy", o.number); });
+    }
+    // Order updates: one email when an order is confirmed, handed to the courier, and delivered (each sent once)
+    var STATUS_MAIL = {
+      confirmed: { key: "notifyConfirmed", title: "Order confirmed", subject: "Your order {n} is confirmed",
+        text: "your order is confirmed. We're packing it now and will hand it to the courier soon." },
+      shipped: { key: "notifyShipped", title: "On its way", subject: "Your order {n} is on its way",
+        text: "your order has left our warehouse and is with the courier." },
+      delivered: { key: "notifyDelivered", title: "Delivered", subject: "Your order {n} has been delivered",
+        text: "your order has been delivered. We hope you love it. If a size isn't right, you can exchange it within 7 days." }
+    };
+    function statusEmail(db, o) {
+      var m = STATUS_MAIL[o.status], es = emailSettings(db), site = siteUrl(db);
+      if (!m || !es[m.key] || !o.customer || !o.customer.email || !isEmail(o.customer.email)) return;
+      o.notified = o.notified || {};
+      if (o.notified[o.status]) return;
+      // An online payment confirms the order and the invoice already says so
+      if (o.status === "confirmed" && o.paymentMethod !== "cod" && o.paymentStatus === "paid" && now() - o.createdAt < 36e5) return;
+      o.notified[o.status] = now();
+      var cr = o.courier || {}, track = cr.trackingUrl || "", code = cr.trackingCode || cr.consignmentId || "";
+      var courierLine = o.status === "shipped" && (o.tracking || code) ? '<p style="margin:0 0 16px;padding:14px 16px;background:#f6f7f8;border-radius:12px;font-size:14px;line-height:1.6"><b>Courier</b><br>' +
+        h(o.tracking || [cr.name, code].filter(Boolean).join(" ")) + (cr.riderName ? "<br>Rider: " + h(cr.riderName) + (cr.riderPhone ? " · " + h(cr.riderPhone) : "") : "") +
+        (o.shippingZone && o.shippingZone.days ? '<br><span style="color:#5f6368">Usually arrives in ' + h(o.shippingZone.days) + "</span>" : "") + "</p>" : "";
+      var cod = o.paymentMethod === "cod" && o.paymentStatus !== "paid" && o.status !== "delivered" ? '<p style="margin:0 0 16px;font-size:14px">Please keep <b>' + money(o.total) + "</b> ready for the rider (cash on delivery).</p>" : "";
+      var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h(o.customer.name.split(" ")[0]) + ", " + h(m.text) + "</p>" + courierLine + cod +
+        '<p style="margin:0 0 8px;font-size:13px;color:#5f6368">Order ' + h(o.number) + "</p>" + itemsTable(db, o.items) +
+        (o.status === "shipped" && track ? button(track, "Track with the courier") : o.status === "delivered" ? button(site ? site + "/shop" : "", "Shop the new drops") : button(site ? site + "/order/" + o.number : "", "View your order"));
+      var text = "Hi " + o.customer.name.split(" ")[0] + ", " + m.text + "\n\nOrder " + o.number + "\n" + o.items.map(function (it) { return it.qty + " × " + it.name; }).join("\n") +
+        (o.status === "shipped" && o.tracking ? "\n\nCourier: " + o.tracking + (track ? "\nTrack: " + track : "") : "") + (site ? "\n\n" + site + "/order/" + o.number : "");
+      sendEmail(db, o.customer.email, m.subject.replace("{n}", o.number), emailShell(db, m.title, body), text, "status-" + o.status, o.number);
     }
     function reminderEmail(db, cart, n) {
       var cs = cartSettings(db), site = siteUrl(db), link = site ? site + "/restore/" + cart.token : "";
@@ -1069,7 +1256,7 @@
         if (nh && !/^[a-z0-9.-]+$/i.test(nh)) fail(400, "The mail server name doesn't look right.");
         ["host", "user", "fromName", "replyTo", "copyTo"].forEach(function (k) { if (x[k] !== undefined) e[k] = str(x[k], 300).trim(); });
         if (x.port !== undefined) e.port = int(x.port, 465);
-        ["enabled", "invoice"].forEach(function (k) { if (x[k] !== undefined) e[k] = bool(x[k]); });
+        ["enabled", "invoice", "notifyConfirmed", "notifyShipped", "notifyDelivered"].forEach(function (k) { if (x[k] !== undefined) e[k] = bool(x[k]); });
         if (x.password) e.password = str(x.password, 200).replace(/\s+/g, "");
         if (x.passwordClear) e.password = "";
         e.user = e.user.toLowerCase();
@@ -1472,6 +1659,7 @@
       if (b.paymentRef !== undefined) o.paymentRef = str(b.paymentRef, 120);
       var note = str(b.note, 500);
       if (!changes.length && !note) return { order: o };
+      if (b.status) statusEmail(db, o);
       o.updatedAt = now();
       o.history.push({ at: now(), status: o.status, note: changes.concat(note ? [note] : []).join(" · "), public: b.notifyCustomer ? note : "", by: c.auth ? c.auth.name : "System", internal: !b.notifyCustomer && !changes.length });
       emit(db, "order.updated", o);
@@ -1593,7 +1781,7 @@
         if (tr && tr !== o.tracking) { o.tracking = tr; parts.push("Courier: " + tr); }
       }
       if (mapped) {
-        if (setStatus(c, o, mapped)) parts.unshift("Status: " + mapped);
+        if (setStatus(c, o, mapped)) { parts.unshift("Status: " + mapped); statusEmail(db, o); }
         if (mapped === "delivered" && o.paymentMethod === "cod" && o.paymentStatus !== "paid" && d.codCollected !== false && d.codCollected !== 0) {
           o.paymentStatus = "paid"; parts.push("Payment: paid (cash collected" + (num(d.codCollected, 0) > 1 ? " ৳" + num(d.codCollected, 0) : "") + ")");
         }
@@ -1649,11 +1837,11 @@
     });
 
     // --- Pages, menus, media, settings ------------------------------------------------------------------------
-    route("GET", "/api/pages", null, function (c) { return { pages: c.db.pages }; }, { readonly: true });
+    route("GET", "/api/pages", null, function (c) { return { pages: canSee(c.auth, "content") ? c.db.pages : publicPages(c.db.pages) }; }, { readonly: true });
     route("GET", "/api/pages/:key", null, function (c) {
       var p = c.db.pages[c.params.key];
       if (!p) fail(404, "Page not found.");
-      return { page: p };
+      return { page: canSee(c.auth, "content") ? p : publicPages(c.db.pages)[c.params.key] };
     }, { readonly: true });
     route("PUT", "/api/pages/:key", "content", function (c) {
       if (!c.db.pages[c.params.key]) fail(404, "Page not found.");
@@ -2080,7 +2268,7 @@
   // ---------------------------------------------------------------------------
   function freshDb(seed) {
     var db = clone(seed);
-    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog"].forEach(function (k) { if (!db[k]) db[k] = []; });
+    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog", "subscribers"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
     db.upgrades = ["stores-franchise", "popup", "seo-text"];
@@ -2092,6 +2280,7 @@
     if (!db.franchise) db.franchise = [];
     if (!db.carts) db.carts = [];
     if (!db.emailLog) db.emailLog = [];
+    if (!db.subscribers) db.subscribers = [];
     if (done.indexOf("stores-franchise") < 0) {
       ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
       var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];

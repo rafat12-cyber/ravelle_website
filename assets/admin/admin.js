@@ -570,6 +570,44 @@
   // ---------------------------------------------------------------------------
   // Customers
   // ---------------------------------------------------------------------------
+  // Subscribers: emails and phone numbers from the popup, the footer "Notify me" box and coming-soon pages,
+  // plus customer lists for Meta Custom Audiences and Google Customer Match
+  async function viewSubscribers() {
+    setTitle("Subscribers");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Subscribers</h1><p class="muted">People who left an email or phone number in the popup, the footer box or a coming-soon page.</p></div><button class="btn btn--ghost" id="subCsv">Export CSV</button></div>
+      <div class="card"><h2 class="h2">Audiences for ads</h2><p class="muted small" style="margin:0 0 10px">Download a list, then upload it as a <b>Custom Audience</b> in Meta Ads Manager (Audiences › Create › Custom audience › Customer list) or to <b>Customer Match</b> in Google Ads (Tools › Audience manager). Use it to find lookalike shoppers, win back past buyers, or leave buyers out of ads for new customers. Meta and Google scramble (hash) the list before matching it.</p>
+        <div class="flex" style="flex-wrap:wrap">${[["buyers", "Buyers"], ["subscribers", "Subscribers"], ["all", "Everyone"]].map(([w, l]) => `<button class="btn btn--ghost btn--sm" data-aud="meta" data-who="${w}">${l} · Meta</button><button class="btn btn--ghost btn--sm" data-aud="google" data-who="${w}">${l} · Google</button>`).join("")}</div>
+        <p class="small" style="margin:10px 0 0;color:var(--warn)">These files hold your customers' personal details. Keep them private and delete them after uploading.</p></div>
+      <div class="toolbar"><div class="grow"><input class="input" id="subQ" placeholder="Search by email, phone or where they signed up"></div></div><div class="card card--flush" id="subList"><p class="empty">Loading…</p></div>`;
+    let list = [];
+    const load = async (q) => {
+      try { list = (await api("GET", "/api/subscribers" + (q ? "?q=" + encodeURIComponent(q) : ""))).subscribers; } catch (err) { return fail(err); }
+      $("#subList").innerHTML = list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Email</th><th>Phone</th><th>Signed up from</th><th>Date</th><th></th></tr></thead><tbody>${list.map((s) => `
+        <tr><td>${esc(s.email || "—")}</td><td>${esc(s.phone || "—")}</td><td class="small">${esc((s.sources || [s.source]).join(", "))}</td><td class="small">${dateTime(s.createdAt)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-del="${s.id}">Remove</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">No subscribers yet. Turn on the sign-up in <a href="#/popup">Popup banner</a> to start a list.</p>`;
+    };
+    let t = null;
+    $("#subQ").oninput = (e) => { clearTimeout(t); t = setTimeout(() => load(e.target.value), 250); };
+    $("#subCsv").onclick = () => download("ravelle-subscribers.csv", csv([["Email", "Phone", "Name", "Signed up from", "Date"]].concat(list.map((s) => [s.email, s.phone, s.name || "", (s.sources || [s.source]).join(" "), new Date(s.createdAt).toISOString().slice(0, 10)]))));
+    view.addEventListener("click", async (e) => {
+      const d = e.target.closest("[data-del]");
+      if (d) {
+        if (!(await confirmBox("Remove this subscriber?", "They won't be in your lists or exports any more.", "Remove", true))) return;
+        try { await api("DELETE", "/api/subscribers/" + d.dataset.del); toast("Removed"); load($("#subQ").value); } catch (err) { fail(err); }
+        return;
+      }
+      const a = e.target.closest("[data-aud]");
+      if (!a) return;
+      let r;
+      try { r = await api("GET", "/api/audience?who=" + a.dataset.who); } catch (err) { return fail(err); }
+      if (!r.rows.length) return toast("Nobody in that list yet.", "warn");
+      const rows = a.dataset.aud === "meta"
+        ? [["email", "phone", "fn", "ln", "ct", "country", "value"]].concat(r.rows.map((x) => [x.email, x.phone, x.fn, x.ln, x.ct, x.country, x.value]))
+        : [["Email", "Phone", "First Name", "Last Name", "Country", "Zip"]].concat(r.rows.map((x) => [x.email, x.phone, x.fn, x.ln, x.country, ""]));
+      download(`ravelle-${a.dataset.who}-${a.dataset.aud}-audience.csv`, csv(rows));
+      toast(r.rows.length + " people in the file");
+    });
+    load();
+  }
   async function viewCustomers() {
     setTitle("Customers");
     view.innerHTML = `<div class="head"><div><h1 class="h1">Customers</h1><p class="muted">Everyone who has ordered, with what they spent. A customer is matched by phone number.</p></div><button class="btn btn--ghost" id="cusCsv">Export CSV</button></div>
@@ -998,24 +1036,33 @@
   async function viewCoupons() {
     setTitle("Coupons");
     const list = ((await api("GET", "/api/coupons").catch(fail)) || {}).coupons || [];
+    const cats = ((await api("GET", "/api/categories").catch(() => null)) || {}).categories || [];
+    const catName = (id) => (cats.find((x) => x.id === id) || {}).name || "";
     const label = (c) => c.type === "percent" ? c.value + "% off" + (c.maxDiscount ? ", up to " + taka(c.maxDiscount) : "") : c.type === "fixed" ? taka(c.value) + " off" : "Free delivery";
     const state = (c) => { const t = Date.now(); return !c.active ? "inactive" : c.endsAt && t > c.endsAt ? "expired" : c.startsAt && t < c.startsAt ? "scheduled" : c.maxUses && c.used >= c.maxUses ? "used up" : "active"; };
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Coupons</h1><p class="muted">Discount codes customers enter at checkout.</p></div><button class="btn btn--dark" id="cpAdd">Create coupon</button></div>
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Coupons & offers</h1><p class="muted">Codes customers enter at checkout, and automatic offers that apply by themselves (like "buy 2 tees, save ৳200"). An offer and a code don't add up: the one worth more applies.</p></div><div class="flex"><button class="btn btn--ghost" id="ofAdd">Create automatic offer</button><button class="btn btn--dark" id="cpAdd">Create coupon</button></div></div>
       <div class="card card--flush">${list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Code</th><th>Discount</th><th>Minimum order</th><th>Used</th><th>Dates</th><th>Status</th></tr></thead><tbody>${list.map((c) => `
-        <tr class="is-link" data-edit="${c.id}"><td><b class="mono" style="font-size:13px">${esc(c.code)}</b>${c.description ? `<br><small class="muted">${esc(c.description)}</small>` : ""}</td><td>${esc(label(c))}</td><td>${c.minOrder ? taka(c.minOrder) : "—"}</td>
+        <tr class="is-link" data-edit="${c.id}"><td><b class="mono" style="font-size:13px">${esc(c.code)}</b>${c.auto ? ` <span class="tag">Automatic</span>` : ""}${c.owner ? ` <span class="tag">${esc(c.owner)}</span>` : ""}${c.description ? `<br><small class="muted">${esc(c.description)}</small>` : ""}</td><td>${esc(label(c))}${(c.categoryIds || []).length ? `<br><small class="muted">On ${esc(c.categoryIds.map(catName).filter(Boolean).join(", "))}</small>` : ""}</td><td>${[c.minOrder ? taka(c.minOrder) : "", c.minQty ? c.minQty + " items" : ""].filter(Boolean).join(" · ") || "—"}</td>
         <td class="num">${c.used || 0}${c.maxUses ? " / " + c.maxUses : ""}</td><td class="small">${c.startsAt ? date(c.startsAt) : "Now"} → ${c.endsAt ? date(c.endsAt) : "No end"}</td><td>${pill(state(c) === "active" ? "active" : "inactive").replace(/>[^<]*<\/span>$/, ">" + esc(human(state(c))) + "</span>")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">No coupons yet.</p>`}</div>`;
     const day = (t) => t ? new Date(t - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10) : "";
     const edit = (c) => {
       const isNew = !c.id;
-      const body = modal(isNew ? "Create coupon" : "Edit " + c.code, `<form class="stack" id="cpForm">
-        <div class="row row--2"><label class="field"><span>Code</span><input class="input" name="code" required value="${esc(c.code || "")}" placeholder="EID20" style="text-transform:uppercase"></label>
+      const auto = !!c.auto;
+      const body = modal(isNew ? (auto ? "Create automatic offer" : "Create coupon") : "Edit " + c.code, `<form class="stack" id="cpForm">
+        <input type="hidden" name="auto" value="${auto ? "1" : ""}">
+        ${auto ? `<p class="small muted" style="margin:0">Applies by itself at checkout when the bag qualifies. The bag also shows "Add 1 more to save…" to nudge people.</p>` : ""}
+        <div class="row row--2"><label class="field"><span>${auto ? "Offer ID (for reports)" : "Code"}</span><input class="input" name="code" required value="${esc(c.code || "")}" placeholder="${auto ? "BUY2SAVE200" : "EID20"}" style="text-transform:uppercase"></label>
         <label class="field"><span>Type</span><select class="input" name="type"><option value="percent">Percentage off</option><option value="fixed"${c.type === "fixed" ? " selected" : ""}>Fixed amount off</option><option value="shipping"${c.type === "shipping" ? " selected" : ""}>Free delivery</option></select></label></div>
         <div class="row row--3"><label class="field" data-show="value"><span>Value</span><input class="input" name="value" type="number" min="0" value="${esc(c.value || "")}"><small data-unit></small></label>
         <label class="field"><span>Minimum order (৳)</span><input class="input" name="minOrder" type="number" min="0" value="${esc(c.minOrder || "")}"></label>
         <label class="field" data-show="max"><span>Max discount (৳)</span><input class="input" name="maxDiscount" type="number" min="0" value="${esc(c.maxDiscount || "")}"></label></div>
         <div class="row row--3"><label class="field"><span>Usage limit</span><input class="input" name="maxUses" type="number" min="0" value="${esc(c.maxUses || "")}" placeholder="Unlimited"></label>
         <label class="field"><span>Starts</span><input class="input" name="startsAt" type="date" value="${day(c.startsAt)}"></label><label class="field"><span>Ends</span><input class="input" name="endsAt" type="date" value="${day(c.endsAt)}"></label></div>
-        <label class="field"><span>Description (shown at checkout)</span><input class="input" name="description" value="${esc(c.description || "")}" placeholder="10% off your first order"></label>
+        <label class="field"><span>Description (shown at checkout${auto ? " and in the bag" : ""})</span><input class="input" name="description" value="${esc(c.description || "")}" placeholder="${auto ? "Buy 2 tees, save ৳200" : "10% off your first order"}"></label>
+        <div class="row row--2"><label class="field"><span>Minimum items in the bag</span><input class="input" name="minQty" type="number" min="0" max="50" value="${esc(c.minQty || "")}" placeholder="${auto ? "2" : "Any"}"><small>Counts only the categories below, if you pick any.</small></label>
+        <div class="field"><span>Only for these categories</span><div class="chips" style="max-height:120px;overflow:auto">${cats.map((x) => `<label class="chipbtn"><input type="checkbox" name="cat" value="${x.id}" ${(c.categoryIds || []).indexOf(x.id) > -1 ? "checked" : ""}> ${esc(x.name)}</label>`).join("")}</div><small>Leave all unticked for the whole bag. Includes sub-categories.</small></div></div>
+        ${auto ? "" : `<div class="row row--2"><label class="field"><span>Influencer or partner (optional)</span><input class="input" name="owner" value="${esc(c.owner || "")}" placeholder="e.g. Nabila"><small>Their sales show in the report below.</small></label>
+        <label class="field"><span>Their commission (%)</span><input class="input" name="commission" type="number" min="0" max="100" step="0.5" value="${esc(c.commission || "")}" placeholder="0"><small>Of each order's total, for the payout column.</small></label></div>`}
         <label class="switch"><input type="checkbox" name="active" ${c.active !== false ? "checked" : ""}> Active</label>
         <div class="modal__foot">${isNew ? "" : `<button class="btn btn--danger" type="button" id="cpDel" style="margin-right:auto">Delete</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save coupon</button></div></form>`);
       const sync = () => {
@@ -1030,7 +1077,10 @@
         const b = formData(e.target);
         if (b.startsAt) b.startsAt = new Date(b.startsAt + "T00:00:00").getTime();
         if (b.endsAt) b.endsAt = new Date(b.endsAt + "T23:59:59").getTime();
-        ["value", "minOrder", "maxDiscount", "maxUses"].forEach((k) => { b[k] = +b[k] || 0; });
+        ["value", "minOrder", "maxDiscount", "maxUses", "minQty", "commission"].forEach((k) => { b[k] = +b[k] || 0; });
+        b.auto = !!b.auto;
+        b.categoryIds = $$("[name=cat]:checked", e.target).map((x) => x.value);
+        delete b.cat;
         try { isNew ? await api("POST", "/api/coupons", b) : await api("PUT", "/api/coupons/" + c.id, b); closeModal(); toast("Coupon saved"); viewCoupons(); } catch (err) { fail(err); }
       };
       if (!isNew) $("#cpDel").onclick = async () => {
@@ -1039,6 +1089,20 @@
       };
     };
     $("#cpAdd").onclick = () => edit({ type: "percent", active: true });
+    $("#ofAdd").onclick = () => edit({ type: "fixed", active: true, auto: true, minQty: 2 });
+    // Sales per code and per influencer
+    view.insertAdjacentHTML("beforeend", `<div class="card" style="margin-top:18px"><div class="card__head"><h2 class="h2">Sales by code and influencer</h2>
+        <div class="flex"><select class="input" id="cpDays" style="width:auto"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 12 months</option></select><button class="btn btn--ghost btn--sm" id="cpRepCsv">Export CSV</button></div></div>
+      <div id="cpRep"><p class="empty">Loading…</p></div><p class="muted small" style="margin:8px 0 0">Counts orders that aren't cancelled. Returned orders are listed separately and left out of revenue and payout.</p></div>`);
+    let rep = null;
+    const drawRep = async () => {
+      try { rep = await api("GET", "/api/coupons/report?days=" + $("#cpDays").value); } catch (err) { return fail(err); }
+      $("#cpRep").innerHTML = (rep.owners.length ? `<h3 class="small mono" style="margin:6px 0">Influencers</h3><div class="table-wrap"><table class="t"><thead><tr><th>Influencer</th><th>Codes</th><th class="right">Orders</th><th class="right">Revenue</th><th class="right">Discount given</th><th class="right">Payout</th></tr></thead><tbody>${rep.owners.map((o) => `<tr><td><b>${esc(o.owner)}</b></td><td class="mono small">${esc(o.codes.join(", "))}</td><td class="num">${o.orders}</td><td class="num">${taka(o.revenue)}</td><td class="num">${taka(o.discount)}</td><td class="num"><b>${taka(o.payout)}</b></td></tr>`).join("")}</tbody></table></div>` : "") +
+        (rep.codes.length ? `<h3 class="small mono" style="margin:14px 0 6px">Every code and offer</h3><div class="table-wrap"><table class="t"><thead><tr><th>Code</th><th>Influencer</th><th class="right">Orders</th><th class="right">Pieces</th><th class="right">Revenue</th><th class="right">Discount</th><th class="right">Delivered</th><th class="right">Returned</th></tr></thead><tbody>${rep.codes.map((r) => `<tr><td class="mono"><b>${esc(r.code)}</b>${r.auto ? ` <span class="tag">Automatic</span>` : ""}</td><td>${esc(r.owner || "—")}</td><td class="num">${r.orders}</td><td class="num">${r.units}</td><td class="num">${taka(r.revenue)}</td><td class="num">${taka(r.discount)}</td><td class="num">${r.delivered}</td><td class="num">${r.returned}</td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">No orders used a code or offer in this period.</p>`);
+    };
+    $("#cpDays").onchange = drawRep;
+    $("#cpRepCsv").onclick = () => rep && download(`ravelle-coupon-sales-${$("#cpDays").value}d.csv`, csv([["Code", "Influencer", "Commission %", "Orders", "Pieces", "Revenue", "Discount", "Delivered", "Returned", "Payout"]].concat(rep.codes.map((r) => [r.code, r.owner, r.commission, r.orders, r.units, r.revenue, r.discount, r.delivered, r.returned, r.payout]))));
+    drawRep();
     view.addEventListener("click", (e) => { const b = e.target.closest("[data-edit]"); if (b) edit(list.find((c) => c.id === b.dataset.edit)); });
   }
 
@@ -1533,6 +1597,12 @@
           <label class="switch"><input type="checkbox" name="invoice" ${e.invoice ? "checked" : ""}> Email an invoice to the customer the moment they place an order</label>
           <p class="small muted" style="margin:0">It lists the items, prices, delivery charge, total, payment method, delivery address and a Track order button. Customers who leave the email empty don't get one.</p>
           <label class="field"><span>Also send a copy of every new order to (optional)</span><input class="input" name="copyTo" value="${esc(e.copyTo)}" placeholder="you@ravellebd.com"><small>Separate several addresses with commas.</small></label></div>
+        <div class="card"><h2 class="h2">Order updates</h2>
+          <p class="small muted" style="margin:0">Sent once, when you (or Acore) change the order's status. Customers who left the email empty don't get them.</p>
+          <label class="switch"><input type="checkbox" name="notifyConfirmed" ${e.notifyConfirmed !== false ? "checked" : ""}> Email the customer when the order is <b>confirmed</b></label>
+          <label class="switch"><input type="checkbox" name="notifyShipped" ${e.notifyShipped !== false ? "checked" : ""}> Email when it's <b>shipped</b>, with the courier and tracking number</label>
+          <label class="switch"><input type="checkbox" name="notifyDelivered" ${e.notifyDelivered !== false ? "checked" : ""}> Email when it's <b>delivered</b></label>
+          <p class="small muted" style="margin:0">Add the courier tracking number on the order before you set it to Shipped, so it goes in the email.</p></div>
         <div class="card"><h2 class="h2">Abandoned cart reminders</h2>
           <label class="switch"><input type="checkbox" name="cEnabled" ${c.enabled ? "checked" : ""}> Email people who left checkout without ordering</label>
           <div class="row row--2"><label class="field"><span>First reminder after (minutes)</span><input class="input" type="number" min="5" max="1440" name="delay1" value="${esc(c.delay1)}"></label><label class="field"><span>Second reminder after (hours)</span><input class="input" type="number" min="1" max="168" name="delay2" value="${esc(c.delay2)}"></label></div>
@@ -1543,7 +1613,7 @@
         <div class="sticky-save"><span class="small">Changes apply right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
       </form>
       <div class="card card--flush"><div class="card__head" style="padding:16px 18px 0"><h2 class="h2">Email log</h2><span class="muted small">Last ${r.log.length}</span></div><div class="table-wrap"><table class="t"><thead><tr><th>Time</th><th>To</th><th>Email</th><th>Result</th></tr></thead><tbody>${r.log.map((l) => `
-        <tr><td>${dateTime(l.at)}</td><td>${esc(l.to)}</td><td>${esc(l.subject)}<br><small class="muted">${esc({ invoice: "Invoice", "invoice-copy": "Order copy", "cart-reminder-1": "Cart reminder 1", "cart-reminder-2": "Cart reminder 2", test: "Test" }[l.kind] || l.kind)}${l.ref ? " · " + esc(l.ref) : ""}</small></td>
+        <tr><td>${dateTime(l.at)}</td><td>${esc(l.to)}</td><td>${esc(l.subject)}<br><small class="muted">${esc({ invoice: "Invoice", "invoice-copy": "Order copy", "cart-reminder-1": "Cart reminder 1", "cart-reminder-2": "Cart reminder 2", "status-confirmed": "Order confirmed", "status-shipped": "Order shipped", "status-delivered": "Order delivered", test: "Test" }[l.kind] || l.kind)}${l.ref ? " · " + esc(l.ref) : ""}</small></td>
         <td style="color:${l.ok === false ? "var(--danger)" : l.ok ? "var(--ok)" : "inherit"}">${esc(l.status)}</td></tr>`).join("") || `<tr><td colspan="4"><p class="empty">No emails yet.</p></td></tr>`}</tbody></table></div></div>`;
     const form = $("#emForm");
     let dirty = false;
@@ -1568,7 +1638,8 @@
     form.onsubmit = async (ev) => {
       ev.preventDefault();
       const f = ev.target;
-      const email = { user: f.user.value.trim(), fromName: f.fromName.value.trim(), replyTo: f.replyTo.value.trim(), host: f.host.value.trim() || "smtp.gmail.com", port: +f.port.value || 465, enabled: f.enabled.checked, invoice: f.invoice.checked, copyTo: f.copyTo.value.trim() };
+      const email = { user: f.user.value.trim(), fromName: f.fromName.value.trim(), replyTo: f.replyTo.value.trim(), host: f.host.value.trim() || "smtp.gmail.com", port: +f.port.value || 465, enabled: f.enabled.checked, invoice: f.invoice.checked, copyTo: f.copyTo.value.trim(),
+        notifyConfirmed: f.notifyConfirmed.checked, notifyShipped: f.notifyShipped.checked, notifyDelivered: f.notifyDelivered.checked };
       if (f.password.value.trim()) email.password = f.password.value.trim();
       if (form.dataset.pwClear) email.passwordClear = true;
       const carts = { enabled: f.cEnabled.checked, delay1: +f.delay1.value, delay2: +f.delay2.value, subject1: f.subject1.value, subject2: f.subject2.value, text1: f.text1.value, text2: f.text2.value, coupon: f.coupon.value };
@@ -1598,6 +1669,11 @@
           <label class="field"><span>Text</span><textarea class="input" name="text" rows="3">${esc(p.text || "")}</textarea></label>
           <div class="row row--2"><label class="field"><span>Button text</span><input class="input" name="buttonText" value="${esc(p.buttonText || "")}" placeholder="Shop now"></label>
           <label class="field"><span>Button link</span><input class="input" name="buttonLink" value="${esc(p.buttonLink || "")}" placeholder="#on-sale, #category/men or https://…"></label></div></div>
+        <div class="card"><h2 class="h2">Sign-up and welcome code</h2><p class="muted small" style="margin:0">Ask for an email or phone number in the popup and show a coupon code in return. Sign-ups go to <a href="#/subscribers">Subscribers</a>. The button above is hidden while this is on.</p>
+          <div class="row row--2"><label class="field"><span>Ask for</span><select class="input" name="capture">${[["off", "Nothing (no sign-up)"], ["either", "Email or phone"], ["email", "Email"], ["phone", "Phone number"]].map(([v, l]) => `<option value="${v}"${(p.capture || "off") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="field"><span>Welcome code to show</span><input class="input" name="welcomeCode" value="${esc(p.welcomeCode || "")}" placeholder="WELCOME10" style="text-transform:uppercase"><small>Create it first in <a href="#/coupons">Coupons</a> (for example 10% off, usage limit empty). It's applied at checkout by itself.</small></label></div>
+          <div class="row row--2"><label class="field"><span>Button text</span><input class="input" name="captureButton" value="${esc(p.captureButton || "")}" placeholder="Get my code"></label>
+          <label class="field"><span>Message after sign-up</span><input class="input" name="successText" value="${esc(p.successText || "")}" placeholder="You're in. Here's your code:"></label></div></div>
         <div class="sticky-save"><span class="small">Changes apply to the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
       </form>`;
     const form = $("#ppForm");
@@ -1609,7 +1685,8 @@
     form.onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target, page = Object.assign({}, p, { enabled: f.enabled.checked, delay: Math.max(0, Math.min(30, +f.delay.value || 0)), image: f.popupImage.value, mobileImage: f.popupMobile.value,
-        imageAlt: f.imageAlt.value.trim(), eyebrow: f.eyebrow.value.trim(), title: f.title.value.trim(), text: f.text.value.trim(), buttonText: f.buttonText.value.trim(), buttonLink: f.buttonLink.value.trim(), version: (+p.version || 0) + 1 });
+        imageAlt: f.imageAlt.value.trim(), eyebrow: f.eyebrow.value.trim(), title: f.title.value.trim(), text: f.text.value.trim(), buttonText: f.buttonText.value.trim(), buttonLink: f.buttonLink.value.trim(), version: (+p.version || 0) + 1,
+        capture: f.capture.value, welcomeCode: f.welcomeCode.value.trim().toUpperCase(), captureButton: f.captureButton.value.trim(), successText: f.successText.value.trim() });
       if (page.enabled && !page.image && !page.title && !page.text) return toast("Add a picture or a title before turning the popup on.", true);
       try { await api("PUT", "/api/pages/popup", { page }); dirty = false; toast(page.enabled ? "Saved. The popup is on." : "Saved. The popup is off."); viewPopup(); } catch (err) { fail(err); }
     };
@@ -1666,7 +1743,7 @@
   // Users
   // ---------------------------------------------------------------------------
   // Each area is one module (or a few related ones) in the menu on the left
-  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders & Abandoned carts", customers: "Customers", products: "Products & Stock", catalog: "Categories & Variations",
+  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders & Abandoned carts", customers: "Customers & Subscribers", products: "Products & Stock", catalog: "Categories & Variations",
     coupons: "Coupons", content: "Pages, Menus & Media library", chat: "Live chat", messages: "Messages", franchise: "Franchise requests", users: "Users",
     settings: "Settings, Header & footer, Pixel & Analytics, Email & reminders, Acore", integrations: "API & webhooks" };
   async function viewUsers() {
@@ -1933,6 +2010,25 @@
               `Optional: link Google Ads and Search Console under <b>Admin › Product links</b>.`])}
             <p class="muted small">Events the store sends: page_view, view_item_list, view_item, search, add_to_wishlist, add_to_cart, begin_checkout, add_payment_info, purchase, generate_lead, contact, and refund when you cancel or return an order.</p>
           </details></div>
+        <div class="card"><h2 class="h2">Product feeds and search engines</h2>
+          <p class="muted small" style="margin:0 0 10px">These links update by themselves whenever you change a product, price or stock. Give them to Meta and Google once; they re-read them on a schedule.${demo ? " <b>They work on the live store, not in this demo.</b>" : ""}</p>
+          ${[["Meta catalog feed", "/feeds/meta.csv", "For Commerce Manager: catalog ads, Instagram and Facebook Shop."], ["Google Merchant Center feed", "/feeds/google.xml", "For Google Shopping, Performance Max and free listings."], ["Sitemap", "/sitemap.xml", "For Google Search Console and Bing Webmaster Tools."]]
+            .map(([l, p, n]) => `<div class="field"><span>${l}</span><div class="flex"><input class="input mono" readonly value="${esc(location.origin + p)}" style="flex:1"><button class="btn btn--ghost btn--sm" type="button" data-copy="${esc(location.origin + p)}">Copy</button><a class="btn btn--ghost btn--sm" href="${p}" target="_blank" rel="noopener">Open ↗</a></div><small>${n}</small></div>`).join("")}
+          <details class="trk__guide"><summary>Step-by-step: connect the feeds and sitemap</summary>
+            <h3>Meta catalog (catalog ads and Shop)</h3>${steps([
+              `Open <a href="https://business.facebook.com/commerce" target="_blank" rel="noopener">Commerce Manager</a> › <b>Add catalog</b> › <b>E-commerce</b> › <b>Upload product info</b>.`,
+              `In the catalog, go to <b>Catalog › Data sources › Add items › Data feed</b> and choose <b>Use a URL</b>. Paste the Meta catalog feed link and set it to update <b>every hour</b>, currency BDT.`,
+              `Under <b>Events</b>, connect the catalog to your Pixel. Product IDs already match (the SKU), so Meta can show people the exact pieces they viewed or added to the bag.`,
+              `In Ads Manager, create a <b>Sales</b> campaign and turn on <b>Advantage+ catalog ads</b> with this catalog.`])}
+            <h3>Google Merchant Center (Shopping)</h3>${steps([
+              `Open <a href="https://merchants.google.com" target="_blank" rel="noopener">Merchant Center</a>, add and verify ravellebd.com, country <b>Bangladesh</b>, currency BDT.`,
+              `Go to <b>Products › Add products › Add products from a file › Enter a link to your file</b>. Paste the Google feed link and set a <b>daily</b> fetch.`,
+              `Turn on <b>free listings</b>. Link Google Ads to run Shopping or Performance Max campaigns.`])}
+            <h3>Google Search Console</h3>${steps([
+              `Open <a href="https://search.google.com/search-console" target="_blank" rel="noopener">Search Console</a> and add ravellebd.com as a <b>Domain</b> property (verify with a DNS record), or as a URL prefix using the HTML tag. Paste that tag into <b>Code inside &lt;head&gt;</b> below.`,
+              `Open <b>Sitemaps</b>, enter <b>sitemap.xml</b> and press Submit. Do the same in <a href="https://www.bing.com/webmasters" target="_blank" rel="noopener">Bing Webmaster Tools</a> (it can import from Search Console).`,
+              `After a few days, check <b>Pages</b> for errors and <b>Shopping › Product snippets</b> for the price data.`])}
+          </details></div>
         <div class="card"><h2 class="h2">Other tracking code</h2><p class="muted small" style="margin:0">For TikTok Pixel, Google Search Console verification or any other snippet that says "paste in the head". You don't need this for Meta or Google Analytics.</p>
           <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" name="head" rows="6" spellcheck="false" placeholder="&lt;!-- Paste code here --&gt;">${esc(c.head || "")}</textarea></label>
           <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" name="bodyEnd" rows="4" spellcheck="false">${esc(c.bodyEnd || "")}</textarea></label>
@@ -1945,6 +2041,7 @@
     leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
     if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    $$("[data-copy]", form).forEach((b) => { b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy).then(() => toast("Copied"), () => toast("Couldn't copy. Select the link and copy it.", "warn")); }; });
     $$("[data-test]", form).forEach((b) => {
       b.onclick = async () => {
         if (dirty) return toast("Save first, then test.", "warn");
@@ -2260,7 +2357,7 @@
   // ---------------------------------------------------------------------------
   const NAV = [
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
-    ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
+    ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["subscribers", "Subscribers", "customers"], ["coupons", "Coupons & offers", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
@@ -2298,7 +2395,7 @@
   const ROUTES = [
     [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"], [/^popup$/, viewPopup, "content"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
-    [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
+    [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"], [/^subscribers$/, viewSubscribers, "customers"],
     [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],

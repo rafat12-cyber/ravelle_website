@@ -1242,6 +1242,14 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
 .popup__copy { display: grid; gap: 14px; align-content: center; justify-items: start; padding: 40px 34px; overflow-y: auto; }
 .popup__title { margin: 0; font-size: clamp(28px, 3.4vw, 44px); line-height: .98; font-weight: 600; font-stretch: 92%; text-transform: uppercase; }
 .popup__text { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.6; }
+/* Sign-up and welcome code */
+.popup__form { display: grid; gap: 10px; width: 100%; }
+.popup__input { width: 100%; height: 48px; padding: 0 18px; border: 1px solid var(--line, #d9dcdf); border-radius: 999px; font: inherit; font-size: 15px; background: #fff; color: inherit; }
+.popup__input:focus { outline: 2px solid currentColor; outline-offset: 1px; }
+.popup__form .pill { justify-content: center; }
+.popup__msg { margin: 0; font-size: 11px; letter-spacing: .04em; color: var(--ink-2); min-height: 1em; }
+.popup__done { display: grid; gap: 12px; justify-items: inherit; text-align: inherit; width: 100%; }
+.popup__code { margin: 0; width: 100%; padding: 16px; border: 1.5px dashed currentColor; border-radius: 14px; text-align: center; font-size: 24px; font-weight: 500; letter-spacing: .16em; }
 .popup__x { position: absolute; top: 12px; right: 12px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: 0; display: grid; place-items: center;
   background: rgba(255,255,255,.92); color: var(--ink); font-size: 15px; cursor: pointer; box-shadow: 0 6px 16px -8px rgba(0,0,0,.5); }
 .popup__x:hover { background: var(--ink); color: var(--paper); }

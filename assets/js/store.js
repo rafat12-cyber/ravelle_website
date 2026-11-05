@@ -1483,6 +1483,41 @@
   // Checkout
   // ---------------------------------------------------------------------------
   var checkoutState = { zone: null, coupon: null };
+  // Automatic offers (Admin › Coupons, "applies automatically"): the same rules the server uses when the order is placed
+  function inCatsC(p, ids) {
+    if (!ids || !ids.length) return true;
+    return (p.categoryIds || []).some(function (id) {
+      var walk = id, n = 0;
+      while (walk && n++ < 10) { if (ids.indexOf(walk) > -1) return true; var c = CAT_BY_ID[walk]; walk = c ? c.parentId : null; }
+      return false;
+    });
+  }
+  // lines: [{ p, price, l: { qty } }]. Returns { best, hint }: the offer that applies, and the closest one still out of reach
+  function offerFor(lines, sub) {
+    var best = null, hint = null;
+    (S.offers || []).forEach(function (o) {
+      var mine = lines.filter(function (x) { return x.p && inCatsC(x.p, o.categoryIds); });
+      var msub = o.categoryIds.length ? mine.reduce(function (s, x) { return s + x.price * x.l.qty; }, 0) : sub;
+      var qty = mine.reduce(function (s, x) { return s + x.l.qty; }, 0);
+      var short = Math.max(0, (o.minQty || 0) - qty), spend = Math.max(0, (o.minOrder || 0) - sub);
+      if (short || spend || !mine.length) {
+        if (mine.length || !o.categoryIds.length) {
+          var score = short ? short * 1000 : spend;
+          if (!hint || score < hint.score) hint = { offer: o, short: short, spend: spend, score: score };
+        }
+        return;
+      }
+      var d = o.type === "percent" ? Math.round(msub * Math.min(100, o.value) / 100) : o.type === "fixed" ? Math.min(msub, o.value) : 0;
+      if (o.maxDiscount && d > o.maxDiscount) d = o.maxDiscount;
+      if ((d > 0 || o.type === "shipping") && (!best || d > best.discount)) best = { code: o.code, label: o.label, discount: d, freeShipping: o.type === "shipping", auto: true };
+    });
+    return { best: best, hint: hint };
+  }
+  function offerHint(h) {
+    if (!h) return "";
+    var o = h.offer, what = o.categoryIds.length ? o.categoryIds.map(function (id) { return (CAT_BY_ID[id] || {}).name || ""; }).filter(Boolean).join(" or ") : "";
+    return h.short ? "Add " + h.short + " more" + (what ? " " + what : "") + (h.short === 1 ? " piece" : " pieces") + " · " + o.label : "Spend " + taka(h.spend) + " more · " + o.label;
+  }
   function quote() {
     var sub = 0, saving = 0, lines = [];
     cart.forEach(function (l) {
@@ -1491,13 +1526,15 @@
       if (p.comparePrice > price) saving += (p.comparePrice - price) * l.qty;
       lines.push({ l: l, p: p, v: v, price: price });
     });
-    var c = checkoutState.coupon, discount = 0, free = false;
+    var c = checkoutState.coupon, discount = 0, free = false, auto = offerFor(lines, sub);
+    // An automatic offer and a code don't add up: the one worth more applies
+    if (auto.best && (!c || (auto.best.discount > c.discount && !c.freeShipping))) c = auto.best;
     if (c) { discount = c.type === "free" ? 0 : Math.min(sub, c.discount); free = c.freeShipping; }
     var ship = S.settings.shipping || { zones: [] };
     var z = ship.zones.filter(function (x) { return x.id === checkoutState.zone; })[0];
     var fee = z ? z.fee : null;
     if (fee !== null && (free || (ship.freeOver && sub - discount >= ship.freeOver))) fee = 0;
-    return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z };
+    return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z, applied: c, hint: c && c.auto ? null : auto.hint };
   }
   // Abandoned-cart follow-up: the checkout details are saved (once a phone or email is typed) so the store can remind the customer
   function cartId() {
@@ -1597,10 +1634,11 @@
       }
       if (!input.value.trim()) return;
       btn.disabled = true;
-      api("POST", "/api/coupons/validate", { code: input.value, subtotal: quote().subtotal }).then(function (r) {
+      api("POST", "/api/coupons/validate", { code: input.value, subtotal: quote().subtotal, items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }) }).then(function (r) {
         checkoutState.coupon = r;
         btn.textContent = "Remove";
-        msg.textContent = r.code + " applied · " + r.label;
+        var q2 = quote();
+        msg.textContent = q2.applied && q2.applied.auto ? "Your bag's offer (" + q2.applied.label + ") is worth more, so that one applies." : r.code + " applied · " + r.label;
         msg.className = "coupon__msg mono is-ok";
         drawSummary();
       }, function (err) {
@@ -1608,6 +1646,9 @@
         msg.className = "coupon__msg mono is-bad";
       }).then(function () { btn.disabled = false; });
     });
+    // The welcome code from the sign-up popup goes in by itself
+    var wc = store.get("welcomeCode", null);
+    if (wc && !checkoutState.coupon) { $("#co-coupon").value = wc; store.set("welcomeCode", null); $("#couponForm").requestSubmit(); }
     form.addEventListener("input", function () { captureCart(form); });
     captureCart(form);
     form.addEventListener("submit", function (e) {
@@ -1660,7 +1701,8 @@
     $("#totals").innerHTML =
       "<div><dt>Subtotal</dt><dd>" + taka(q.subtotal) + "</dd></div>" +
       (q.saving ? "<div><dt>You save on sale prices</dt><dd>" + taka(q.saving) + "</dd></div>" : "") +
-      (q.discount ? "<div><dt>Coupon " + esc(checkoutState.coupon.code) + "</dt><dd>−" + taka(q.discount) + "</dd></div>" : "") +
+      (q.discount ? "<div><dt>" + (q.applied.auto ? "Offer · " + esc(q.applied.label) : "Coupon " + esc(q.applied.code)) + "</dt><dd>−" + taka(q.discount) + "</dd></div>" : "") +
+      (q.hint ? '<p class="mono drawer__note">' + esc(offerHint(q.hint)) + "</p>" : "") +
       "<div><dt>Delivery" + (q.zone ? " · " + esc(q.zone.name) : "") + "</dt><dd>" + (q.shipping === null ? "Choose an area" : q.shipping ? taka(q.shipping) : "Free") + "</dd></div>" +
       '<div class="totals__grand"><dt>Total</dt><dd>' + taka(q.total) + "</dd></div>";
     $$("[data-total]").forEach(function (el) { el.textContent = taka(q.total); });
@@ -1697,16 +1739,23 @@
     try { sessionStorage.setItem("ravelle:popup", popupKey()); } catch (e) {}
     var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '" alt="' + esc(p.imageAlt || p.title || "") + '"></picture>' : "";
     var link = p.buttonLink || "", ext = /^https?:/i.test(link);
+    // Sign-up popup: asks for an email or phone, then shows the welcome code (Admin › Popup banner)
+    var cap = p.capture && p.capture !== "off" ? p.capture : "";
+    var capForm = cap ? '<form class="popup__form" id="popupForm" novalidate>' +
+      '<label class="sr" for="popupIn">' + (cap === "phone" ? "Phone number" : cap === "email" ? "Email" : "Email or phone") + "</label>" +
+      '<input class="popup__input" id="popupIn" name="contact" required ' + (cap === "phone" ? 'type="tel" inputmode="tel" autocomplete="tel" placeholder="01XXXXXXXXX"' : cap === "email" ? 'type="email" autocomplete="email" placeholder="you@example.com"' : 'type="text" autocomplete="email" placeholder="Email or phone number"') + ">" +
+      '<button class="pill pill--dark" type="submit">' + esc(p.captureButton || "Get my code") + "</button>" +
+      '<p class="popup__msg mono" id="popupMsg" role="status"></p></form>' : "";
     var wrap = document.createElement("div");
     wrap.id = "popup";
-    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText ? " popup--image" : "");
+    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText && !cap ? " popup--image" : "");
     wrap.innerHTML = '<div class="popup__scrim" data-popup-close></div>' +
       '<div class="popup__box" role="dialog" aria-modal="true" aria-label="' + esc(p.title || "Offer") + '">' +
         '<button class="popup__x" type="button" data-popup-close aria-label="Close">✕</button>' +
-        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
-        (p.title || p.text || p.buttonText ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
+        (p.image && link && !p.title && !p.text && !p.buttonText && !cap ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
+        (p.title || p.text || p.buttonText || cap ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
           (p.title ? '<h2 class="popup__title">' + br(p.title) + "</h2>" : "") + (p.text ? '<p class="popup__text">' + br(p.text) + "</p>" : "") +
-          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
+          capForm + (!cap && p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
       "</div>";
     document.body.appendChild(wrap);
     requestAnimationFrame(function () { wrap.classList.add("is-on"); });
@@ -1715,6 +1764,22 @@
     document.addEventListener("keydown", onKey);
     wrap.addEventListener("click", function (e) { if (e.target.closest("[data-popup-close], [data-popup-go]")) close(); });
     setTimeout(function () { var x = $(".popup__x", wrap); if (x) x.focus({ preventScroll: true }); }, 50);
+    var pf = $("#popupForm", wrap);
+    if (pf) pf.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var v = pf.contact.value.trim(), msg = $("#popupMsg", wrap), isMail = /@/.test(v), btn = $("button", pf);
+      if (!v) return;
+      if (cap === "email" && !isMail) { msg.textContent = "Enter your email."; return; }
+      if (cap === "phone" && isMail) { msg.textContent = "Enter your phone number."; return; }
+      btn.disabled = true;
+      api("POST", "/api/subscribe", isMail ? { email: v, source: "popup" } : { phone: v, source: "popup" }).then(function (r) {
+        track("lead", "", { topic: "popup", em: isMail ? v : "" });
+        if (r.code) store.set("welcomeCode", r.code);
+        pf.outerHTML = '<div class="popup__done"><p class="popup__text">' + esc(p.successText || (r.code ? "You're in. Here's your code:" : "You're in. We'll keep you posted.")) + "</p>" +
+          (r.code ? '<p class="popup__code mono">' + esc(r.code) + "</p><p class=\"popup__msg mono\">" + esc(r.label || "") + " · applied at checkout</p>" : "") +
+          '<button class="pill pill--dark pill--sm" type="button" data-popup-close>Start shopping</button></div>';
+      }, function (err) { msg.textContent = err.message; btn.disabled = false; });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1914,11 +1979,13 @@
     }
     items.innerHTML = cart.map(lineHTML).join("");
     guardImages(items);
-    var t = totals(), ship = S.settings.shipping || {};
+    var t = totals(), ship = S.settings.shipping || {}, bq = quote(), ofr = bq.applied && bq.applied.auto ? bq.applied : null;
     foot.innerHTML =
-      '<dl class="totals"><div><dt>Subtotal</dt><dd>' + taka(t.total) + "</dd></div>" + (t.saving ? "<div><dt>You save</dt><dd>" + taka(t.saving) + "</dd></div>" : "") + "</dl>" +
+      '<dl class="totals"><div><dt>Subtotal</dt><dd>' + taka(t.total) + "</dd></div>" + (t.saving ? "<div><dt>You save</dt><dd>" + taka(t.saving) + "</dd></div>" : "") +
+        (ofr && bq.discount ? "<div><dt>Offer · " + esc(ofr.label) + "</dt><dd>−" + taka(bq.discount) + "</dd></div>" : "") + "</dl>" +
+      (bq.hint ? '<p class="mono drawer__note">' + esc(offerHint(bq.hint)) + "</p>" : "") +
       (ship.freeOver ? '<p class="mono drawer__note">' + (t.total >= ship.freeOver ? "You get free delivery" : "Add " + taka(ship.freeOver - t.total) + " for free delivery") + "</p>" : "") +
-      '<a class="pill pill--dark drawer__cta" href="#checkout">Checkout · ' + taka(t.total) + "</a>" +
+      '<a class="pill pill--dark drawer__cta" href="#checkout">Checkout · ' + taka(t.total - (ofr ? bq.discount : 0)) + "</a>" +
       '<p class="mono drawer__note">Delivery charge and coupons at checkout</p>';
   }
   function syncCount() {
@@ -2310,7 +2377,7 @@
       var email = $("input[type=email]", f).value;
       var topic = f.dataset.notify || "new drops";
       track("lead", "", { topic: topic, em: email });
-      api("POST", "/api/contact", { name: "Drop alert", email: email, subject: "Drop alert: " + topic, message: "Please email me when " + topic + " is available." }).catch(function () {});
+      api("POST", "/api/subscribe", { email: email, source: topic }).catch(function () {});
       f.hidden = true;
       var ok = f.id === "news" ? $("#newsOk") : f.nextElementSibling;
       if (ok) ok.hidden = false;
