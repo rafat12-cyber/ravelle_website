@@ -919,6 +919,8 @@
     }
     if (!list.length) return viewSoon(cat);
     viewListing({ list: list, cat: cat, crumb: crumbFor(cat), title: accent(cat.name), sub: cat.description ? esc(cat.description) + " · " + list.length + " pieces" : "" });
+    // A short paragraph for search engines, under the products so the photos still lead
+    if (cat.seoText) page.insertAdjacentHTML("beforeend", '<section class="cat-about"><p>' + esc(cat.seoText).replace(/\n{2,}/g, "</p><p>") + "</p></section>");
   }
   function collectionCard(c, i) {
     var n = productsIn(c).length;
@@ -1119,7 +1121,7 @@
     $("#buyNow").addEventListener("click", function () {
       var r = ready();
       if (!r) return;
-      if (addToBag(p, r.v, qty, true)) location.hash = "#checkout";
+      if (addToBag(p, r.v, qty, true)) go("checkout");
     });
     var guide = $("[data-size-guide]", page);
     if (guide) guide.addEventListener("click", function () {
@@ -1447,7 +1449,7 @@
   function refreshOrder(o) {
     api("POST", "/api/orders/track", { number: o.number, phone: o.phone || "" }).then(function (r) {
       var fresh = r.order; fresh.phone = o.phone; rememberOrder(fresh);
-      if (location.hash.indexOf(o.number) > -1) route();
+      if (currentRoute().h.indexOf(o.number) > -1) route();
     }, function () {});
   }
   function viewTrack(prefill) {
@@ -1481,6 +1483,41 @@
   // Checkout
   // ---------------------------------------------------------------------------
   var checkoutState = { zone: null, coupon: null };
+  // Automatic offers (Admin › Coupons, "applies automatically"): the same rules the server uses when the order is placed
+  function inCatsC(p, ids) {
+    if (!ids || !ids.length) return true;
+    return (p.categoryIds || []).some(function (id) {
+      var walk = id, n = 0;
+      while (walk && n++ < 10) { if (ids.indexOf(walk) > -1) return true; var c = CAT_BY_ID[walk]; walk = c ? c.parentId : null; }
+      return false;
+    });
+  }
+  // lines: [{ p, price, l: { qty } }]. Returns { best, hint }: the offer that applies, and the closest one still out of reach
+  function offerFor(lines, sub) {
+    var best = null, hint = null;
+    (S.offers || []).forEach(function (o) {
+      var mine = lines.filter(function (x) { return x.p && inCatsC(x.p, o.categoryIds); });
+      var msub = o.categoryIds.length ? mine.reduce(function (s, x) { return s + x.price * x.l.qty; }, 0) : sub;
+      var qty = mine.reduce(function (s, x) { return s + x.l.qty; }, 0);
+      var short = Math.max(0, (o.minQty || 0) - qty), spend = Math.max(0, (o.minOrder || 0) - sub);
+      if (short || spend || !mine.length) {
+        if (mine.length || !o.categoryIds.length) {
+          var score = short ? short * 1000 : spend;
+          if (!hint || score < hint.score) hint = { offer: o, short: short, spend: spend, score: score };
+        }
+        return;
+      }
+      var d = o.type === "percent" ? Math.round(msub * Math.min(100, o.value) / 100) : o.type === "fixed" ? Math.min(msub, o.value) : 0;
+      if (o.maxDiscount && d > o.maxDiscount) d = o.maxDiscount;
+      if ((d > 0 || o.type === "shipping") && (!best || d > best.discount)) best = { code: o.code, label: o.label, discount: d, freeShipping: o.type === "shipping", auto: true };
+    });
+    return { best: best, hint: hint };
+  }
+  function offerHint(h) {
+    if (!h) return "";
+    var o = h.offer, what = o.categoryIds.length ? o.categoryIds.map(function (id) { return (CAT_BY_ID[id] || {}).name || ""; }).filter(Boolean).join(" or ") : "";
+    return h.short ? "Add " + h.short + " more" + (what ? " " + what : "") + (h.short === 1 ? " piece" : " pieces") + " · " + o.label : "Spend " + taka(h.spend) + " more · " + o.label;
+  }
   function quote() {
     var sub = 0, saving = 0, lines = [];
     cart.forEach(function (l) {
@@ -1489,13 +1526,15 @@
       if (p.comparePrice > price) saving += (p.comparePrice - price) * l.qty;
       lines.push({ l: l, p: p, v: v, price: price });
     });
-    var c = checkoutState.coupon, discount = 0, free = false;
+    var c = checkoutState.coupon, discount = 0, free = false, auto = offerFor(lines, sub);
+    // An automatic offer and a code don't add up: the one worth more applies
+    if (auto.best && (!c || (auto.best.discount > c.discount && !c.freeShipping))) c = auto.best;
     if (c) { discount = c.type === "free" ? 0 : Math.min(sub, c.discount); free = c.freeShipping; }
     var ship = S.settings.shipping || { zones: [] };
     var z = ship.zones.filter(function (x) { return x.id === checkoutState.zone; })[0];
     var fee = z ? z.fee : null;
     if (fee !== null && (free || (ship.freeOver && sub - discount >= ship.freeOver))) fee = 0;
-    return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z };
+    return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z, applied: c, hint: c && c.auto ? null : auto.hint };
   }
   // Abandoned-cart follow-up: the checkout details are saved (once a phone or email is typed) so the store can remind the customer
   function cartId() {
@@ -1540,7 +1579,7 @@
       if (r.zone) checkoutState.zone = r.zone;
       if (!added && !cart.length) toast("Those pieces have sold out. Have a look at what's new.", "warn");
       location.replace("#" + (cart.length ? "checkout" : "shop"));
-    }, function () { toast("That link has expired. Your bag is empty.", "warn"); location.replace("#shop"); });
+    }, function () { toast("That link has expired. Your bag is empty.", "warn"); go("shop", true); });
   }
   function viewCheckout() {
     head('<a href="#home">Home</a> / Checkout', '<em class="alt" data-scramble>Checkout</em>', "Cash on delivery or pay online. We'll call to confirm your order.");
@@ -1595,10 +1634,11 @@
       }
       if (!input.value.trim()) return;
       btn.disabled = true;
-      api("POST", "/api/coupons/validate", { code: input.value, subtotal: quote().subtotal }).then(function (r) {
+      api("POST", "/api/coupons/validate", { code: input.value, subtotal: quote().subtotal, items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }) }).then(function (r) {
         checkoutState.coupon = r;
         btn.textContent = "Remove";
-        msg.textContent = r.code + " applied · " + r.label;
+        var q2 = quote();
+        msg.textContent = q2.applied && q2.applied.auto ? "Your bag's offer (" + q2.applied.label + ") is worth more, so that one applies." : r.code + " applied · " + r.label;
         msg.className = "coupon__msg mono is-ok";
         drawSummary();
       }, function (err) {
@@ -1606,6 +1646,9 @@
         msg.className = "coupon__msg mono is-bad";
       }).then(function () { btn.disabled = false; });
     });
+    // The welcome code from the sign-up popup goes in by itself
+    var wc = store.get("welcomeCode", null);
+    if (wc && !checkoutState.coupon) { $("#co-coupon").value = wc; store.set("welcomeCode", null); $("#couponForm").requestSubmit(); }
     form.addEventListener("input", function () { captureCart(form); });
     captureCart(form);
     form.addEventListener("submit", function (e) {
@@ -1639,7 +1682,7 @@
         cart = []; store.set("cart", cart); checkoutState.coupon = null; syncCount(); drawBag();
         if (r.payment && r.payment.url) { location.href = r.payment.url; return; }
         if (r.payment && r.payment.error) toast("Online payment couldn't start: " + esc(r.payment.error) + " We'll call you about payment.", "warn");
-        location.hash = "#order/" + o.number + (r.payment && r.payment.demo ? "?payment=paid" : "");
+        go("order/" + o.number + (r.payment && r.payment.demo ? "?payment=paid" : ""));
       }, function (err) {
         btn.disabled = false;
         btn.firstChild.textContent = "Place order · ";
@@ -1651,14 +1694,15 @@
   function drawSummary() {
     var box = $("#summaryLines");
     if (!box) return;
-    if (!cart.length) { if (location.hash === "#checkout") viewCheckout(); return; }
+    if (!cart.length) { if (currentRoute().h === "checkout") viewCheckout(); return; }
     box.innerHTML = cart.map(lineHTML).join("");
     guardImages(box);
     var q = quote();
     $("#totals").innerHTML =
       "<div><dt>Subtotal</dt><dd>" + taka(q.subtotal) + "</dd></div>" +
       (q.saving ? "<div><dt>You save on sale prices</dt><dd>" + taka(q.saving) + "</dd></div>" : "") +
-      (q.discount ? "<div><dt>Coupon " + esc(checkoutState.coupon.code) + "</dt><dd>−" + taka(q.discount) + "</dd></div>" : "") +
+      (q.discount ? "<div><dt>" + (q.applied.auto ? "Offer · " + esc(q.applied.label) : "Coupon " + esc(q.applied.code)) + "</dt><dd>−" + taka(q.discount) + "</dd></div>" : "") +
+      (q.hint ? '<p class="mono drawer__note">' + esc(offerHint(q.hint)) + "</p>" : "") +
       "<div><dt>Delivery" + (q.zone ? " · " + esc(q.zone.name) : "") + "</dt><dd>" + (q.shipping === null ? "Choose an area" : q.shipping ? taka(q.shipping) : "Free") + "</dd></div>" +
       '<div class="totals__grand"><dt>Total</dt><dd>' + taka(q.total) + "</dd></div>";
     $$("[data-total]").forEach(function (el) { el.textContent = taka(q.total); });
@@ -1686,7 +1730,7 @@
     var force = /[?&]popup\b/.test(location.search); // admin "Preview" link
     if (!isHome || EDIT || !(p.enabled || force) || (popupSeen() && !force) || $("#popup")) return;
     popupTimer = setTimeout(function () {
-      var h = location.hash.replace(/^#/, "");
+      var h = currentRoute().h;
       if ((h && h !== "home" && !HOME_ANCHORS[h]) || (popupSeen() && !force)) return;
       showPopup(p);
     }, Math.max(0, (+p.delay || 2)) * 1000);
@@ -1695,16 +1739,23 @@
     try { sessionStorage.setItem("ravelle:popup", popupKey()); } catch (e) {}
     var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '" alt="' + esc(p.imageAlt || p.title || "") + '"></picture>' : "";
     var link = p.buttonLink || "", ext = /^https?:/i.test(link);
+    // Sign-up popup: asks for an email or phone, then shows the welcome code (Admin › Popup banner)
+    var cap = p.capture && p.capture !== "off" ? p.capture : "";
+    var capForm = cap ? '<form class="popup__form" id="popupForm" novalidate>' +
+      '<label class="sr" for="popupIn">' + (cap === "phone" ? "Phone number" : cap === "email" ? "Email" : "Email or phone") + "</label>" +
+      '<input class="popup__input" id="popupIn" name="contact" required ' + (cap === "phone" ? 'type="tel" inputmode="tel" autocomplete="tel" placeholder="01XXXXXXXXX"' : cap === "email" ? 'type="email" autocomplete="email" placeholder="you@example.com"' : 'type="text" autocomplete="email" placeholder="Email or phone number"') + ">" +
+      '<button class="pill pill--dark" type="submit">' + esc(p.captureButton || "Get my code") + "</button>" +
+      '<p class="popup__msg mono" id="popupMsg" role="status"></p></form>' : "";
     var wrap = document.createElement("div");
     wrap.id = "popup";
-    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText ? " popup--image" : "");
+    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText && !cap ? " popup--image" : "");
     wrap.innerHTML = '<div class="popup__scrim" data-popup-close></div>' +
       '<div class="popup__box" role="dialog" aria-modal="true" aria-label="' + esc(p.title || "Offer") + '">' +
         '<button class="popup__x" type="button" data-popup-close aria-label="Close">✕</button>' +
-        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
-        (p.title || p.text || p.buttonText ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
+        (p.image && link && !p.title && !p.text && !p.buttonText && !cap ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
+        (p.title || p.text || p.buttonText || cap ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
           (p.title ? '<h2 class="popup__title">' + br(p.title) + "</h2>" : "") + (p.text ? '<p class="popup__text">' + br(p.text) + "</p>" : "") +
-          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
+          capForm + (!cap && p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
       "</div>";
     document.body.appendChild(wrap);
     requestAnimationFrame(function () { wrap.classList.add("is-on"); });
@@ -1713,20 +1764,136 @@
     document.addEventListener("keydown", onKey);
     wrap.addEventListener("click", function (e) { if (e.target.closest("[data-popup-close], [data-popup-go]")) close(); });
     setTimeout(function () { var x = $(".popup__x", wrap); if (x) x.focus({ preventScroll: true }); }, 50);
+    var pf = $("#popupForm", wrap);
+    if (pf) pf.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var v = pf.contact.value.trim(), msg = $("#popupMsg", wrap), isMail = /@/.test(v), btn = $("button", pf);
+      if (!v) return;
+      if (cap === "email" && !isMail) { msg.textContent = "Enter your email."; return; }
+      if (cap === "phone" && isMail) { msg.textContent = "Enter your phone number."; return; }
+      btn.disabled = true;
+      api("POST", "/api/subscribe", isMail ? { email: v, source: "popup" } : { phone: v, source: "popup" }).then(function (r) {
+        track("lead", "", { topic: "popup", em: isMail ? v : "" });
+        if (r.code) store.set("welcomeCode", r.code);
+        pf.outerHTML = '<div class="popup__done"><p class="popup__text">' + esc(p.successText || (r.code ? "You're in. Here's your code:" : "You're in. We'll keep you posted.")) + "</p>" +
+          (r.code ? '<p class="popup__code mono">' + esc(r.code) + "</p><p class=\"popup__msg mono\">" + esc(r.label || "") + " · applied at checkout</p>" : "") +
+          '<button class="pill pill--dark pill--sm" type="button" data-popup-close>Start shopping</button></div>';
+      }, function (err) { msg.textContent = err.message; btn.disabled = false; });
+    });
   }
 
-  function route() {
-    var raw = location.hash.replace(/^#/, ""), h = decodeURIComponent(raw.split("?")[0]), query = raw.split("?")[1] || "";
+  // ---------------------------------------------------------------------------
+  // Page addresses. On the live server every page has a real address (/product/<slug>,
+  // /product-category/<slug>, /shop...) so Google, Facebook and Merchant Center can read it.
+  // The demo has no server, so there pages stay after a # (#product/<slug>).
+  // Links are still written as "#product/<slug>" in the code and in saved content; on the
+  // server they are turned into real addresses as they appear on the page.
+  // ---------------------------------------------------------------------------
+  var PATHS = !!document.querySelector('meta[name="rv-routes"]');
+  var ROUTE_HEADS = { home: 1, product: 1, category: 1, search: 1, order: 1, restore: 1, checkout: 1, track: 1, saved: 1, about: 1, contact: 1, "store-locations": 1, stores: 1, franchise: 1 };
+  function dec(s) { try { return decodeURIComponent(s); } catch (e) { return s; } }
+  function normRoute(h) {
     if (LEGACY[h]) h = LEGACY[h];
     if (h.indexOf("p-") === 0) h = "product/" + h.slice(2);
     if (h.indexOf("c-") === 0) h = "category/" + h.slice(2);
     if (h.indexOf("soon-") === 0) h = "category/" + h.slice(5);
+    if (h === "stores") h = "store-locations";
+    return h;
+  }
+  // Is "#something" a page of the store (and not a spot on the current page, like #main)?
+  function isRoute(h) {
+    var k = String(h).split(/[/?]/)[0];
+    return !!(ROUTE_HEADS[k] || SHOPS[k] || LEGACY[k] || HOME_ANCHORS[k] || /^(p|c|soon)-./.test(k) || POLICIES.some(function (x) { return x[0] === k; }));
+  }
+  // "#product/x?y" -> "/product/x?y"
+  function pathFor(h) {
+    h = String(h).replace(/^#/, "");
+    var i = h.indexOf("?"), q = i > -1 ? h.slice(i) : "", r = normRoute(dec(i > -1 ? h.slice(0, i) : h));
+    var enc = function (s) { return s.split("/").map(encodeURIComponent).join("/"); };
+    if (!r || r === "home" || r === "top") return "/" + q;
+    if (HOME_ANCHORS[r]) return "/" + q + "#" + r;
+    if (r.indexOf("category/") === 0) return "/product-category/" + enc(r.slice(9)) + q;
+    if (r.indexOf("search/") === 0) return "/search/" + encodeURIComponent(r.slice(7)) + q;
+    return "/" + enc(r) + q;
+  }
+  function currentRoute() {
+    if (!PATHS) { var raw = location.hash.replace(/^#/, ""); return { h: dec(raw.split("?")[0]), query: raw.split("?")[1] || "" }; }
+    var p = location.pathname.replace(/^\/+|\/+$/g, ""), h = p.indexOf("search/") === 0 ? "search/" + dec(p.slice(7)) : dec(p);
+    if (h.indexOf("product-category/") === 0) h = "category/" + h.split("/").pop();
+    if (!h) { var a = location.hash.replace(/^#/, ""); if (HOME_ANCHORS[a]) h = a; }
+    return { h: h, query: location.search.replace(/^\?/, "") };
+  }
+  // Open a page of the store, like go("product/<slug>") or go("#checkout")
+  function go(h, replace) {
+    h = String(h || "").replace(/^#/, "");
+    if (!PATHS) {
+      if (location.hash.replace(/^#/, "") === h) return route();
+      if (replace) location.replace("#" + h); else location.hash = "#" + h;
+      return;
+    }
+    var url = pathFor(h);
+    if (EDIT) url = url.replace(/(#|$)/, (url.indexOf("?") > -1 ? "&" : "?") + "edit$1");
+    if (url !== location.pathname + location.search + location.hash) history[replace ? "replaceState" : "pushState"](null, "", url);
+    route();
+  }
+  if (PATHS) {
+    // Old shared links (ravellebd.com/#product/x) open the right page, at its real address
+    var oldHash = location.hash.replace(/^#/, "");
+    if (location.pathname === "/" && oldHash && isRoute(oldHash) && !HOME_ANCHORS[oldHash]) history.replaceState(null, "", pathFor(oldHash) + (EDIT ? (pathFor(oldHash).indexOf("?") > -1 ? "&" : "?") + "edit" : ""));
+    window.addEventListener("popstate", function () { route(); });
+    // Any click on a store link opens the page here, without reloading
+    window.addEventListener("click", function (e) {
+      if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var a = e.target.closest && e.target.closest("a[href]");
+      if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+      var raw = a.getAttribute("href");
+      if (raw.charAt(0) === "#") {
+        var hh = raw.slice(1);
+        e.preventDefault();
+        if (!hh) return;
+        if (isRoute(hh)) return go(hh);
+        var el = document.getElementById(hh);
+        if (el) { el.scrollIntoView(); if (hh === "main") { el.setAttribute("tabindex", "-1"); el.focus({ preventScroll: true }); } }
+        return;
+      }
+      var u;
+      try { u = new URL(a.href, location.href); } catch (er) { return; }
+      if (u.origin !== location.origin || /^\/(admin|api|assets|uploads|feeds|docs)(\/|$)|\.[a-z0-9]+$/i.test(u.pathname)) return;
+      e.preventDefault();
+      if (u.pathname === location.pathname && u.search === location.search && u.hash && document.getElementById(u.hash.slice(1)) && !HOME_ANCHORS[u.hash.slice(1)]) return document.getElementById(u.hash.slice(1)).scrollIntoView();
+      history.pushState(null, "", u.pathname + u.search + u.hash);
+      route();
+    });
+    // Write real addresses into links as they appear, so search engines can follow them
+    var fixLinks = function (root) {
+      if (!root.querySelectorAll) return;
+      var list = root.matches && root.matches('a[href^="#"]') ? [root] : [];
+      Array.prototype.push.apply(list, root.querySelectorAll('a[href^="#"]'));
+      list.forEach(function (a) { var hh = a.getAttribute("href").slice(1); if (hh && isRoute(hh)) a.setAttribute("href", pathFor(hh)); });
+    };
+    if (!EDIT) {
+      new MutationObserver(function (muts) {
+        muts.forEach(function (m) { if (m.type === "attributes") fixLinks(m.target); else Array.prototype.forEach.call(m.addedNodes, fixLinks); });
+      }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+      fixLinks(document.documentElement);
+    }
+  }
+  function setPageTitle(t) {
+    var name = (S.settings.store && S.settings.store.name) || "Ravelle";
+    document.title = t ? t + " | " + name : (S.settings.seo && S.settings.seo.title) || name;
+    var can = document.querySelector('link[rel="canonical"]');
+    if (can && PATHS) can.href = location.origin + location.pathname;
+  }
+
+  function route() {
+    var cr = currentRoute(), h = normRoute(cr.h), query = cr.query;
+    if (PATHS && !h && location.hash && isRoute(location.hash.slice(1)) && !HOME_ANCHORS[location.hash.slice(1)]) { history.replaceState(null, "", pathFor(location.hash)); cr = currentRoute(); h = normRoute(cr.h); query = cr.query; }
     closeBag(); closeMenu(); closeModal();
     track("page", "", { path: pagePath() });
     if (!h || h === "home" || HOME_ANCHORS[h]) {
       pageView.hidden = true;
       homeView.hidden = false;
-      document.title = (S.settings.seo && S.settings.seo.title) || "Ravelle";
+      setPageTitle("");
       var target = HOME_ANCHORS[h] && h !== "top" ? document.getElementById(h) : null;
       if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
       onScroll();
@@ -1753,14 +1920,19 @@
     else if (h === "franchise") viewFranchise();
     else if (S.pages[h] && POLICIES.some(function (x) { return x[0] === h; })) viewPolicy(h);
     else viewMissing();
-    var t = $("h1", pagehead) || $("h1", page);
-    document.title = (t ? t.textContent.replace(/\s+/g, " ").trim() + " · " : "") + ((S.settings.store && S.settings.store.name) || "Ravelle");
+    var t = $("h1", pagehead) || $("h1", page), pr = parts[0] === "product" && BY_SLUG[parts[1]], ct = parts[0] === "category" && CAT_BY_SLUG[parts[1]];
+    setPageTitle(pr ? pr.seoTitle || pr.name : ct ? ct.seoTitle || ct.name : t ? t.textContent.replace(/\s+/g, " ").trim() : "");
     activate(pagehead);
     activate(page);
     window.scrollTo(0, 0);
     onScroll();
   }
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", function () {
+    if (!PATHS) return route();
+    // On the server a #spot on the home page just scrolls; an old-style #page link opens that page
+    var hh = location.hash.slice(1);
+    if (hh && isRoute(hh) && !HOME_ANCHORS[hh]) go(hh, true); else if (HOME_ANCHORS[hh] && location.pathname === "/") route();
+  });
 
   // ---------------------------------------------------------------------------
   // Bag
@@ -1807,11 +1979,13 @@
     }
     items.innerHTML = cart.map(lineHTML).join("");
     guardImages(items);
-    var t = totals(), ship = S.settings.shipping || {};
+    var t = totals(), ship = S.settings.shipping || {}, bq = quote(), ofr = bq.applied && bq.applied.auto ? bq.applied : null;
     foot.innerHTML =
-      '<dl class="totals"><div><dt>Subtotal</dt><dd>' + taka(t.total) + "</dd></div>" + (t.saving ? "<div><dt>You save</dt><dd>" + taka(t.saving) + "</dd></div>" : "") + "</dl>" +
+      '<dl class="totals"><div><dt>Subtotal</dt><dd>' + taka(t.total) + "</dd></div>" + (t.saving ? "<div><dt>You save</dt><dd>" + taka(t.saving) + "</dd></div>" : "") +
+        (ofr && bq.discount ? "<div><dt>Offer · " + esc(ofr.label) + "</dt><dd>−" + taka(bq.discount) + "</dd></div>" : "") + "</dl>" +
+      (bq.hint ? '<p class="mono drawer__note">' + esc(offerHint(bq.hint)) + "</p>" : "") +
       (ship.freeOver ? '<p class="mono drawer__note">' + (t.total >= ship.freeOver ? "You get free delivery" : "Add " + taka(ship.freeOver - t.total) + " for free delivery") + "</p>" : "") +
-      '<a class="pill pill--dark drawer__cta" href="#checkout">Checkout · ' + taka(t.total) + "</a>" +
+      '<a class="pill pill--dark drawer__cta" href="#checkout">Checkout · ' + taka(t.total - (ofr ? bq.discount : 0)) + "</a>" +
       '<p class="mono drawer__note">Delivery charge and coupons at checkout</p>';
   }
   function syncCount() {
@@ -1876,7 +2050,7 @@
   $("#searchForm").addEventListener("submit", function (e) {
     e.preventDefault();
     var q = $("#searchInput").value.trim();
-    if (q) location.hash = "#search/" + encodeURIComponent(q);
+    if (q) go("search/" + encodeURIComponent(q));
   });
 
   // ---------------------------------------------------------------------------
@@ -1930,7 +2104,7 @@
       });
     };
     if (!chat.session) track("contact", "", { method: "Live chat" });
-    var start = chat.session ? Promise.resolve() : api("POST", "/api/chat/start", { name: $("#chatName").value, page: location.hash }).then(function (r) {
+    var start = chat.session ? Promise.resolve() : api("POST", "/api/chat/start", { name: $("#chatName").value, page: PATHS ? location.pathname : location.hash }).then(function (r) {
       chat.session = { id: r.id, token: r.token };
       store.set("chat", chat.session);
       chat.messages = r.messages;
@@ -2137,7 +2311,7 @@
     api("POST", "/api/track", body).catch(function () {});
   }
   function pagePath() {
-    var h = decodeURIComponent(location.hash.replace(/^#\/?/, "").split("?")[0]);
+    var h = currentRoute().h;
     if (!h || h === "home" || HOME_ANCHORS[h]) return "home";
     if (/^order\//.test(h)) return "order";
     if (/^search\//.test(h)) return "search";
@@ -2203,7 +2377,7 @@
       var email = $("input[type=email]", f).value;
       var topic = f.dataset.notify || "new drops";
       track("lead", "", { topic: topic, em: email });
-      api("POST", "/api/contact", { name: "Drop alert", email: email, subject: "Drop alert: " + topic, message: "Please email me when " + topic + " is available." }).catch(function () {});
+      api("POST", "/api/subscribe", { email: email, source: topic }).catch(function () {});
       f.hidden = true;
       var ok = f.id === "news" ? $("#newsOk") : f.nextElementSibling;
       if (ok) ok.hidden = false;
@@ -2265,7 +2439,7 @@
         }
         if (m.focus) flash(m.focus);
       } else if (m.type === "ravelle:goto") {
-        if (location.hash !== m.hash) location.hash = m.hash; else route();
+        go(m.hash);
       } else if (m.type === "ravelle:reload") {
         reloadStore();
       }

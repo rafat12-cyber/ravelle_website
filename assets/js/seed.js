@@ -31,9 +31,17 @@
     ["obsedian", "Obsedian Virtue", "the-house", 4, "assets/img/home/h-look-1.webp", "Black on black, built to last."],
     ["monarch-drop", "Monarch Drop", "the-house", 5, "assets/img/home/h-look-2.webp", "Regal details on everyday shapes."]
   ];
+  // A short paragraph under each category's products, written for search engines (Admin › Categories)
+  var SEO_TEXT = {
+    "men": "Oversized T-shirts, boxy shirts and baggy trousers for men, designed in Dhaka. Cash on delivery all over Bangladesh and exchange within 7 days.",
+    "t-shirt": "Ravelle oversized T-shirts are cut heavy, with a dropped shoulder and a boxy, relaxed fit. Choose printed graphic tees or acid-washed tees, made in Bangladesh and delivered across the country with cash on delivery.",
+    "half-shirt": "Boxy fitted half-sleeve shirts with a straight hem and a relaxed shoulder. Wear one open over a tee or buttoned up on its own.",
+    "trouser": "Baggy trousers with a wide, straight leg and an easy waist. They sit right with an oversized tee or a boxy shirt."
+  };
+  var SEO_TITLE = { "men": "Men's Oversized Clothing in Bangladesh", "t-shirt": "Oversized T-shirts in Bangladesh", "half-shirt": "Boxy Half Shirts in Bangladesh", "trouser": "Baggy Trousers in Bangladesh" };
   var categories = CATS.map(function (c) {
     return { id: "cat_" + c[0].replace(/-/g, "_"), slug: c[0], name: c[1], parentId: c[2] ? "cat_" + c[2].replace(/-/g, "_") : null,
-      order: c[3], image: c[4], description: c[5], createdAt: T0 };
+      order: c[3], image: c[4], description: c[5], seoText: SEO_TEXT[c[0]] || "", seoTitle: SEO_TITLE[c[0]] || "", createdAt: T0 };
   });
 
   var attributes = [

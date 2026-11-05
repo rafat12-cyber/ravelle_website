@@ -117,6 +117,19 @@ Product fields: `name`, `slug`, `sku`, `status`, `price`, `comparePrice`, `descr
 | GET | `/api/customers` | Customers with `orders`, `spent` and `lastOrder`. Query: `q` |
 | GET | `/api/customers/:id` | One customer and their orders |
 | PATCH | `/api/customers/:id` | `note`, `tags` |
+| POST | `/api/subscribe` | Public. `{ email }` or `{ phone }`, `source`. From the popup it returns the welcome `code` |
+| GET | `/api/subscribers` | Subscribers. Query: `q` |
+| DELETE | `/api/subscribers/:id` | Remove one |
+| GET | `/api/audience` | Buyers and/or subscribers for ad audiences. Query: `who=buyers\|subscribers\|all` |
+| GET | `/api/coupons/report` | Sales per code and per influencer. Query: `days` or `from`/`to` (ms) |
+
+### Search engines and feeds
+
+| Path | What it is |
+|---|---|
+| `/sitemap.xml`, `/robots.txt` | Generated from published products, categories and pages |
+| `/feeds/meta.csv` | Meta catalog feed, one row per product (id = SKU) |
+| `/feeds/google.xml` | Google Merchant Center feed (RSS 2.0, `g:` fields) |
 
 ### Live chat (for an AI reply tool)
 
@@ -169,6 +182,7 @@ Add them in **Admin → API & webhooks**. When an event happens we POST this to 
 | `chat.message.created` | `{ chatId, message, chat }` (chat includes all messages) |
 | `contact.created` | The contact message |
 | `coupon.used` | `{ code, orderNumber, discount }` |
+| `subscriber.created` | The subscriber (`email`, `phone`, `source`) |
 
 Headers: `X-Ravelle-Event`, `X-Ravelle-Delivery` (unique id) and `X-Ravelle-Signature: sha256=<hex>`, the HMAC-SHA256 of the raw body using the webhook's secret. Check it before trusting the data:
 
