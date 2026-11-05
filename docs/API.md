@@ -93,6 +93,7 @@ Prices, delivery and discounts are always worked out on the server. `agree` must
 | GET | `/api/products/:idSlugOrSku` | One product |
 | POST | `/api/products` | Create a product |
 | PUT / PATCH | `/api/products/:id` | Update (send only the fields you change) |
+| POST | `/api/products/bulk` | `{ "updates": [{ "id", "price", "comparePrice", "status", "isNew", "featured", "trackStock", "categoryIds", "name", "stock", "variants": [{ "id", "stock", "price" }] }] }`. Send only what changes. All or nothing: one bad row and nothing is saved |
 | DELETE | `/api/products/:id` | Delete |
 | POST | `/api/products/:id/duplicate` | Copy as a draft |
 | GET | `/api/stock` | Stock for every SKU: `[{ sku, productId, name, options, stock }]` |

@@ -662,7 +662,7 @@
     const qs = new URLSearchParams(query || "");
     const state = { q: "", category: qs.get("category") || "", status: "" };
     view.innerHTML = `<div class="head"><div><h1 class="h1">Products</h1><p class="muted">${store.products.length} published. Drag ⠿ to change the order products show in the shop.</p></div>
-      <div class="flex"><button class="btn btn--ghost" id="prdCsv">Export CSV</button><a class="btn btn--dark" href="#/products/new">Add product</a></div></div>
+      <div class="flex"><button class="btn btn--ghost" id="prdCsv">Export CSV</button><a class="btn btn--ghost" href="#/bulk">Bulk edit</a><a class="btn btn--dark" href="#/products/new">Add product</a></div></div>
       <div class="toolbar"><div class="grow"><input class="input" id="prdQ" placeholder="Search name, SKU, colour"></div>
         <select class="input" id="prdCat"><option value="">All categories</option>${catTree(store.categories).map(({ c, depth }) => `<option value="${c.id}"${c.id === state.category ? " selected" : ""}>${"— ".repeat(depth)}${esc(c.name)}</option>`).join("")}</select>
         <select class="input" id="prdStatus"><option value="">Any status</option><option value="published">Published</option><option value="draft">Draft</option></select></div>
@@ -985,6 +985,223 @@
         rows.forEach((r) => { if (changed[r.sku] != null) r.stock = changed[r.sku]; });
         changed = {}; $("#stSave").disabled = true; $("#stSave").textContent = "Save changes"; store = null; draw();
       } catch (err) { fail(err); }
+    };
+    draw();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk edit: prices, stock and shop settings for many products at once
+  // ---------------------------------------------------------------------------
+  function parseCsvText(text) {
+    const rows = []; let row = [], cell = "", q = false;
+    text = text.replace(/^﻿/, "");
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((c) => c.trim()));
+  }
+  const BULK_ACTIONS = [
+    ["Prices", [["regular", "Set regular price to ৳", 1], ["sale", "Set sale price to ৳", 1], ["salePct", "Sale: % off the regular price", 1], ["saleOff", "Sale: ৳ off the regular price", 1], ["endSale", "End the sale (back to regular price)"], ["upPct", "Change all prices by % (minus to lower)", 1], ["upTk", "Change all prices by ৳ (minus to lower)", 1]]],
+    ["Stock", [["stockSet", "Set stock of every size to", 1], ["stockAdd", "Add to stock of every size (minus to remove)", 1], ["trackOn", "Track stock"], ["trackOff", "Don't track stock (always in stock)"]]],
+    ["Shop", [["publish", "Publish"], ["draft", "Move to draft (hidden)"], ["newOn", "Show the New badge"], ["newOff", "Remove the New badge"], ["featOn", "Feature on the home page"], ["featOff", "Stop featuring"]]],
+    ["Categories", [["catAdd", "Add to category", 2], ["catDel", "Remove from category", 2]]]
+  ];
+  async function viewBulk() {
+    setTitle("Bulk edit");
+    await loadStore(true);
+    const low = store.settings.lowStock || 5, cats = store.categories;
+    const catOpts = catTree(cats).map(({ c, depth }) => `<option value="${c.id}">${"— ".repeat(depth)}${esc(c.name)}</option>`).join("");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Bulk edit</h1><p class="muted">Change prices, stock and shop settings for many products, then save once. Leave the sale price empty for no sale.</p></div>
+      <div class="flex"><button class="btn btn--ghost" id="bkCsv">Download CSV</button><label class="btn btn--ghost" style="cursor:pointer">Upload CSV<input type="file" accept=".csv,text/csv" id="bkUp" hidden></label><button class="btn btn--dark" id="bkSave" disabled>Save changes</button></div></div>
+      <div class="toolbar"><div class="grow"><input class="input" id="bkQ" placeholder="Search name or SKU"></div>
+        <select class="input" id="bkCat"><option value="">All categories</option>${catOpts}</select>
+        <select class="input" id="bkStatus"><option value="">Any status</option><option value="published">Published</option><option value="draft">Draft</option></select>
+        <label class="check"><input type="checkbox" id="bkLow"> Low stock</label><label class="check"><input type="checkbox" id="bkSaleOnly"> On sale</label></div>
+      <div class="card bulk-bar"><b id="bkSel">0 selected</b>
+        <select class="input input--sm" id="bkAct"><option value="">Choose a change…</option>${BULK_ACTIONS.map(([g, l]) => `<optgroup label="${g}">${l.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</optgroup>`).join("")}</select>
+        <input class="input input--sm" id="bkVal" type="number" style="width:110px" hidden><select class="input input--sm" id="bkCatPick" hidden>${catOpts}</select>
+        <label class="check small" id="bkRoundL" hidden><input type="checkbox" id="bkRound"> Round to end in 0</label>
+        <button class="btn btn--ghost btn--sm" id="bkApply" disabled>Apply to selected</button>
+        <button class="btn btn--ghost btn--sm" id="bkUndo" style="margin-left:auto" hidden>Undo all changes</button></div>
+      <div class="card card--flush" id="bkList"><p class="empty">Loading…</p></div>`;
+    let list = [], edits = {}, sel = new Set(), shown = [];
+    try { list = (await api("GET", "/api/products")).products; } catch (err) { return fail(err); }
+    const byId = {}; list.forEach((p) => { byId[p.id] = p; });
+    // What the row shows: the saved product, with any unsaved change on top
+    const base = (p) => ({ name: p.name, regular: p.comparePrice > p.price ? p.comparePrice : p.price, sale: p.comparePrice > p.price ? p.price : "", status: p.status,
+      isNew: p.isNew, featured: p.featured, trackStock: p.trackStock, categoryIds: p.categoryIds.slice(), stock: p.variants.length ? null : (p.stock || 0),
+      vstock: Object.fromEntries(p.variants.map((v) => [v.id, v.stock || 0])) });
+    const cur = (p) => edits[p.id] || base(p);
+    const touch = (p) => (edits[p.id] = edits[p.id] || base(p));
+    const dirty = (p) => edits[p.id] && JSON.stringify(edits[p.id]) !== JSON.stringify(base(p));
+    const changedIds = () => list.filter(dirty).map((p) => p.id);
+    const totalStock = (p, c) => p.variants.length ? Object.values(c.vstock).reduce((s, n) => s + n, 0) : c.stock;
+    const was = (p, f, v) => { const b = base(p); return JSON.stringify(f.startsWith("v:") ? b.vstock[f.slice(2)] : b[f]) !== JSON.stringify(v); };
+    const mark = (p, f, v) => was(p, f, v) ? " is-changed" : "";
+    const count = () => {
+      const n = changedIds().length;
+      $("#bkSave").disabled = !n; $("#bkSave").textContent = n ? "Save " + n + " product" + (n > 1 ? "s" : "") : "Save changes";
+      $("#bkUndo").hidden = !n;
+      $("#bkSel").textContent = sel.size + " selected";
+      $("#bkApply").disabled = !sel.size || !$("#bkAct").value;
+    };
+    const draw = () => {
+      const q = $("#bkQ").value.trim().toLowerCase(), cat = $("#bkCat").value, st = $("#bkStatus").value, onlyLow = $("#bkLow").checked, onlySale = $("#bkSaleOnly").checked;
+      shown = list.filter((p) => {
+        const c = cur(p);
+        if (q && (c.name + " " + p.sku + " " + p.variants.map((v) => v.sku).join(" ")).toLowerCase().indexOf(q) < 0) return false;
+        if (cat && c.categoryIds.indexOf(cat) < 0) return false;
+        if (st && c.status !== st) return false;
+        if (onlyLow && !(c.trackStock && (p.variants.length ? Object.values(c.vstock).some((n) => n <= low) : c.stock <= low))) return false;
+        if (onlySale && !(c.sale !== "" && +c.sale > 0)) return false;
+        return true;
+      });
+      const allOn = shown.length && shown.every((p) => sel.has(p.id));
+      $("#bkList").innerHTML = shown.length ? `<div class="table-wrap"><table class="t bulk"><thead><tr><th style="width:30px"><input type="checkbox" id="bkAll"${allOn ? " checked" : ""} title="Select all shown"></th><th>Product</th><th style="width:110px">Regular price</th><th style="width:110px">Sale price</th><th>Stock</th><th style="width:130px">Status</th><th class="center" style="width:50px">New</th><th class="center" style="width:70px">Featured</th></tr></thead><tbody>${shown.map((p) => {
+        const c = cur(p), catNames = c.categoryIds.map((id) => (cats.find((x) => x.id === id) || {}).name).filter(Boolean);
+        return `<tr data-id="${esc(p.id)}"${dirty(p) ? ' class="is-dirty"' : ""}><td><input type="checkbox" data-sel${sel.has(p.id) ? " checked" : ""}></td>
+          <td><div class="flex" style="flex-wrap:nowrap">${p.images[0] ? `<img class="thumb" src="${esc(p.images[0])}" alt="" loading="lazy">` : `<span class="thumb" style="background:${esc(p.hex || "#ddd")}"></span>`}<span style="min-width:160px"><input class="input input--sm${mark(p, "name", c.name)}" data-f="name" value="${esc(c.name)}"><small class="muted">${esc(p.sku)}${catNames.length ? " · " + esc(catNames.join(", ")) : ""}</small></span></div></td>
+          <td><input class="input input--sm${mark(p, "regular", c.regular)}" type="number" min="0" data-f="regular" value="${esc(c.regular)}"></td>
+          <td><input class="input input--sm${mark(p, "sale", c.sale)}" type="number" min="0" data-f="sale" value="${esc(c.sale)}" placeholder="No sale">${c.sale !== "" && +c.sale > 0 && +c.regular > +c.sale ? `<small class="muted">${Math.round((1 - c.sale / c.regular) * 100)}% off</small>` : ""}</td>
+          <td>${!c.trackStock ? `<span class="muted small">Not tracked</span>` : p.variants.length ? `<div class="bulk-sizes">${p.variants.map((v) => `<label><span>${esc(optText(v.options))}</span><input class="input input--sm${mark(p, "v:" + v.id, c.vstock[v.id])}${c.vstock[v.id] === 0 ? " is-out" : c.vstock[v.id] <= low ? " is-low" : ""}" type="number" min="0" data-f="v:${esc(v.id)}" value="${esc(c.vstock[v.id])}"></label>`).join("")}<small class="muted">Total ${totalStock(p, c)}</small></div>` : `<input class="input input--sm${mark(p, "stock", c.stock)}" type="number" min="0" data-f="stock" value="${esc(c.stock)}" style="width:90px">`}</td>
+          <td><select class="input input--sm${mark(p, "status", c.status)}" data-f="status"><option value="published"${c.status === "published" ? " selected" : ""}>Published</option><option value="draft"${c.status === "draft" ? " selected" : ""}>Draft</option></select></td>
+          <td class="center"><input type="checkbox" data-f="isNew"${c.isNew ? " checked" : ""}></td><td class="center"><input type="checkbox" data-f="featured"${c.featured ? " checked" : ""}></td></tr>`;
+      }).join("")}</tbody></table></div><p class="muted small" style="padding:10px 14px;margin:0">${shown.length} of ${list.length} products</p>` : `<p class="empty">No products match.</p>`;
+      count();
+    };
+    const redraw = debounce(draw, 150);
+    ["#bkQ"].forEach((s) => { $(s).oninput = redraw; });
+    ["#bkCat", "#bkStatus", "#bkLow", "#bkSaleOnly"].forEach((s) => { $(s).onchange = draw; });
+    $("#bkList").addEventListener("input", (e) => {
+      const el = e.target, tr = el.closest("tr[data-id]"), f = el.dataset.f;
+      if (!tr || !f) return;
+      const p = byId[tr.dataset.id], c = touch(p);
+      let v = el.type === "checkbox" ? el.checked : el.value;
+      if (f.startsWith("v:")) c.vstock[f.slice(2)] = Math.max(0, Math.round(+v || 0));
+      else if (f === "stock") c.stock = Math.max(0, Math.round(+v || 0));
+      else if (f === "regular") c.regular = Math.max(0, Math.round(+v || 0));
+      else if (f === "sale") c.sale = v === "" ? "" : Math.max(0, Math.round(+v || 0));
+      else c[f] = v;
+      if (el.type !== "checkbox") el.classList.toggle("is-changed", was(p, f, f.startsWith("v:") ? c.vstock[f.slice(2)] : c[f]));
+      tr.classList.toggle("is-dirty", !!dirty(p));
+      count();
+    });
+    $("#bkList").addEventListener("change", (e) => {
+      if (e.target.id === "bkAll") { shown.forEach((p) => (e.target.checked ? sel.add(p.id) : sel.delete(p.id))); draw(); return; }
+      if (e.target.matches("[data-sel]")) { const id = e.target.closest("tr").dataset.id; e.target.checked ? sel.add(id) : sel.delete(id); count(); }
+      if (e.target.dataset.f === "isNew" || e.target.dataset.f === "featured" || e.target.dataset.f === "status") draw();
+    });
+    $("#bkAct").onchange = () => {
+      const a = BULK_ACTIONS.flatMap((g) => g[1]).find((x) => x[0] === $("#bkAct").value) || [];
+      $("#bkVal").hidden = a[2] !== 1; $("#bkCatPick").hidden = a[2] !== 2;
+      $("#bkRoundL").hidden = !/^(salePct|upPct)$/.test(a[0] || "");
+      $("#bkVal").placeholder = /Pct$/.test(a[0] || "") ? "%" : /^stock/.test(a[0] || "") ? "Pieces" : "৳";
+      count();
+    };
+    $("#bkApply").onclick = () => {
+      const act = $("#bkAct").value, raw = $("#bkVal").value, val = +raw, cat = $("#bkCatPick").value, round = $("#bkRound").checked;
+      const a = BULK_ACTIONS.flatMap((g) => g[1]).find((x) => x[0] === act);
+      if (!a) return;
+      if (a[2] === 1 && (raw === "" || !isFinite(val))) return toast("Type a number first");
+      const r = (n) => Math.max(0, round ? Math.round(n / 10) * 10 : Math.round(n));
+      let skipped = 0;
+      sel.forEach((id) => {
+        const p = byId[id]; if (!p) return;
+        const c = touch(p), hasSale = c.sale !== "" && +c.sale > 0;
+        if (act === "regular") c.regular = r(val);
+        else if (act === "sale") c.sale = r(val);
+        else if (act === "salePct") c.sale = r(c.regular * (1 - val / 100));
+        else if (act === "saleOff") c.sale = r(c.regular - val);
+        else if (act === "endSale") c.sale = "";
+        else if (act === "upPct") { c.regular = r(c.regular * (1 + val / 100)); if (hasSale) c.sale = r(c.sale * (1 + val / 100)); }
+        else if (act === "upTk") { c.regular = r(c.regular + val); if (hasSale) c.sale = r(+c.sale + val); }
+        else if (act === "stockSet" || act === "stockAdd") {
+          if (!c.trackStock) { skipped++; return; }
+          const f = (n) => Math.max(0, Math.round(act === "stockSet" ? val : n + val));
+          if (p.variants.length) Object.keys(c.vstock).forEach((k) => { c.vstock[k] = f(c.vstock[k]); }); else c.stock = f(c.stock);
+        }
+        else if (act === "trackOn" || act === "trackOff") c.trackStock = act === "trackOn";
+        else if (act === "publish" || act === "draft") c.status = act === "publish" ? "published" : "draft";
+        else if (act === "newOn" || act === "newOff") c.isNew = act === "newOn";
+        else if (act === "featOn" || act === "featOff") c.featured = act === "featOn";
+        else if (act === "catAdd") { if (c.categoryIds.indexOf(cat) < 0) c.categoryIds.push(cat); }
+        else if (act === "catDel") c.categoryIds = c.categoryIds.filter((x) => x !== cat);
+      });
+      draw();
+      toast("Applied to " + (sel.size - skipped) + " product" + (sel.size - skipped === 1 ? "" : "s") + (skipped ? ". " + skipped + " don't track stock, so they were skipped" : "") + ". Check and save.");
+    };
+    $("#bkUndo").onclick = async () => {
+      if (!(await confirmBox("Undo all changes?", "Everything you changed here and haven't saved goes back.", "Undo"))) return;
+      edits = {}; draw();
+    };
+    $("#bkSave").onclick = async () => {
+      const ids = changedIds(), updates = [];
+      for (const id of ids) {
+        const p = byId[id], c = edits[id], b = base(p), u = { id };
+        const sale = c.sale !== "" && +c.sale > 0 ? +c.sale : 0;
+        if (!(c.regular > 0)) return toast(c.name + ": the regular price must be more than 0");
+        if (sale && sale >= c.regular) return toast(c.name + ": the sale price must be lower than the regular price");
+        if (c.regular !== b.regular || c.sale !== b.sale) { u.price = sale || c.regular; u.comparePrice = sale ? c.regular : 0; }
+        ["name", "status", "isNew", "featured", "trackStock"].forEach((k) => { if (c[k] !== b[k]) u[k] = c[k]; });
+        if (JSON.stringify(c.categoryIds) !== JSON.stringify(b.categoryIds)) u.categoryIds = c.categoryIds;
+        if (c.stock !== b.stock) u.stock = c.stock;
+        const vs = Object.keys(c.vstock).filter((k) => c.vstock[k] !== b.vstock[k]).map((k) => ({ id: k, stock: c.vstock[k] }));
+        if (vs.length) u.variants = vs;
+        updates.push(u);
+      }
+      $("#bkSave").disabled = true;
+      try {
+        const r = await api("POST", "/api/products/bulk", { updates });
+        r.products.forEach((np) => { const i = list.findIndex((x) => x.id === np.id); if (i > -1) { list[i] = np; byId[np.id] = np; } delete edits[np.id]; });
+        store = null; toast(r.saved + " product" + (r.saved > 1 ? "s" : "") + " saved"); draw();
+      } catch (err) { fail(err); count(); }
+    };
+    // One row per size, so the file opens neatly in Excel or Google Sheets
+    $("#bkCsv").onclick = () => {
+      const rows = [["SKU", "Product", "Size", "Regular price", "Sale price", "Stock", "Status"]];
+      list.forEach((p) => {
+        const c = cur(p);
+        if (p.variants.length) p.variants.forEach((v) => rows.push([v.sku, c.name, optText(v.options), c.regular, c.sale, c.trackStock ? c.vstock[v.id] : "", c.status]));
+        else rows.push([p.sku, c.name, "", c.regular, c.sale, c.trackStock ? c.stock : "", c.status]);
+      });
+      download("ravelle-bulk-edit.csv", csv(rows));
+    };
+    $("#bkUp").onchange = async (e) => {
+      const file = e.target.files[0]; e.target.value = "";
+      if (!file) return;
+      const rows = parseCsvText(await file.text());
+      const head = (rows.shift() || []).map((h) => h.trim().toLowerCase());
+      const col = (n) => head.indexOf(n);
+      const iSku = col("sku"), iReg = col("regular price"), iSale = col("sale price"), iStock = col("stock"), iStatus = col("status");
+      if (iSku < 0) return toast("The file needs a SKU column. Download the CSV first and edit that.");
+      const bySku = {};
+      list.forEach((p) => { bySku[p.sku] = { p }; p.variants.forEach((v) => { bySku[v.sku] = { p, v }; }); });
+      let hit = 0, miss = 0; const done = {};
+      rows.forEach((r) => {
+        const m = bySku[String(r[iSku] || "").trim().toUpperCase()];
+        if (!m) { miss++; return; }
+        hit++;
+        const c = touch(m.p), cell = (i) => (i < 0 ? undefined : String(r[i] == null ? "" : r[i]).trim());
+        // Prices and status are per product; the first row of a product sets them
+        if (!done[m.p.id]) {
+          done[m.p.id] = 1;
+          if (cell(iReg)) c.regular = Math.max(0, Math.round(+cell(iReg) || 0));
+          if (cell(iSale) !== undefined) c.sale = cell(iSale) === "" || !(+cell(iSale) > 0) ? "" : Math.round(+cell(iSale));
+          if (/^(published|draft)$/i.test(cell(iStatus) || "")) c.status = cell(iStatus).toLowerCase();
+        }
+        if (c.trackStock && cell(iStock) !== undefined && cell(iStock) !== "") {
+          const n = Math.max(0, Math.round(+cell(iStock) || 0));
+          if (m.v) c.vstock[m.v.id] = n; else if (!m.p.variants.length) c.stock = n;
+        }
+      });
+      draw();
+      toast(hit + " rows read" + (miss ? ", " + miss + " SKUs not found" : "") + ". Check the highlighted changes and save.");
     };
     draw();
   }
@@ -2435,7 +2652,7 @@
   const NAV = [
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
     ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["subscribers", "Subscribers", "customers"], ["coupons", "Coupons & offers", "coupons"]]],
-    ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
+    ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["bulk", "Bulk edit", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
     ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"], ["trash", "Trash", "trash"]]]
@@ -2474,7 +2691,7 @@
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"], [/^subscribers$/, viewSubscribers, "customers"],
     [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
-    [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
+    [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"], [/^bulk$/, viewBulk, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"], [/^trash$/, viewTrash, "trash"],
     [/^chat$/, viewChat, "chat"], [/^chat\/([^/]+)$/, viewChat, "chat"], [/^messages$/, viewMessages, "messages"],

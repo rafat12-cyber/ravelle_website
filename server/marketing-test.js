@@ -208,6 +208,35 @@ async function main() {
   await wait(500);
   assert.equal(graphCalls[0].body.requests.length, r.body.sent);
   console.log("✓ Meta catalog: edits and deletes pushed within seconds, send-all works");
+
+  // --- Bulk edit ------------------------------------------------------------------------------------
+  r = await call("GET", "/api/products/" + tee.id, null, token);
+  var full = r.body.product, v0 = full.variants[0], v1 = full.variants[1];
+  graphCalls = [];
+  r = await call("POST", "/api/products/bulk", { updates: [
+    { id: tee.id, price: 990, comparePrice: 1290, featured: true, variants: [{ id: v0.id, stock: 0 }, { id: v1.id, stock: 42 }] },
+    { id: pants.id, status: "draft", categoryIds: pants.categoryIds.concat(["cat_men"]) }
+  ] }, token);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.saved, 2);
+  r = await call("GET", "/api/products/" + tee.id, null, token);
+  assert.equal(r.body.product.price, 990); assert.equal(r.body.product.comparePrice, 1290); assert.ok(r.body.product.featured);
+  assert.equal(r.body.product.variants[0].stock, 0); assert.equal(r.body.product.variants[1].stock, 42);
+  assert.equal(r.body.product.variants[2].stock, full.variants[2].stock, "sizes not sent stay as they were");
+  assert.equal(r.body.product.variants[0].sku, v0.sku, "SKUs unchanged");
+  r = await call("GET", "/api/products/" + pants.id, null, token);
+  assert.equal(r.body.product.status, "draft");
+  // One bad row stops the whole save
+  r = await call("POST", "/api/products/bulk", { updates: [{ id: tee.id, price: 500 }, { id: pants.id, price: 900, comparePrice: 800 }] }, token);
+  assert.equal(r.status, 400);
+  assert.ok(/regular price must be more/.test(r.body.error), r.body.error);
+  r = await call("GET", "/api/products/" + tee.id, null, token);
+  assert.equal(r.body.product.price, 990, "nothing saved when one row is wrong");
+  r = await call("POST", "/api/products/bulk", { updates: [{ id: tee.id, price: 500 }] });
+  assert.equal(r.status, 401);
+  await wait(3600);
+  assert.ok(graphCalls.some(function (c) { return c.body.requests.some(function (x) { return x.data.id === tee.sku && x.data.sale_price === "990.00 BDT"; }); }), "bulk changes reach the Meta catalog");
+  console.log("✓ bulk edit: prices, sizes, status and categories in one save; all-or-nothing; synced to Meta");
   console.log("\nAll marketing checks passed.");
 }
 

@@ -244,7 +244,7 @@
       if (b.details !== undefined) p.details = (Array.isArray(b.details) ? b.details : String(b.details).split("\n")).map(function (d) { return str(d, 300); }).filter(Boolean).slice(0, 20);
       if (b.images !== undefined) p.images = (b.images || []).map(function (u) { return str(u, 4000000); }).filter(Boolean).slice(0, 20);
       if (b.sizeGuide !== undefined) p.sizeGuide = str(b.sizeGuide, 4000000);
-      if (b.categoryIds !== undefined) p.categoryIds = (b.categoryIds || []).filter(function (id) { return db.categories.some(function (c) { return c.id === id; }); });
+      if (b.categoryIds !== undefined) p.categoryIds = (b.categoryIds || []).filter(function (id, i, all) { return all.indexOf(id) === i && db.categories.some(function (c) { return c.id === id; }); });
       ["isNew", "featured", "trackStock"].forEach(function (k) { if (b[k] !== undefined) p[k] = bool(b[k]); });
       if (p.trackStock === undefined) p.trackStock = true;
       if (b.stock !== undefined) p.stock = Math.max(0, int(b.stock));
@@ -1508,6 +1508,39 @@
       if (JSON.stringify(productStock(before)) !== JSON.stringify(productStock(p))) emit(db, "stock.updated", { productId: p.id, sku: p.sku, stock: productStock(p) });
       return { product: Object.assign(publicProduct(p), { status: p.status }) };
     }
+    // Bulk edit: many products in one save. All changes are checked first; if one is wrong, nothing is saved.
+    route("POST", "/api/products/bulk", "products", function (c) {
+      var db = c.db, ups = Array.isArray(c.body.updates) ? c.body.updates.slice(0, 1000) : [], made = [];
+      if (!ups.length) fail(400, "Nothing to save.");
+      ups.forEach(function (u) {
+        var idx = db.products.findIndex(function (p) { return p.id === u.id; });
+        if (idx < 0) fail(404, "Product not found: " + str(u.id, 40));
+        var before = db.products[idx], b = {};
+        ["name", "price", "comparePrice", "status", "isNew", "featured", "trackStock", "categoryIds", "stock"].forEach(function (k) { if (u[k] !== undefined) b[k] = u[k]; });
+        if (Array.isArray(u.variants) && (before.variants || []).length) {
+          var byId = {};
+          u.variants.forEach(function (v) { if (v && v.id) byId[v.id] = v; });
+          b.variants = before.variants.map(function (v) {
+            var n = byId[v.id] || {};
+            return { id: v.id, sku: v.sku, options: v.options, price: n.price !== undefined ? n.price : v.price, stock: n.stock !== undefined ? n.stock : v.stock };
+          });
+        }
+        var p;
+        try { p = cleanProduct(db, b, before); } catch (e) { e.message = before.name + ": " + e.message; throw e; }
+        if (p.comparePrice && p.comparePrice <= p.price) fail(400, before.name + ": the regular price must be more than the sale price.");
+        made.push({ idx: idx, before: before, p: p });
+      });
+      made.forEach(function (m) {
+        db.products[m.idx] = m.p;
+        emit(db, "product.updated", publicProduct(m.p));
+        if (JSON.stringify(productStock(m.before)) !== JSON.stringify(productStock(m.p))) {
+          emit(db, "stock.updated", { productId: m.p.id, sku: m.p.sku, stock: productStock(m.p) });
+          if ((m.p.variants || []).length) m.p.variants.forEach(function (v, i) { var o = (m.before.variants || [])[i]; if (!o || o.stock !== v.stock) lowStockCheck(db, m.p, v); });
+          else lowStockCheck(db, m.p);
+        }
+      });
+      return { saved: made.length, products: made.map(function (m) { return Object.assign(publicProduct(m.p), { status: m.p.status }); }) };
+    });
     route("PUT", "/api/products/:id", "products", saveProduct);
     route("PATCH", "/api/products/:id", "products", saveProduct);
     route("DELETE", "/api/products/:id", "products", function (c) {
