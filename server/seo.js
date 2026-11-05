@@ -375,6 +375,9 @@ function metaItem(db, base, p) {
   if (r.color) d.color = r.color;
   if (r.sizes.length) d.size = r.sizes.join("/");
   if (r.stock !== null) d.quantity_to_sell_on_facebook = r.stock;
+  // Labels for product sets in Commerce Manager ("New in", "On sale"); empty clears an old label
+  d.custom_label_0 = r.isNew ? "new in" : "";
+  d.custom_label_1 = r.salePrice ? "on sale" : "";
   return d;
 }
 function catalogProducts(db) { return published(db).filter(function (p) { return p.sku && p.price > 0 && (p.images || []).length; }); }
