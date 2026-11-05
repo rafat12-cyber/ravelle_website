@@ -389,3 +389,19 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cart-rem.is-bad { color: var(--danger); font-weight: 600; }
 .tr-thumb { display: inline-grid; place-items: center; background: var(--panel); color: var(--ink-2); font-weight: 700; }
 a.tab { text-decoration: none; }
+
+/* Bulk edit */
+.bulk-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; margin: 12px 0; position: sticky; top: 0; z-index: 5; }
+.bulk-bar .input { width: auto; }
+.t.bulk td { vertical-align: top; }
+.t.bulk .center, .t.bulk th.center { text-align: center; }
+.t.bulk tr.is-dirty td { background: var(--warn-bg); }
+.t.bulk .input.is-changed { border-color: var(--warn); background: var(--paper); box-shadow: 0 0 0 1px var(--warn); }
+.t.bulk .input.is-out { color: var(--danger); }
+.t.bulk .input.is-low { color: var(--warn); }
+.t.bulk small { display: block; margin-top: 3px; }
+.bulk-sizes { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+.bulk-sizes label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--ink-2); }
+.bulk-sizes .input { width: 62px; }
+.t.bulk select.input { min-width: 118px; }
+@media (max-width: 700px) { .toolbar .grow { flex-basis: 100%; } }

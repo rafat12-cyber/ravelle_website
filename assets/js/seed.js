@@ -260,17 +260,8 @@
       eyebrow: "Store locations", title: "Find a", accent: "Ravelle", titleEnd: "store.",
       intro: "Try the fit in person. Every store carries the latest drops.",
       emptyText: "We have no shops yet, you can order online.",
-      districtOrder: ["Dhaka", "Chattogram", "Sylhet"],
-      shops: [
-        { id: "shp_demo1", name: "Ravelle Banani", type: "own", district: "Dhaka", image: "assets/img/about.webp", address: "House 12, Road 11, Banani, Dhaka 1213",
-          phone: "01700-000001", email: "banani@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
-        { id: "shp_demo2", name: "Ravelle Dhanmondi", type: "own", district: "Dhaka", image: "assets/img/home/lb-2.webp", address: "Road 27, Dhanmondi, Dhaka 1209",
-          phone: "01700-000002", email: "dhanmondi@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
-        { id: "shp_demo3", name: "Ravelle GEC Circle", type: "franchise", district: "Chattogram", image: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram 4000",
-          phone: "01700-000003", email: "gec@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" },
-        { id: "shp_demo4", name: "Ravelle Zindabazar", type: "franchise", district: "Sylhet", image: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet 3100",
-          phone: "01700-000004", email: "sylhet@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" }
-      ]
+      districtOrder: [],
+      shops: []
     },
     franchise: {
       eyebrow: "Franchise", title: "Open a", accent: "Ravelle", titleEnd: "store.",
@@ -283,17 +274,7 @@
       pdfTitle: "Franchise guide", pdfText: "Rules, investment, store requirements and how the franchise system works.", pdf: "",
       formTitle: "Request a franchise", formNote: "Tell us about you and your location, and pick a time to meet. We reply within two working days.",
       storiesTitle: "From our franchise partners",
-      stories: [
-        { id: "fst_demo1", storeName: "Ravelle GEC Circle", storeImage: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram",
-          ownerName: "Tanvir Hossain", ownerImage: "assets/img/demo/owner-1.webp", opinion: "The products sell themselves. Customers come in already knowing the designs from Instagram.",
-          experience: "We opened in March with a 400 sq ft space. Ravelle's team set up the store and trained our staff, and we broke even in the fifth month." },
-        { id: "fst_demo2", storeName: "Ravelle Zindabazar", storeImage: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet",
-          ownerName: "Arif Rahman", ownerImage: "assets/img/demo/owner-2.webp", opinion: "Restocks arrive on time and the margins are clear from the start.",
-          experience: "I ran a small clothing shop before. Moving to Ravelle gave me a brand people trust, and weekend sales doubled within three months." },
-        { id: "fst_demo3", storeName: "Ravelle Uttara", storeImage: "assets/img/home/lb-2.webp", address: "Sector 7, Uttara, Dhaka",
-          ownerName: "Nabil Ahmed", ownerImage: "assets/img/demo/owner-3.webp", opinion: "Support is one call away. They helped with everything from the shop sign to the first drop.",
-          experience: "We started as a pop-up during Eid and turned it into a full store a month later." }
-      ]
+      stories: []
     },
     terms: {
       title: "Terms & conditions", updated: "28 October 2026",

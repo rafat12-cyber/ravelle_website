@@ -24,7 +24,7 @@ The online store for [Ravelle – A Life Style Brand](https://ravellebd.com/): s
 - **Subscribers:** emails and phone numbers from the popup sign-up, the footer box and coming-soon pages, with CSV export and one-click **ad audience** files for Meta Custom Audiences and Google Customer Match.
 - **Popup banner** can ask for an email or phone and hand out a welcome code, which is applied at checkout by itself.
 - **Email:** invoice on every order, emails when an order is confirmed, shipped (with the courier tracking) and delivered, abandoned-cart reminders.
-- **Products:** photos, prices, categories, variations with their own SKU, price and stock, size guide image, draft or published, duplicate. **Stock** shows every SKU on one page.
+- **Products:** photos, prices, categories, variations with their own SKU, price and stock, size guide image, draft or published, duplicate. **Stock** shows every SKU on one page. **Bulk edit** changes regular and sale price, stock per size, name, status, New, Featured, stock tracking and categories for many products at once (or % off, add stock, etc. for the selected ones), and can download and upload the same thing as a CSV.
 - **Categories** and sub-categories, **Variations** (Size, Colour or any type you add).
 - **Pages:** a visual editor. Click text in the live preview to type over it, click a photo to change it. The design stays fixed.
 - **Menus:** header menu with dropdowns and footer columns, linking categories, pages or any address.
@@ -117,7 +117,7 @@ The checkout sends the customer to SSLCOMMERZ and back to `/api/payments/sslcomm
 
 ## Demo mode
 
-Open `index.html` straight from the folder, add `?demo` to the address, or host the files without the Node server, and the store runs entirely in your browser with sample orders, customers and chats so you can try the admin. Demo sign-in: `admin@ravellebd.com` / `ravelle-demo`. Nothing leaves the browser; **Reset** in the admin puts the sample data back.
+Open `index.html` straight from the folder, add `?demo` to the address (ignored on the live Node server), or host the files without the Node server, and the store runs entirely in your browser with the real products and pages and no orders or customers, so you can try the admin. Demo sign-in: `admin@ravellebd.com` / `ravelle-demo`. Nothing leaves the browser; **Reset** in the admin starts the demo over.
 
 ## Structure
 
