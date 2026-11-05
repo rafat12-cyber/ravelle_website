@@ -2111,23 +2111,39 @@
     badge.hidden = !chat.unread || chat.open;
     badge.textContent = chat.unread;
   }
+  // Checking for replies costs as little as possible:
+  // - chat window open (live server): the server holds each check until a reply arrives (up to 25 s), so replies show at once
+  // - window closed: a quiet check every 30 s for an hour after the last message, then every 2 min for a day, then none
+  //   (opening the chat checks again)
+  // - browser tab in the background: no checks at all until the visitor comes back
+  var chatBusy = false;
   function pollChat() {
     clearTimeout(chat.timer);
-    if (!chat.session) return;
-    api("GET", "/api/chat/" + chat.session.id + "?token=" + encodeURIComponent(chat.session.token) + "&since=" + chat.last).then(function (r) {
+    if (!chat.session || chatBusy || document.hidden) return;
+    var live = chat.open && PATHS, t0 = Date.now(), fresh = [];
+    chatBusy = true;
+    api("GET", "/api/chat/" + chat.session.id + "?token=" + encodeURIComponent(chat.session.token) + "&since=" + chat.last + (live ? "&wait=1" : "")).then(function (r) {
       if (r.messages.length) {
-        var fresh = r.messages.filter(function (m) { return !chat.messages.some(function (x) { return x.id === m.id; }); });
+        fresh = r.messages.filter(function (m) { return !chat.messages.some(function (x) { return x.id === m.id; }); });
         chat.messages = chat.messages.concat(fresh);
         chat.last = chat.messages[chat.messages.length - 1].at;
-        if (!chat.open) chat.unread += fresh.filter(function (m) { return m.from !== "customer"; }).length;
+        var seen = +store.get("chatSeen", 0);
+        if (chat.open) store.set("chatSeen", chat.last);
+        else chat.unread += fresh.filter(function (m) { return m.from !== "customer" && m.at > seen; }).length;
         drawChat();
       }
     }, function (err) {
       if (err.status === 404) { chat.session = null; store.set("chat", null); chat.messages = []; drawChat(); }
     }).then(function () {
-      chat.timer = setTimeout(pollChat, chat.open ? 3500 : 20000);
+      chatBusy = false;
+      if (!chat.session) return;
+      var held = live && Date.now() - t0 > 1500, idle = Date.now() - (chat.last || 0);
+      // a held check that came back (or the window just opened) asks again at once; a quick empty answer means no holding, so wait
+      var liveNext = chat.open && PATHS, delay = chat.open ? (liveNext && (!live || held || fresh.length) ? 250 : 3500) : idle < 36e5 ? 30e3 : idle < 864e5 ? 120e3 : 0;
+      if (delay) chat.timer = setTimeout(pollChat, delay);
     });
   }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && chat.session) pollChat(); });
   function sendChat(text, image) {
     var go = function () {
       var msg = { id: "tmp" + Date.now(), from: "customer", text: text, image: image, at: Date.now() };
@@ -2157,7 +2173,8 @@
     chat.open = force === undefined ? !chat.open : force;
     $("#chat").classList.toggle("is-open", chat.open);
     $("#chatPanel").setAttribute("aria-hidden", chat.open ? "false" : "true");
-    if (chat.open) { chat.unread = 0; drawChat(); setTimeout(function () { $("#chatText").focus(); }, 60); pollChat(); }
+    if (chat.open) { chat.unread = 0; if (chat.last) store.set("chatSeen", chat.last); drawChat(); setTimeout(function () { $("#chatText").focus(); }, 60); pollChat(); }
+    else if (!chatBusy) pollChat(); // switch from the held check back to the slow one
     drawChat();
   }
   $("#chatForm").addEventListener("submit", function (e) {
