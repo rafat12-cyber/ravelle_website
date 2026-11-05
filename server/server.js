@@ -699,7 +699,7 @@ function serveIndex(req, res, p, search) {
   fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
     if (err) return text(res, 500, "Could not read the page.");
     var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
-    html = Seo.render(versioned(html), page).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+    html = Seo.announce(Seo.render(versioned(html), page), db.settings).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
       .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
     send(req, res, page.status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" }, html);
   });
@@ -753,6 +753,14 @@ function serveStatic(req, res, p, search) {
   var inside = p === "/docs/API.md" ? path.join(ROOT, "docs") : base === UPLOADS ? UPLOADS : ASSETS;
   if (path.resolve(file).indexOf(inside + path.sep) !== 0) return text(res, 403, "Forbidden");
   fs.stat(file, function (err, st) {
+    // A small copy of a site photo ("-s" / "-m") that doesn't exist yet: send the full photo instead
+    if ((err || !st.isFile()) && base === ROOT && /-[sm]\.webp$/i.test(file)) {
+      var full = file.replace(/-[sm]\.webp$/i, ".webp");
+      return fs.stat(full, function (e2, st2) {
+        if (e2 || !st2.isFile()) return text(res, 404, "Not found");
+        sendFile(req, res, full, st2, { "Content-Type": "image/webp", "Content-Length": st2.size, "Last-Modified": st2.mtime.toUTCString(), "Cache-Control": "public, max-age=3600" });
+      });
+    }
     // Site images are WebP now; older saved data may still point at the .jpg/.png name
     if ((err || !st.isFile()) && base === ROOT && /\.(jpe?g|png)$/i.test(file)) {
       return fs.stat(file.replace(/\.(jpe?g|png)$/i, ".webp"), function (e2, st2) {
@@ -765,10 +773,11 @@ function serveStatic(req, res, p, search) {
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };
     // Uploads never change name; CSS/JS with ?v= are cached for a year (a new version = a new URL); anything else is re-checked each time
     var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
-    // Site photos and fonts change only with an update: kept a day, then refreshed in the background
-    var media = /\.(webp|jpe?g|png|gif|avif|svg|ico|woff2)$/.test(ext);
-    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" :
-      media ? "public, max-age=86400, stale-while-revalidate=604800" : "no-cache";
+    // Fonts never change; site photos change only with an update: kept 30 days, then refreshed in the background
+    // (to change a photo in /assets, save the new one under a new file name so browsers fetch it)
+    var media = /\.(webp|jpe?g|png|gif|avif|svg|ico)$/.test(ext);
+    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset || ext === ".woff2" ? "public, max-age=31536000, immutable" :
+      media ? "public, max-age=2592000, stale-while-revalidate=604800" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
     if (base === UPLOADS) { headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"; if (ext === ".pdf") headers["Content-Disposition"] = "inline"; }
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }

@@ -38,7 +38,7 @@ function call(method, p, body, token) {
       res.on("end", function () {
         var t = Buffer.concat(b).toString();
         var j; try { j = JSON.parse(t); } catch (e) { j = t; }
-        resolve({ status: res.statusCode, body: j });
+        resolve({ status: res.statusCode, body: j, headers: res.headers });
       });
     });
     req.on("error", reject);
@@ -159,6 +159,24 @@ async function main() {
   r = await call("GET", "/assets/../data/db.json");
   assert.notEqual(r.status, 200);
   console.log("✓ media upload and private data folder");
+
+  // Speed: small photo copies, the full photo when a copy is missing, long image caching, local fonts
+  var imgDir = path.join(__dirname, "..", "assets", "img");
+  var missing = fs.readdirSync(path.join(imgDir, "products")).filter(function (f) { return /\.webp$/.test(f) && !/-s\.webp$/.test(f) && !fs.existsSync(path.join(imgDir, "products", f.replace(/\.webp$/, "-s.webp"))); })
+    .concat(fs.readdirSync(path.join(imgDir, "home")).filter(function (f) { return /^look-\d+\.webp$/.test(f) && !fs.existsSync(path.join(imgDir, "home", f.replace(/\.webp$/, "-s.webp"))); }));
+  assert.deepEqual(missing, [], "every product and Try the Look photo has its small -s copy (see docs)");
+  r = await call("GET", "/assets/img/about-m.webp");
+  assert.equal(r.status, 200, "missing -m copy falls back to the full photo");
+  r = await call("GET", "/assets/img/nothing-here-s.webp");
+  assert.equal(r.status, 404);
+  r = await call("GET", "/assets/img/logo.webp");
+  assert.ok(/max-age=2592000/.test(r.headers["cache-control"]), "site photos cached 30 days");
+  r = await call("GET", "/assets/fonts/archivo-latin.woff2");
+  assert.equal(r.status, 200);
+  assert.ok(/immutable/.test(r.headers["cache-control"]));
+  r = await call("GET", "/");
+  assert.ok(!/fonts\.googleapis\.com/.test(r.body), "fonts are served from the site");
+  console.log("✓ fast loading: small photo copies, fallbacks, caching, local fonts");
 
   await wait(600);
   var events = received.map(function (x) { return x.headers["x-ravelle-event"]; });
