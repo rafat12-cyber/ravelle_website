@@ -9,9 +9,11 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v6";
+  var DB_KEY = "ravelle:demo-db:v26";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
+  // The server stamps the current asset version on the page (cache busting); the demo uses the fixed one
+  function assetV(fallback) { var m = document.querySelector('meta[name="rv-v"]'); return (m && m.content) || fallback; }
   function loadScript(src) {
     return new Promise(function (resolve, reject) {
       var s = document.createElement("script");
@@ -71,6 +73,8 @@
     demo = {
       call: function (method, path, body, token) {
         var db = readDb() || buildDemoDb();
+        // the server sends cart reminders every minute; the demo checks on each request
+        if (engine.handle({ method: "POST", path: "/api/internal/cart-reminders", internal: true, body: {}, query: {}, headers: {} }, db).body.sent) writeDb(db);
         var q = {}, parts = path.split("?");
         if (parts[1]) parts[1].split("&").forEach(function (kv) { var p = kv.split("="); q[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ""); });
         var out = engine.handle({ method: method, path: parts[0], query: q, body: body ? JSON.parse(JSON.stringify(body)) : {}, headers: token ? { authorization: "Bearer " + token } : {} }, db);
@@ -93,6 +97,25 @@
     db.demo = true;
     var salt = hex(8);
     db.users.push({ id: "usr_demo", name: "Rafat", email: DEMO_LOGIN.email, role: "owner", salt: salt, passwordHash: demoHash(DEMO_LOGIN.password, salt), createdAt: Date.now() });
+    var s2 = hex(8);
+    db.users.push({ id: "usr_demo2", name: "Sadia (orders)", email: "orders@ravellebd.com", role: "custom", areas: ["orders", "customers", "chat", "messages"], salt: s2, passwordHash: demoHash("orders-demo", s2), createdAt: Date.now() - 3 * 864e5 });
+    var day = function (n) { return new Date(Date.now() + n * 864e5).toISOString().slice(0, 10); };
+    var P = db.products, line = function (p, n) { var v = (p.variants || [])[1] || null; return { productId: p.id, variantId: v ? v.id : null, name: p.name, options: v ? v.options : {}, image: p.images[0] || "", price: p.price, qty: n, lineTotal: p.price * n }; };
+    var cartOf = function (id, mins, cu, items, extra) { var t = Date.now() - mins * 60e3, tot = items.reduce(function (s, i) { return s + i.lineTotal; }, 0);
+      return Object.assign({ id: id, token: hex(12), cid: "c" + hex(6), createdAt: t - 4 * 60e3, updatedAt: t, status: "open", reminders: [], customer: cu, items: items, total: tot, zone: "inside-dhaka", source: "Facebook ads" }, extra || {}); };
+    db.carts = [
+      cartOf("crt_demo1", 35, { name: "Nusrat Jahan", phone: "01712000111", email: "nusrat@example.com", address: "Road 4, Mirpur 10", city: "Dhaka" }, [line(P[0], 1), line(P[5], 1)]),
+      cartOf("crt_demo2", 26 * 60, { name: "Fahim Karim", phone: "01812000222", email: "", address: "", city: "Chattogram" }, [line(P[2], 2)], { source: "Instagram" }),
+      cartOf("crt_demo3", 3 * 60, { name: "Tasnim Ahmed", phone: "01912000333", email: "tasnim@example.com", address: "Sector 11, Uttara", city: "Dhaka" }, [line(P[8], 1)],
+        { status: "recovered", orderNumber: "RV1003", orderTotal: P[8].price + 60, orderedAt: Date.now() - 2 * 3600e3, reminders: [{ n: 1, at: Date.now() - 160 * 60e3, auto: true, channel: "email", status: "Sent", ok: true }], clickedAt: Date.now() - 130 * 60e3 }),
+      cartOf("crt_demo4", 2, { name: "Rakib", phone: "01612000444", email: "", address: "", city: "" }, [line(P[3], 1)])
+    ];
+    db.franchise = [
+      { id: "frq_demo1", name: "Mahfuz Alam", phone: "01811000111", email: "mahfuz@example.com", district: "Rajshahi", area: "Shaheb Bazar", space: "I have a shop space", investment: "৳10 – 20 lakh",
+        experience: "I run a mobile accessories shop in the same market for 6 years.", meetingType: "At the Ravelle office", meetingDate: day(3), meetingTime: "2pm – 4pm", message: "", status: "new", note: "", read: false, createdAt: Date.now() - 5 * 36e5 },
+      { id: "frq_demo2", name: "Sumaiya Khan", phone: "01911000222", email: "", district: "Khulna", area: "KDA Avenue", space: "I will rent a space", investment: "৳20 – 40 lakh",
+        experience: "", meetingType: "Video call", meetingDate: day(1), meetingTime: "6pm – 8pm", message: "Can the store also sell women's pieces?", status: "meeting", note: "Video call booked.", read: true, createdAt: Date.now() - 2 * 864e5 }
+    ];
     var seed = 7;
     var rnd = function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
     var pick = function (a) { return a[Math.floor(rnd() * a.length)]; };
@@ -118,6 +141,26 @@
       var dk = new Date(now - d * day).toISOString().slice(0, 10);
       var visits = Math.round(60 + rnd() * 70 + (44 - d) * 2.2);
       var dayStats = db.stats.days[dk] = { visits: visits, views: {}, carts: {} };
+      // Sample traffic so the Analytics page has something to show in the demo
+      var spread = function (pairs, total) {
+        var m = {}, sum = pairs.reduce(function (s, x) { return s + x[1]; }, 0);
+        pairs.forEach(function (x) { var v = Math.round(total * x[1] / sum * (0.8 + rnd() * 0.4)); if (v) m[x[0]] = v; });
+        return m;
+      };
+      dayStats.src = spread([["Facebook", 46], ["Instagram", 22], ["Direct", 16], ["Google", 9], ["TikTok", 4], ["WhatsApp", 3]], visits);
+      dayStats.dev = spread([["Mobile", 82], ["Desktop", 14], ["Tablet", 4]], visits);
+      dayStats.br = spread([["Chrome", 44], ["Facebook app", 26], ["Instagram app", 10], ["Samsung Internet", 8], ["Safari", 9], ["Other", 3]], visits);
+      dayStats.os = spread([["Android", 72], ["iOS", 14], ["Windows", 12], ["macOS", 2]], visits);
+      dayStats.lands = spread([["home", 58], ["shop", 14], ["product/oversized-t-shirt-fearless-black", 12], ["new-in", 9], ["on-sale", 7]], visits);
+      dayStats.newVisitors = Math.round(visits * (0.55 + rnd() * 0.15));
+      dayStats.pageviews = Math.round(visits * (3.2 + rnd() * 1.6));
+      dayStats.pages = spread([["home", 30], ["shop", 18], ["men", 9], ["women", 6], ["new-in", 8], ["on-sale", 7], ["checkout", 3], ["search", 3], ["track", 2], ["about", 1], ["contact", 1]], dayStats.pageviews * 0.7);
+      dayStats.hours = [];
+      for (var hr = 0; hr < 24; hr++) dayStats.hours.push(Math.round(visits * [1, 0.6, 0.3, 0.2, 0.2, 0.3, 0.6, 1.2, 1.8, 2.4, 3, 3.4, 3.6, 3.8, 3.6, 3.4, 3.6, 4.2, 4.8, 5.6, 6.4, 6.8, 5.2, 2.8][hr] / 78.8));
+      dayStats.searches = spread([["fearless", 5], ["black tee", 4], ["polo", 3], ["oversized", 3], ["shirt", 2], ["trouser", 2]], visits * 0.06);
+      dayStats.noResults = spread([["hoodie", 3], ["jacket", 2], ["panjabi", 2]], visits * 0.015);
+      dayStats.funnel = { view: Math.round(visits * (0.58 + rnd() * 0.1)), cart: Math.round(visits * (0.12 + rnd() * 0.05)), checkout: Math.round(visits * (0.05 + rnd() * 0.02)) };
+      dayStats.checkouts = Math.round(dayStats.funnel.checkout * 1.2);
       db.products.forEach(function (p, idx) {
         var weight = p.featured ? 3 : p.isNew ? 2 : 1;
         dayStats.views[p.id] = Math.round(rnd() * 9 * weight + 2);
@@ -147,7 +190,7 @@
           paymentStatus: pay === "sslcommerz" ? (status === "cancelled" ? "refunded" : "paid") : status === "delivered" ? "paid" : "unpaid",
           paymentMethod: pay, customer: { name: who.name, phone: who.phone, email: "", address: "House " + (1 + Math.floor(rnd() * 90)) + ", " + who.place[0], city: who.place[1] },
           shippingZone: { id: zone.id, name: zone.name, days: zone.days }, items: lines, subtotal: subtotal, discount: discount, coupon: useCoupon ? "WELCOME10" : "",
-          shipping: zone.fee, total: subtotal - discount + zone.fee, note: "", source: "website", restocked: status === "cancelled" || status === "returned",
+          shipping: zone.fee, total: subtotal - discount + zone.fee, note: "", source: pick(["Facebook", "Facebook", "Facebook", "Instagram", "Instagram", "Direct", "Google", "TikTok"]), restocked: status === "cancelled" || status === "returned",
           history: [{ at: at, status: "pending", note: "Order placed", by: "Customer" }].concat(status === "pending" ? [] : [{ at: at + 36e5 * 3, status: status, note: "Status: " + status, by: "Rafat" }])
         };
         if (useCoupon) db.coupons[0].used++;
@@ -184,8 +227,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js"))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js"); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=" + assetV("1171")))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=" + assetV("1168")); })
       .then(function () { startDemo(); return m; });
   });
 

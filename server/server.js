@@ -10,6 +10,8 @@
 
 var http = require("http");
 var https = require("https");
+var tls = require("tls");
+var net = require("net");
 var fs = require("fs");
 var path = require("path");
 var crypto = require("crypto");
@@ -21,10 +23,15 @@ loadEnv(path.join(ROOT, ".env"));
 var PORT = +process.env.PORT || 3000;
 var DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || "data");
 var UPLOADS = path.join(DATA_DIR, "uploads");
+var ASSETS = path.join(ROOT, "assets");
 var DB_FILE = path.join(DATA_DIR, "db.json");
 var PUBLIC_URL = (process.env.PUBLIC_URL || "http://localhost:" + PORT).replace(/\/+$/, "");
 var SSLC_ID = process.env.SSLC_STORE_ID || "";
 var SSLC_PASS = process.env.SSLC_STORE_PASSWORD || "";
+var HTTPS_SITE = /^https:/.test(PUBLIC_URL);
+// Only trust X-Forwarded-For when the store runs behind your own proxy (nginx, Caddy, cPanel's Node app, Cloudflare).
+// Otherwise anyone can send a fake address in that header and skip every rate limit.
+var TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || "");
 
 var Core = require(path.join(ROOT, "assets/js/core.js"));
 var SEED = require(path.join(ROOT, "assets/js/seed.js"));
@@ -41,6 +48,7 @@ else {
   db = Core.freshDb(SEED);
   console.log("Created a new store database at " + DB_FILE);
 }
+var upgraded = Core.upgradeDb(db, SEED);
 if (!db.users.length) {
   var email = (process.env.ADMIN_EMAIL || "admin@ravellebd.com").toLowerCase();
   var pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString("base64url");
@@ -48,7 +56,7 @@ if (!db.users.length) {
   db.users.push({ id: "usr_" + random(6), name: "Owner", email: email, role: "owner", salt: salt, passwordHash: hashPassword(pw, salt), createdAt: Date.now() });
   console.log("\n  Admin login: " + email + " / " + pw + "\n  Change this password after you sign in.\n");
   saveNow();
-}
+} else if (upgraded) saveNow();
 
 var saveTimer = null;
 function save() {
@@ -106,6 +114,113 @@ function deliver(job, attempt) {
     if (!ok && attempt < 3) setTimeout(function () { deliver(job, attempt + 1); }, attempt === 1 ? 5000 : 30000);
   });
 }
+// Meta Conversions API: send one event straight to Meta from this server (no Google Tag Manager or other app)
+var capiStatus = null;
+function metaEvent(job) {
+  var body = JSON.stringify(Object.assign({ data: [job.event] }, job.testCode ? { test_event_code: job.testCode } : {}));
+  var url = (process.env.META_GRAPH_URL || "https://graph.facebook.com/v21.0") + "/" + encodeURIComponent(job.pixelId) + "/events?access_token=" + encodeURIComponent(job.token);
+  var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 8000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+    var chunks = "";
+    res.on("data", function (d) { if (chunks.length < 2000) chunks += d; });
+    res.on("end", function () {
+      var msg = "";
+      try { var j = JSON.parse(chunks); msg = j.error ? j.error.message : "Received " + (j.events_received || 0) + " event"; } catch (e) { msg = "HTTP " + res.statusCode; }
+      capiStatus = { at: Date.now(), ok: res.statusCode === 200, event: job.event.event_name, message: String(msg).slice(0, 300) };
+      if (res.statusCode !== 200) console.warn("Meta Conversions API:", msg);
+    });
+  });
+  req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+  req.on("error", function (e) { capiStatus = { at: Date.now(), ok: false, event: job.event.event_name, message: e.message }; });
+  req.end(body);
+}
+// Acore: send orders to Acore, retry the ones that failed, and take signed status updates back
+var acoreLast = { send: null, webhook: null };
+function acoreSend(job) {
+  // Called from inside a request; send after it finishes so the order is saved first
+  setImmediate(function () {
+    var body = JSON.stringify(job.payload);
+    var url = job.url + "/api/integrations/website/orders";
+    var u;
+    try { u = new URL(url); } catch (e) { return acoreDone(job, false, "", "The Acore address isn't valid."); }
+    var req = (u.protocol === "https:" ? https : http).request(u, { method: "POST", timeout: 10000, headers: {
+      "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "Authorization": "Bearer " + job.apiKey, "User-Agent": "Ravelle-Website/1.0" } }, function (res) {
+      var text = "";
+      res.on("data", function (d) { if (text.length < 4000) text += d; });
+      res.on("end", function () {
+        var j = {};
+        try { j = JSON.parse(text || "{}"); } catch (e) {}
+        var ok = res.statusCode >= 200 && res.statusCode < 300;
+        var errText = j.error && typeof j.error === "object" ? j.error.message || JSON.stringify(j.error) : j.error;
+        acoreDone(job, ok, ok ? String(j.id || j.acore_order_id || (j.order && j.order.id) || (j.data && j.data.id) || "") : "", ok ? "" : (errText || j.message || "Acore answered " + res.statusCode));
+      });
+    });
+    req.on("timeout", function () { req.destroy(new Error("Acore didn't answer in time.")); });
+    req.on("error", function (e) { acoreDone(job, false, "", e.message); });
+    req.end(body);
+  });
+}
+function acoreDone(job, ok, acoreId, error) {
+  acoreLast.send = { at: Date.now(), ok: ok, order: job.payload.number, message: ok ? "Sent" + (acoreId ? " · Acore id " + acoreId : "") : String(error).slice(0, 200) };
+  if (!ok) console.warn("Acore: order " + job.payload.number + " not sent: " + error);
+  try { run({ method: "POST", path: "/api/internal/acore-sent", internal: true, body: { orderId: job.orderId, ok: ok, acoreId: acoreId, error: error } }); } catch (e) { console.error(e); }
+}
+setInterval(function () {
+  var out = core.handle({ method: "GET", path: "/api/internal/acore-due", internal: true }, db);
+  ((out.body || {}).orders || []).forEach(acoreSend);
+}, 2 * 60e3).unref();
+function acoreWebhook(req, raw, body, res) {
+  var secret = ((db.settings || {}).acore || {}).webhookSecret || "";
+  var sent = String(req.headers["x-acore-signature"] || "").replace(/^sha256=/, "");
+  var want = secret ? crypto.createHmac("sha256", secret).update(raw || "").digest("hex") : "";
+  var good = !!(secret && sent.length === want.length && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(want)));
+  if (!good) {
+    acoreLast.webhook = { at: Date.now(), ok: false, message: "Rejected: the signature didn't match the webhook secret." };
+    return sendJson(res, 401, { error: "Bad signature." });
+  }
+  if (!((db.settings.acore || {}).enabled)) return sendJson(res, 409, { error: "The Acore connection is turned off on the website." });
+  // A timestamp more than 10 minutes off is a replayed or delayed message
+  var ts = req.headers["x-acore-timestamp"];
+  if (ts) {
+    var tms = /^\d+$/.test(ts) ? (+ts < 1e12 ? +ts * 1000 : +ts) : Date.parse(ts);
+    if (!tms || Math.abs(Date.now() - tms) > 10 * 60e3) {
+      acoreLast.webhook = { at: Date.now(), ok: false, message: "Rejected: the timestamp is too old. Check the clock on the Acore server." };
+      return sendJson(res, 401, { error: "Stale timestamp." });
+    }
+  }
+  if (!body.id) body.id = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 40);
+  var out;
+  try { out = run({ method: "POST", path: "/api/internal/acore", internal: true, body: body }); } catch (e) { console.error(e); return sendJson(res, 500, { error: "Something went wrong on the server." }); }
+  var d = body.data || {};
+  acoreLast.webhook = { at: Date.now(), ok: out.status < 400, message: (d.number || d.externalId || "?") + " · " + (d.status || body.event || "update") + (out.status < 400 ? "" : " · " + ((out.body || {}).error || out.status)) };
+  return sendJson(res, out.status, out.body);
+}
+
+// Google Analytics 4 Measurement Protocol, straight from this server
+var gaStatus = null;
+function gaEvent(job) {
+  var body = JSON.stringify(job.body), base = process.env.GA_MP_URL || ("https://www.google-analytics.com/" + (job.debug ? "debug/" : "") + "mp/collect");
+  var url = base + "?measurement_id=" + encodeURIComponent(job.measurementId) + "&api_secret=" + encodeURIComponent(job.secret);
+  var name = job.body.events[0].name;
+  var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 8000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+    var text = "";
+    res.on("data", function (d) { if (text.length < 4000) text += d; });
+    res.on("end", function () {
+      var ok = res.statusCode >= 200 && res.statusCode < 300, msg = ok ? "Sent to Google Analytics" : "HTTP " + res.statusCode;
+      // The debug endpoint (test button) explains what's wrong instead of silently accepting
+      if (job.debug && ok) {
+        try {
+          var v = (JSON.parse(text || "{}").validationMessages || [])[0];
+          if (v) { ok = false; msg = "Google says: " + v.description; } else msg = "Google accepted the test event. The ID and secret look right.";
+        } catch (e) {}
+      }
+      gaStatus = { at: Date.now(), ok: ok, event: name, message: msg };
+      if (!ok) console.warn("GA Measurement Protocol: HTTP " + res.statusCode);
+    });
+  });
+  req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+  req.on("error", function (e) { gaStatus = { at: Date.now(), ok: false, event: name, message: e.message }; });
+  req.end(body);
+}
 function postJson(url, body, headers, cb) {
   var u;
   try { u = new URL(url); } catch (e) { return cb(e); }
@@ -122,9 +237,22 @@ function postJson(url, body, headers, cb) {
 // ---------------------------------------------------------------------------
 // Media: uploads are saved as files under DATA_DIR/uploads
 // ---------------------------------------------------------------------------
-var EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+var EXT = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+// The first bytes of each allowed file type. A file that claims to be a photo but isn't one is refused.
+function looksLike(buf, type) {
+  var hex = buf.slice(0, 12).toString("hex"), asc = buf.slice(0, 12).toString("latin1");
+  if (type === "image/png") return hex.indexOf("89504e470d0a1a0a") === 0;
+  if (type === "image/jpeg") return hex.indexOf("ffd8ff") === 0;
+  if (type === "image/gif") return /^GIF8[79]a/.test(asc);
+  if (type === "image/webp") return asc.slice(0, 4) === "RIFF" && asc.slice(8, 12) === "WEBP";
+  if (type === "image/avif") return asc.slice(4, 8) === "ftyp";
+  if (type === "application/pdf") return asc.slice(0, 5) === "%PDF-";
+  return false;
+}
 function saveMedia(name, dataUrl, type) {
-  var buf = Buffer.from(dataUrl.split(",")[1], "base64");
+  if (!EXT[type]) throw Object.assign(new Error("That file type isn't allowed."), { status: 400 });
+  var buf = Buffer.from(String(dataUrl).split(",")[1] || "", "base64");
+  if (!buf.length || !looksLike(buf, type)) throw Object.assign(new Error("That file doesn't look like a real " + EXT[type].toUpperCase() + "."), { status: 400 });
   var d = new Date(), dir = path.join(UPLOADS, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, "0"));
   fs.mkdirSync(dir, { recursive: true });
   var base = Core.slugify(String(name).replace(/\.[a-z0-9]+$/i, "")) || "image";
@@ -138,9 +266,116 @@ function deleteMedia(url) {
   if (file.indexOf(UPLOADS) === 0 && fs.existsSync(file)) fs.unlinkSync(file);
 }
 
+// ---------------------------------------------------------------------------
+// Email: a small SMTP client (Gmail: smtp.gmail.com, port 465 with an app password)
+// ---------------------------------------------------------------------------
+function b64(s) { return Buffer.from(String(s), "utf8").toString("base64"); }
+function wrap76(s) { return s.replace(/.{1,76}/g, "$&\r\n").trim(); }
+function mimeWord(s) { return /^[\x20-\x7e]*$/.test(s) ? s : "=?UTF-8?B?" + b64(s) + "?="; }
+function buildMessage(job) {
+  var boundary = "rv_" + random(8), domain = String(job.from.email).split("@")[1] || "localhost";
+  return [
+    "From: " + mimeWord(String(job.from.name || "").replace(/["\r\n]/g, "")) + " <" + job.from.email + ">",
+    "To: <" + job.to + ">",
+    job.replyTo ? "Reply-To: <" + job.replyTo + ">" : null,
+    "Subject: " + mimeWord(String(job.subject).replace(/[\r\n]/g, " ")),
+    "Date: " + new Date().toUTCString(),
+    "Message-ID: <" + random(12) + "@" + domain + ">",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/alternative; boundary="' + boundary + '"',
+    "",
+    "--" + boundary, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64(job.text || "")),
+    "--" + boundary, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64(job.html || "")),
+    "--" + boundary + "--", ""
+  ].filter(function (l) { return l !== null; }).join("\r\n");
+}
+function smtpSend(job, cb) {
+  var cfg = job.smtp, port = +cfg.port || 465, done = false, buf = "", step = 0, sock;
+  var finish = function (err) { if (done) return; done = true; try { sock.end(); } catch (e) {} cb(err); };
+  var plainOk = /^(localhost|127\.0\.0\.1)$/.test(cfg.host) && process.env.SMTP_ALLOW_PLAIN === "1"; // tests only
+  var steps;
+  var send = function (line) { sock.write(line + "\r\n"); };
+  var onLine = function (code, text, last) {
+    if (!last) return;
+    var want = steps[step];
+    if (!want) return;
+    if (want.expect.indexOf(code) < 0) return finish(new Error("SMTP " + code + " " + text.slice(0, 160)));
+    step++;
+    if (want.then) want.then(text);
+  };
+  var attach = function (s) {
+    sock = s;
+    s.setEncoding("utf8");
+    s.setTimeout(20000, function () { finish(new Error("The mail server didn't answer in time.")); });
+    s.on("error", function (e) { finish(e); });
+    s.on("data", function (d) {
+      buf += d;
+      var i;
+      while ((i = buf.indexOf("\r\n")) > -1) {
+        var line = buf.slice(0, i); buf = buf.slice(i + 2);
+        onLine(+line.slice(0, 3), line.slice(4), line.charAt(3) !== "-");
+      }
+    });
+  };
+  var ehloText = "";
+  var auth = [
+    { expect: [250], then: function () { send("AUTH LOGIN"); } },
+    { expect: [334], then: function () { send(b64(cfg.user)); } },
+    { expect: [334], then: function () { send(b64(cfg.password)); } },
+    { expect: [235], then: function () { send("MAIL FROM:<" + job.from.email + ">"); } },
+    { expect: [250], then: function () { send("RCPT TO:<" + job.to + ">"); } },
+    { expect: [250, 251], then: function () { send("DATA"); } },
+    { expect: [354], then: function () { sock.write(buildMessage(job) + "\r\n.\r\n"); } },
+    { expect: [250], then: function () { send("QUIT"); finish(null); } }
+  ];
+  if (port === 465) {
+    steps = [{ expect: [220], then: function () { send("EHLO ravelle"); } }].concat(auth);
+    attach(tls.connect({ host: cfg.host, port: port, servername: cfg.host }));
+  } else {
+    // 587: start plain, then switch to TLS with STARTTLS
+    steps = [
+      { expect: [220], then: function () { send("EHLO ravelle"); } },
+      { expect: [250], then: function (t) {
+        if (plainOk) { step = 1; steps = [null].concat(auth); send("EHLO ravelle"); return; }
+        send("STARTTLS");
+      } },
+      { expect: [220], then: function () {
+        var raw = sock; raw.removeAllListeners("data");
+        buf = ""; step = 0;
+        steps = [null].concat(auth); step = 1;
+        attach(tls.connect({ socket: raw, servername: cfg.host }, function () { send("EHLO ravelle"); }));
+      } }
+    ];
+    attach(net.connect(port, cfg.host));
+  }
+}
+var emailQueue = [], emailBusy = false;
+function sendEmail(job) {
+  emailQueue.push(job);
+  if (!emailBusy) nextEmail();
+}
+function nextEmail() {
+  var job = emailQueue.shift();
+  if (!job) { emailBusy = false; return; }
+  emailBusy = true;
+  smtpSend(job, function (err) {
+    var e = (db.emailLog || []).filter(function (x) { return x.id === job.id; })[0];
+    if (e) {
+      e.ok = !err;
+      e.status = err ? "Failed: " + (/535|534|Username and Password/i.test(err.message) ? "Gmail refused the login. Check the address and the 16-letter app password." : err.message) : "Sent";
+      e.sentAt = Date.now();
+      save();
+    }
+    if (err) console.error("Email to " + job.to + " failed:", err.message);
+    setTimeout(nextEmail, 300);
+  });
+}
+setInterval(function () { run({ method: "POST", path: "/api/internal/cart-reminders", internal: true, headers: {}, body: {}, query: {} }); }, +process.env.CART_SWEEP_MS || 60e3).unref();
+
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); }
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
+  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });
 
 // ---------------------------------------------------------------------------
@@ -188,12 +423,15 @@ function paymentCallback(kind, body, res) {
   var order = db.orders.filter(function (o) { return o.id === orderId; })[0];
   var back = function (state) { redirect(res, "/#order/" + (order ? order.number : "") + "?payment=" + state); };
   if (!order) return back("missing");
+  // Only online-payment orders can be touched by these callbacks (a forged "fail" can't cancel a cash-on-delivery order)
+  if (order.paymentMethod !== "sslcommerz") return kind === "ipn" ? sendJson(res, 200, { ok: false }) : back("missing");
   if (kind !== "success" && kind !== "ipn") {
-    if (order.paymentStatus !== "paid") run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: kind === "cancel" ? "cancelled" : "failed" } });
+    if (order.paymentStatus !== "paid" && order.status === "pending") run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: kind === "cancel" ? "cancelled" : "failed" } });
     return kind === "ipn" ? sendJson(res, 200, { ok: true }) : back(kind);
   }
   validatePayment(body.val_id, function (err, v) {
-    var good = !err && v && (v.status === "VALID" || v.status === "VALIDATED") && v.tran_id === order.id && Math.abs(+v.amount - order.total) < 1;
+    var good = !err && v && (v.status === "VALID" || v.status === "VALIDATED") && v.tran_id === order.id && Math.abs(+v.amount - order.total) < 1 &&
+      (!v.currency_type || v.currency_type === "BDT") && (!v.currency || v.currency === "BDT");
     if (good) run({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: order.id, status: "paid", ref: v.bank_tran_id || body.val_id } });
     if (kind === "ipn") return sendJson(res, 200, { ok: good });
     back(good ? "paid" : "failed");
@@ -203,11 +441,14 @@ function paymentCallback(kind, body, res) {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-var LIMITS = { "/api/auth/login": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3] };
+var LIMITS = { "/api/acore/webhook": [600, 60e3], "/api/auth/login": [10, 60e3], "/api/auth/forgot": [5, 60e3], "/api/auth/reset": [10, 60e3], "/api/orders": [10, 60e3], "/api/contact": [5, 60e3], "/api/franchise": [5, 60e3], "/api/carts/capture": [30, 60e3], "/api/chat": [40, 60e3], "/api/track": [240, 60e3], "/api/coupons/validate": [30, 60e3],
+  "/api/orders/track": [15, 60e3], "/api/chat/start": [10, 60e3], "/api/payments": [60, 60e3], "/api/auth/reset/": [20, 60e3] };
 var hits = {};
 function limited(ip, p, method) {
-  if (method === "GET") return false;
-  var key = Object.keys(LIMITS).filter(function (k) { return p === k || p.indexOf(k + "/") === 0; })[0];
+  // Reset links are checked with GET, so that one counts too; other GETs are free
+  var key = Object.keys(LIMITS).filter(function (k) { return p === k || p.indexOf(k + (k.slice(-1) === "/" ? "" : "/")) === 0; })
+    .sort(function (a, b) { return b.length - a.length; })[0];
+  if (method === "GET" && key !== "/api/auth/reset/") return false;
   if (!key || (key === "/api/orders" && p !== "/api/orders")) return false;
   var lim = LIMITS[key], id = ip + " " + key, t = Date.now();
   var h = hits[id] = (hits[id] || []).filter(function (x) { return x > t - lim[1]; });
@@ -216,6 +457,14 @@ function limited(ip, p, method) {
 }
 setInterval(function () { hits = {}; }, 10 * 60e3).unref();
 
+function clientIp(req) {
+  var direct = req.socket.remoteAddress || "";
+  if (!TRUST_PROXY) return direct;
+  if (req.headers["cf-connecting-ip"]) return String(req.headers["cf-connecting-ip"]).trim();
+  // The proxy adds the real visitor address at the end; anything before it can be made up by the visitor
+  var list = String(req.headers["x-forwarded-for"] || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+  return list[list.length - 1] || direct;
+}
 function run(req) {
   var out = core.handle(req, db);
   if (out.changed && out.status < 400) save();
@@ -224,13 +473,26 @@ function run(req) {
 }
 
 var server = http.createServer(function (req, res) {
-  var u = new URL(req.url, "http://localhost");
-  var p = decodeURIComponent(u.pathname);
+  var u, p;
+  // A broken address (like "/%E0%A4%A") used to throw here and stop the whole store
+  try { u = new URL(req.url, "http://localhost"); p = decodeURIComponent(u.pathname); }
+  catch (e) { return text(res, 400, "Bad request"); }
+  // An encoded slash or backslash ("..%2f") would let a path climb out of /assets and read data/db.json or .env
+  if (/[\\\0]/.test(p) || p.split("/").indexOf("..") > -1) return text(res, 400, "Bad request");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
-  return serveStatic(req, res, p);
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  if (HTTPS_SITE) res.setHeader("Strict-Transport-Security", "max-age=31536000");
+  try {
+    if (p.indexOf("/api/") === 0 || p === "/api") return api(req, res, u, p);
+    return serveStatic(req, res, p);
+  } catch (e) {
+    console.error(e);
+    if (!res.headersSent) text(res, 500, "Something went wrong on the server.");
+  }
 });
+// Last line of defence: log a bug instead of letting one bad request stop the store
+process.on("uncaughtException", function (e) { console.error("Unexpected error:", e); });
 
 function api(req, res, u, p) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -238,9 +500,11 @@ function api(req, res, u, p) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
-  var ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
+  var ip = clientIp(req);
   if (limited(ip, p, req.method)) return sendJson(res, 429, { error: "Too many requests. Wait a minute and try again." });
-  var max = p === "/api/media" || /^\/api\/(pages|products|categories)/.test(p) ? 16e6 : 1e6;
+  // Large bodies (photo uploads) only for signed-in staff, so nobody can tie up the server's memory with huge anonymous requests
+  var signedIn = /^Bearer\s+\S/i.test(req.headers.authorization || "") || !!req.headers["x-api-key"];
+  var max = signedIn && (p === "/api/media" || p === "/api/files" || /^\/api\/(pages|products|categories)/.test(p)) ? 16e6 : /^\/api\/chat\/[^/]+\/messages$/.test(p) ? 5e6 : 1e6;
   readBody(req, max, function (err, raw) {
     if (err) return sendJson(res, 413, { error: "That request is too large." });
     var body = {};
@@ -250,6 +514,7 @@ function api(req, res, u, p) {
       else if (/urlencoded/.test(type)) body = querystring.parse(raw);
     } catch (e) { return sendJson(res, 400, { error: "The request body isn't valid JSON." }); }
 
+    if (p === "/api/acore/webhook" && req.method === "POST") return acoreWebhook(req, raw, body, res);
     var ssl = /^\/api\/payments\/sslcommerz\/(success|fail|cancel|ipn)$/.exec(p);
     if (ssl) return paymentCallback(ssl[1], Object.assign({}, Object.fromEntries(u.searchParams), body), res);
 
@@ -274,27 +539,83 @@ function api(req, res, u, p) {
 }
 
 var TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".svg": "image/svg+xml", ".pdf": "application/pdf",
   ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".md": "text/plain; charset=utf-8" };
+// Cache busting: every CSS/JS link in the pages gets ?v=<fingerprint of the asset files>-<admin "Clear cache" version>,
+// so after an update (or a click on Clear cache) browsers fetch the new files instead of an old saved copy.
+var assetFp = { at: 0, v: "" };
+function assetVersion() {
+  if (Date.now() - assetFp.at > 5000) {
+    var hash = crypto.createHash("sha1");
+    ["assets/js", "assets/css", "assets/admin"].forEach(function (dir) {
+      var d = path.join(ROOT, dir);
+      (fs.existsSync(d) ? fs.readdirSync(d) : []).sort().forEach(function (n) {
+        if (!/\.(js|css)$/.test(n)) return;
+        var st = fs.statSync(path.join(d, n)); hash.update(dir + "/" + n + ":" + st.size + ":" + st.mtimeMs + ";");
+      });
+    });
+    assetFp = { at: Date.now(), v: hash.digest("hex").slice(0, 10) };
+  }
+  return assetFp.v + (db.settings.cacheVersion ? "-" + db.settings.cacheVersion : "");
+}
+function versioned(html) {
+  var v = assetVersion();
+  return html.replace(/(assets\/[\w\/.-]+\.(?:js|css))\?v=[\w-]+/g, "$1?v=" + v)
+    .replace("</head>", '<meta name="rv-v" content="' + v + '">\n</head>');
+}
+// The admin panel runs only its own files: an injected <script> can't run there or send the sign-in token anywhere
+var ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; " +
+  "img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; frame-src 'self' https://www.google.com https://maps.google.com; " +
+  "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+function serveAdmin(req, res) {
+  fs.readFile(path.join(ROOT, "admin.html"), "utf8", function (err, html) {
+    if (err) return text(res, 500, "Could not read the page.");
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": ADMIN_CSP });
+    res.end(req.method === "HEAD" ? "" : versioned(html));
+  });
+}
+// The store page, with the tracking code from Admin > Header & footer placed in <head> and before </body>
+function serveIndex(req, res) {
+  fs.readFile(path.join(ROOT, "index.html"), "utf8", function (err, html) {
+    if (err) return text(res, 500, "Could not read the page.");
+    var head = Core.headCode(db.settings), end = Core.siteCode(db.settings).bodyEnd;
+    html = versioned(html).replace("</head>", '<meta name="rv-code" content="server">\n' + head + "\n</head>")
+      .replace(/<\/body>(?![\s\S]*<\/body>)/, end + "\n</body>");
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Frame-Options": "SAMEORIGIN" });
+    res.end(req.method === "HEAD" ? "" : html);
+  });
+}
 function serveStatic(req, res, p) {
   if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405); return res.end(); }
   var file;
-  if (p === "/" || p === "/index.html") file = path.join(ROOT, "index.html");
+  if (p === "/" || p === "/index.html") return serveIndex(req, res);
   else if (p === "/admin/") { res.writeHead(301, { Location: "/admin" }); return res.end(); }
-  else if (p === "/admin" || p === "/admin.html") file = path.join(ROOT, "admin.html");
+  else if (p === "/admin" || p === "/admin.html") return serveAdmin(req, res);
   else if (p === "/robots.txt") return text(res, 200, "User-agent: *\nDisallow: /admin\nDisallow: /api/\n");
   else if (p.indexOf("/assets/") === 0) file = path.join(ROOT, p);
   else if (p.indexOf("/uploads/") === 0) file = path.join(UPLOADS, p.slice(9));
   else if (p === "/docs/API.md") file = path.join(ROOT, "docs/API.md");
   else return text(res, 404, "Not found");
   var base = p.indexOf("/uploads/") === 0 ? UPLOADS : ROOT;
-  if (path.resolve(file).indexOf(base) !== 0) return text(res, 403, "Forbidden");
+  // Files must stay inside /assets (or the uploads folder): never the database, backups, .env or the server code
+  var inside = p === "/docs/API.md" ? path.join(ROOT, "docs") : base === UPLOADS ? UPLOADS : ASSETS;
+  if (path.resolve(file).indexOf(inside + path.sep) !== 0) return text(res, 403, "Forbidden");
   fs.stat(file, function (err, st) {
+    // Site images are WebP now; older saved data may still point at the .jpg/.png name
+    if ((err || !st.isFile()) && base === ROOT && /\.(jpe?g|png)$/i.test(file)) {
+      return fs.stat(file.replace(/\.(jpe?g|png)$/i, ".webp"), function (e2, st2) {
+        if (e2 || !st2.isFile()) return text(res, 404, "Not found");
+        res.writeHead(301, { Location: p.replace(/\.(jpe?g|png)$/i, ".webp") }); res.end();
+      });
+    }
     if (err || !st.isFile()) return text(res, 404, "Not found");
     var ext = path.extname(file).toLowerCase();
     var headers = { "Content-Type": TYPES[ext] || "application/octet-stream", "Content-Length": st.size, "Last-Modified": st.mtime.toUTCString() };
-    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 ? "public, max-age=31536000, immutable" : "public, max-age=3600";
+    // Uploads never change name; CSS/JS with ?v= are cached for a year (a new version = a new URL); anything else is re-checked each time
+    var versionedAsset = /[?&]v=/.test(req.url) && /\.(js|css)$/.test(ext);
+    headers["Cache-Control"] = ext === ".html" ? "no-cache" : p.indexOf("/uploads/") === 0 || versionedAsset ? "public, max-age=31536000, immutable" : "no-cache";
     if (ext === ".html") headers["X-Frame-Options"] = "SAMEORIGIN";
+    if (base === UPLOADS) { headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"; if (ext === ".pdf") headers["Content-Disposition"] = "inline"; }
     if (req.headers["if-modified-since"] === headers["Last-Modified"]) { res.writeHead(304); return res.end(); }
     res.writeHead(200, headers);
     if (req.method === "HEAD") return res.end();
@@ -330,4 +651,7 @@ function loadEnv(file) {
 
 server.listen(PORT, function () {
   console.log("Ravelle is running at " + PUBLIC_URL + "  (admin: " + PUBLIC_URL + "/admin)");
+  var ssl = db.settings.payments.sslcommerz || {};
+  if (ssl.enabled && ssl.sandbox && HTTPS_SITE) console.warn("\n  WARNING: SSLCOMMERZ is in sandbox (test) mode. Test cards will mark real orders as paid.\n  Turn sandbox off in Admin > Settings > Payments before taking real orders.\n");
+  if (!TRUST_PROXY && HTTPS_SITE) console.log("  Tip: behind nginx, Caddy, cPanel or Cloudflare, set TRUST_PROXY=1 so rate limits see each visitor's real address.");
 });

@@ -24,6 +24,9 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   const TOKEN_KEY = "ravelle:admin-token";
+  // Shop colour-filter groups (same names and colours as COLOR_GROUPS in assets/js/store.js)
+  const FILTER_COLORS = [["Black", "#1f2022"], ["White", "#f2f1ec"], ["Grey", "#8a8d91"], ["Blue", "#3b6279"], ["Green", "#3f8a68"], ["Yellow", "#c3ae62"],
+    ["Cream", "#d8ccb0"], ["Brown", "#5f4535"], ["Red", "#a8342b"], ["Pink", "#d0607a"], ["Orange", "#d27c3c"], ["Purple", "#6c4f8c"]];
   let token = null;
   try { token = localStorage.getItem(TOKEN_KEY); } catch (e) {}
   let me = null, areas = [], store = null; // store = GET /api/store, for categories/attributes/menus
@@ -97,12 +100,14 @@
   }
   function csv(rows) {
     return "﻿" + rows.map((r) => r.map((c) => {
-      const s = String(c == null ? "" : c);
+      let s = String(c == null ? "" : c);
+      // A name like "=HYPERLINK(...)" would run as a formula when the file is opened in Excel or Google Sheets
+      if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }).join(",")).join("\n");
   }
   const pill = (s) => `<span class="pill pill--${esc(s)}">${esc(human(s))}</span>`;
-  const STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"];
+  const STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   const PAY_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   const PAY_LABEL = { cod: "Cash on delivery", sslcommerz: "SSLCOMMERZ" };
 
@@ -198,18 +203,63 @@
       });
     });
   }
+  // Recommended size and file weight for each image slot, so uploads stay sharp and fast
+  const IMG_SPECS = [
+    [/^hero\.image$/, 1200, 1212, "see-through background (PNG or WebP cutout)", 250],
+    [/^tryLook\.looks\.\d+\.image$/, 400, 1200, "model cutout with a see-through background", 80],
+    [/^house\.card\d+\.image$/, 900, 1200, "3:4 photo", 150],
+    [/^poster\.image$/, 900, 1125, "4:5 photo", 200],
+    [/^lookbook\.looks\.\d+\.image$/, 900, 1200, "3:4 photo", 180],
+    [/^sizeGuide$/, 1200, 0, "width", 120],
+    [/^image$/, 900, 1200, "3:4 photo", 150],
+    [/^product$/, 690, 862, "4:5 photo", 80],
+    [/^logo$/, 360, 120, "wide logo with a see-through background", 30],
+    [/^popupImage$/, 1000, 1250, "4:5 photo or poster", 220],
+    [/^popupMobile$/, 800, 1000, "4:5 photo or poster for phones", 160],
+    [/^shops\.\d+\.image$/, 1200, 900, "4:3 photo of the shop", 180],
+    [/^stories\.\d+\.storeImage$/, 1200, 900, "4:3 photo of the store", 180],
+    [/^stories\.\d+\.ownerImage$/, 400, 400, "square photo of the owner's face", 60]
+  ];
+  function imgSpec(name) {
+    const s = IMG_SPECS.find((x) => x[0].test(name)) || [null, 1200, 0, "longest side", 200];
+    return { w: s[1], h: s[2], what: s[3], kb: s[4],
+      text: `Best size: ${s[2] ? `${s[1]} × ${s[2]} px` : `${s[1]} px on the ${s[3]}`}${s[2] ? ` (${s[3]})` : ""} · WebP · under ${s[4]} KB` };
+  }
+  // Show an image's real size and weight, with a warning when it is far off the recommended one
+  function measureImg(url, spec, out) {
+    if (!out) return;
+    if (!url) { out.textContent = ""; return; }
+    const im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth, h = im.naturalHeight;
+      fetch(url).then((r) => r.blob()).then((b) => b.size, () => 0).then((bytes) => {
+        const kb = Math.round(bytes / 1024), warn = [];
+        if (spec.h && Math.abs(w / h - spec.w / spec.h) > 0.03) warn.push("different shape, the edges will be cropped");
+        if (w < spec.w * 0.8) warn.push("smaller than recommended, may look soft");
+        if (kb && kb > spec.kb * 1.5) warn.push(`heavy file, aim for under ${spec.kb} KB`);
+        out.innerHTML = `This image: ${w} × ${h} px${kb ? ` · ${kb} KB` : ""} ${warn.length ? `· <span style="color:#b3261e">${esc(warn.join("; "))}</span>` : "· good fit"}`;
+      });
+    };
+    im.onerror = () => { out.textContent = ""; };
+    im.src = url;
+  }
   function imgField(name, value, label, hint, wide) {
+    const spec = imgSpec(name);
     return `<div class="field" data-imgfield="${esc(name)}"><span>${esc(label)}</span>
       <div class="imgfield"><img class="imgfield__prev${wide ? " imgfield__prev--wide" : ""}" src="${esc(value || "")}" alt="" ${value ? "" : "hidden"}>
       <div class="stack stack--sm"><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-pick>${value ? "Change" : "Choose image"}</button>
-      <button class="btn btn--ghost btn--sm" type="button" data-clear ${value ? "" : "hidden"}>Remove</button></div>${hint ? `<small>${esc(hint)}</small>` : ""}</div></div>
+      <button class="btn btn--ghost btn--sm" type="button" data-clear ${value ? "" : "hidden"}>Remove</button></div>${hint ? `<small>${esc(hint)}</small>` : ""}
+      <small class="imgfield__spec">${esc(spec.text)}</small><small class="imgfield__real" data-real></small></div></div>
       <input type="hidden" name="${esc(name)}" value="${esc(value || "")}"></div>`;
   }
   function wireImgFields(root, onChange) {
     $$("[data-imgfield]", root).forEach((f) => {
       const input = $("input[type=hidden]", f), prev = $(".imgfield__prev", f);
+      const spec = imgSpec(f.dataset.imgfield);
+      measureImg(input.value, spec, $("[data-real]", f));
       const set = (u) => {
         input.value = u || "";
+        measureImg(u || "", spec, $("[data-real]", f));
         prev.hidden = !u; if (u) prev.src = u;
         $("[data-pick]", f).textContent = u ? "Change" : "Choose image";
         $("[data-clear]", f).hidden = !u;
@@ -473,10 +523,23 @@
             ${o.customer.email ? `<dt>Email</dt><dd><a href="mailto:${esc(o.customer.email)}">${esc(o.customer.email)}</a></dd>` : ""}<dt>Address</dt><dd>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</dd>
             ${o.shippingZone ? `<dt>Area</dt><dd>${esc(o.shippingZone.name)} · ${esc(o.shippingZone.days)}</dd>` : ""}</dl>
             ${o.customerId && can("customers") ? `<a class="btn btn--ghost btn--sm" href="#/customers/${esc(o.customerId)}">Customer profile</a>` : ""}</div>
+          ${(() => {
+            const a = o.acore || {}, cr = o.courier || {};
+            const state = a.pending ? "Sending…" : a.error ? `<span style="color:var(--danger)">Not sent: ${esc(a.error)}</span>` : a.sentAt ? `Sent ${dateTime(a.sentAt)}${a.id ? ` · Acore id <span class="mono">${esc(a.id)}</span>` : ""}` : "Not sent yet";
+            return `<div class="card"><h2 class="h2">Acore and courier</h2><dl class="kv"><dt>Acore</dt><dd>${state}</dd>
+              ${a.lastUpdate ? `<dt>Last update</dt><dd>${dateTime(a.lastUpdate)}</dd>` : ""}
+              ${cr.name ? `<dt>Courier</dt><dd>${esc(cr.name)}</dd>` : ""}${cr.consignmentId ? `<dt>Consignment</dt><dd class="mono">${esc(cr.consignmentId)}</dd>` : ""}
+              ${cr.trackingUrl ? `<dt>Tracking</dt><dd><a href="${esc(cr.trackingUrl)}" target="_blank" rel="noopener">Open courier page</a></dd>` : ""}
+              ${cr.riderName ? `<dt>Rider</dt><dd>${esc(cr.riderName)}${cr.riderPhone ? ` · <a href="tel:${esc(cr.riderPhone)}">${esc(cr.riderPhone)}</a>` : ""}</dd>` : ""}</dl>
+              <button class="btn btn--ghost btn--sm" type="button" id="acoreSend">${a.sentAt ? "Send again" : "Send to Acore"}</button></div>`;
+          })()}
           <div class="card"><h2 class="h2">Payment</h2><dl class="kv"><dt>Method</dt><dd>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</dd><dt>Status</dt><dd>${pill(o.paymentStatus)}</dd>${o.paymentRef ? `<dt>Reference</dt><dd class="mono">${esc(o.paymentRef)}</dd>` : ""}</dl></div>
           ${o.note ? `<div class="card"><h2 class="h2">Customer note</h2><p style="margin:0">${esc(o.note)}</p></div>` : ""}
         </div>
       </div>`;
+    $("#acoreSend").onclick = async () => {
+      try { await api("POST", "/api/orders/" + o.id + "/acore"); toast("Sending to Acore"); setTimeout(() => viewOrder(id), 1500); } catch (err) { fail(err); }
+    };
     $("#ordForm").onsubmit = async (e) => {
       e.preventDefault();
       const b = formData(e.target), btn = $("button[type=submit]", e.target);
@@ -492,15 +555,16 @@
     let o;
     try { o = (await api("GET", "/api/orders/" + encodeURIComponent(id))).order; } catch (err) { return fail(err); }
     const st = (store.settings && store.settings.store) || {};
-    view.innerHTML = `<div class="head no-print"><a class="btn btn--link" href="#/orders/${esc(o.number)}">← Order ${esc(o.number)}</a><button class="btn btn--dark" onclick="window.print()">Print invoice</button></div>
+    view.innerHTML = `<div class="head no-print"><a class="btn btn--link" href="#/orders/${esc(o.number)}">← Order ${esc(o.number)}</a><button class="btn btn--dark" data-print>Print invoice</button></div>
       <div class="card" style="max-width:820px;padding:36px">
-        <div class="flex flex--between" style="align-items:flex-start"><div><img src="assets/img/logo.png" alt="Ravelle" style="height:40px;width:auto"><p class="small muted">${esc(st.legalName || "")}<br>${esc(st.address || "")}<br>${esc(st.phone || "")} · ${esc(st.email || "")}${st.tradeLicense ? "<br>Trade license: " + esc(st.tradeLicense) : ""}${st.bin ? " · BIN: " + esc(st.bin) : ""}</p></div>
+        <div class="flex flex--between" style="align-items:flex-start"><div><img src="assets/img/logo.webp" alt="Ravelle" style="height:40px;width:auto"><p class="small muted">${esc(st.legalName || "")}<br>${esc(st.address || "")}<br>${esc(st.phone || "")} · ${esc(st.email || "")}${st.tradeLicense ? "<br>Trade license: " + esc(st.tradeLicense) : ""}${st.bin ? " · BIN: " + esc(st.bin) : ""}</p></div>
           <div class="right"><h1 class="h1">Invoice</h1><p class="muted">${esc(o.number)}<br>${date(o.createdAt)}<br>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)} · ${esc(human(o.paymentStatus))}</p></div></div>
         <div><p class="h3">Bill to</p><p style="margin:0">${esc(o.customer.name)}<br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</p></div>
         <table class="t"><thead><tr><th>Item</th><th>SKU</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead><tbody>${o.items.map((it) => `<tr><td>${esc(it.name)}<br><small class="muted">${esc(optText(it.options))}</small></td><td class="mono">${esc(it.sku)}</td><td class="right">${it.qty}</td><td class="right">${taka(it.price)}</td><td class="right">${taka(it.lineTotal)}</td></tr>`).join("")}</tbody></table>
         <div class="totals" style="margin-left:auto;width:min(300px,100%)"><div><span>Subtotal</span><span>${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount</span><span>−${taka(o.discount)}</span></div>` : ""}<div><span>Delivery</span><span>${taka(o.shipping)}</span></div><div class="grand"><span>Total</span><span>${taka(o.total)}</span></div></div>
         <p class="small muted">Thank you for shopping with ${esc(st.name || "Ravelle")}. Exchanges and returns within 7 days of delivery: ${esc((st.website || "").replace(/^https?:\/\//, ""))}/#refund</p>
       </div>`;
+    view.querySelector("[data-print]").onclick = () => window.print();
   }
 
   // ---------------------------------------------------------------------------
@@ -554,7 +618,7 @@
     await loadStore();
     const qs = new URLSearchParams(query || "");
     const state = { q: "", category: qs.get("category") || "", status: "" };
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Products</h1><p class="muted">${store.products.length} published. Every product and size has its own SKU.</p></div>
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Products</h1><p class="muted">${store.products.length} published. Drag ⠿ to change the order products show in the shop.</p></div>
       <div class="flex"><button class="btn btn--ghost" id="prdCsv">Export CSV</button><a class="btn btn--dark" href="#/products/new">Add product</a></div></div>
       <div class="toolbar"><div class="grow"><input class="input" id="prdQ" placeholder="Search name, SKU, colour"></div>
         <select class="input" id="prdCat"><option value="">All categories</option>${catTree(store.categories).map(({ c, depth }) => `<option value="${c.id}"${c.id === state.category ? " selected" : ""}>${"— ".repeat(depth)}${esc(c.name)}</option>`).join("")}</select>
@@ -567,17 +631,42 @@
       try { list = (await api("GET", "/api/products?" + p)).products; } catch (err) { return fail(err); }
       const catName = (id) => (store.categories.find((c) => c.id === id) || {}).name;
       const low = store.settings.lowStock || 5;
-      $("#prdList").innerHTML = list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Product</th><th>SKU</th><th>Categories</th><th class="right">Price</th><th class="right">Stock</th><th>Status</th><th></th></tr></thead><tbody>${list.map((p) => `
-        <tr class="is-link" data-href="#/products/${esc(p.id)}"><td><div class="flex" style="flex-wrap:nowrap">${p.images[0] ? `<img class="thumb" src="${esc(p.images[0])}" alt="" loading="lazy">` : `<span class="thumb" style="background:${esc(p.hex || "#ddd")}"></span>`}<span><b>${esc(p.name)}</b><br><small class="muted">${p.variants.length ? p.variants.length + " variations" : "No variations"}${p.featured ? " · Featured" : ""}${p.isNew ? " · New" : ""}</small></span></div></td>
+      $("#prdList").innerHTML = list.length ? `<div class="table-wrap"><table class="t"><thead><tr><th style="width:28px"></th><th>Product</th><th>SKU</th><th>Categories</th><th class="right">Price</th><th class="right">Stock</th><th>Status</th><th></th></tr></thead><tbody id="prdRows">${list.map((p) => `
+        <tr class="is-link" data-href="#/products/${esc(p.id)}" data-id="${esc(p.id)}"><td class="drag" title="Drag to reorder">⠿</td><td><div class="flex" style="flex-wrap:nowrap">${p.images[0] ? `<img class="thumb" src="${esc(p.images[0])}" alt="" loading="lazy">` : `<span class="thumb" style="background:${esc(p.hex || "#ddd")}"></span>`}<span><b>${esc(p.name)}</b><br><small class="muted">${p.variants.length ? p.variants.length + " variations" : "No variations"}${p.featured ? " · Featured" : ""}${p.isNew ? " · New" : ""}</small></span></div></td>
         <td class="mono">${esc(p.sku)}</td><td>${p.categoryIds.map(catName).filter(Boolean).map(esc).join(", ")}</td>
         <td class="right num">${taka(p.price)}${p.comparePrice > p.price ? `<br><small class="muted"><s>${taka(p.comparePrice)}</s></small>` : ""}</td>
         <td class="right num">${p.stock == null ? "—" : `<b style="color:${p.stock === 0 ? "var(--danger)" : p.stock <= low ? "var(--warn)" : "inherit"}">${p.stock}</b>`}</td><td>${pill(p.status)}</td>
         <td class="right nowrap"><button class="btn btn--ghost btn--sm" data-dup="${esc(p.id)}">Duplicate</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="empty">No products match.</p>`;
     };
+    // Drag rows by the handle to set the order products show in on the store
+    let dragRow = null;
+    const saveOrder = async () => {
+      const ids = $$("#prdRows tr").map((tr) => tr.dataset.id);
+      try { await api("PUT", "/api/products-order", { ids }); store = null; toast("Order saved. The shop shows products in this order."); } catch (err) { fail(err); load(); }
+    };
+    // Mouse, pen and touch: press the handle and move up or down
+    $("#prdList").addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".drag");
+      if (!h) return;
+      e.preventDefault();
+      dragRow = h.closest("tr"); dragRow.classList.add("is-dragging");
+      try { h.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    $("#prdList").addEventListener("pointermove", (e) => {
+      if (!dragRow) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY), tr = el && el.closest("#prdRows tr");
+      if (!tr || tr === dragRow) return;
+      const r = tr.getBoundingClientRect();
+      tr.parentNode.insertBefore(dragRow, e.clientY > r.top + r.height / 2 ? tr.nextSibling : tr);
+    });
+    const endDrag = () => { if (!dragRow) return; dragRow.classList.remove("is-dragging"); dragRow = null; saveOrder(); };
+    $("#prdList").addEventListener("pointerup", endDrag);
+    $("#prdList").addEventListener("pointercancel", endDrag);
     $("#prdQ").oninput = debounce((e) => { state.q = e.target.value.trim(); load(); }, 250);
     $("#prdCat").onchange = (e) => { state.category = e.target.value; load(); };
     $("#prdStatus").onchange = (e) => { state.status = e.target.value; load(); };
     $("#prdList").addEventListener("click", async (e) => {
+      if (e.target.closest(".drag")) { e.stopPropagation(); return; }
       const b = e.target.closest("[data-dup]");
       if (!b) return;
       e.stopPropagation();
@@ -615,7 +704,7 @@
           <div class="card"><label class="field"><span>Product name</span><input class="input" name="name" required value="${esc(draft.name)}" placeholder="Fearless Oversized T-shirt – Black"></label>
             <label class="field"><span>Description</span><textarea class="input" name="description" rows="3">${esc(draft.description || "")}</textarea></label>
             <label class="field"><span>Details &amp; fit</span><textarea class="input" name="details" rows="4" placeholder="One point per line">${esc(draft.details)}</textarea><small>One point per line. Shown under “Details &amp; fit”.</small></label></div>
-          <div class="card"><div class="card__head"><h2 class="h2">Photos</h2><small class="muted">The first photo is the main one. Drag order with the arrows.</small></div><div class="gallery" id="gallery"></div></div>
+          <div class="card"><div class="card__head"><h2 class="h2">Photos</h2><small class="muted">The first photo is the main one. Drag order with the arrows. Best size: 690 × 862 px (4:5) · WebP · under 80 KB each.</small></div><div class="gallery" id="gallery"></div></div>
           <div class="card"><h2 class="h2">Price</h2><div class="row row--3">
             <label class="field"><span>Price (৳)</span><input class="input" name="price" type="number" min="0" required value="${esc(draft.price)}"></label>
             <label class="field"><span>Compare-at price (৳)</span><input class="input" name="comparePrice" type="number" min="0" value="${esc(draft.comparePrice || "")}"><small>The old price, shown crossed out.</small></label>
@@ -639,7 +728,10 @@
           <div class="card"><h2 class="h2">Style</h2>
             <label class="field"><span>Line / collection label</span><input class="input" name="line" value="${esc(draft.line || "")}" placeholder="Fearless"><small>Used for the filter chips on the shop page.</small></label>
             <div class="row row--2"><label class="field"><span>Colour name</span><input class="input" name="color" value="${esc(draft.color || "")}" placeholder="Black"></label>
-            <label class="field"><span>Colour</span><input class="input" name="hex" type="color" value="${esc(draft.hex || "#7b7e83")}" style="padding:2px"></label></div></div>
+            <label class="field"><span>Colour</span><input class="input" name="hex" type="color" value="${esc(draft.hex || "#7b7e83")}" style="padding:2px"></label></div>
+            <div class="field"><span>Shop filter colour</span><input type="hidden" name="colorGroup" value="${esc(draft.colorGroup || "")}">
+              <div class="chips" id="cgPick">${[["", "Auto"]].concat(FILTER_COLORS).map(([n, h]) => `<button type="button" class="chipbtn${(draft.colorGroup || "") === n ? " is-on" : ""}" data-cg="${esc(n)}">${h ? `<span class="sw" style="background:${h}"></span>` : ""}${esc(n || "Auto")}</button>`).join("")}</div>
+              <small>The colour this product is listed under in the shop's colour filter. Auto picks it from the colour name.</small></div></div>
           <div class="card"><h2 class="h2">Web address</h2><label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(draft.slug || "")}" placeholder="Made from the name"><small>ravellebd.com/#product/<b>${esc(draft.slug || "…")}</b></small></label></div>
         </div>
         <div class="sticky-save" style="grid-column:1/-1"><span class="small">${isNew ? "New product" : "Editing " + esc(p.name)}</span>
@@ -737,12 +829,18 @@
     };
     $("[name=trackStock]", form).onchange = drawVariants;
     drawAttrs();
+    $("#cgPick", form).onclick = (e) => {
+      const btn = e.target.closest("[data-cg]");
+      if (!btn) return;
+      $("[name=colorGroup]", form).value = btn.dataset.cg;
+      $$("#cgPick .chipbtn", form).forEach((x) => x.classList.toggle("is-on", x === btn));
+    };
 
     form.onsubmit = async (e) => {
       e.preventDefault();
       const b = formData(form);
       const body = {
-        name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, price: b.price, comparePrice: b.comparePrice || 0,
+        name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, colorGroup: b.colorGroup || "", price: b.price, comparePrice: b.comparePrice || 0,
         description: b.description, details: b.details, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value,
         categoryIds: $$("[name=cat]:checked", form).map((x) => x.value), isNew: b.isNew, featured: b.featured, trackStock: b.trackStock, stock: b.stock,
         attributes: draft.attributes.filter((a) => a.values.length), variants: draft.variants
@@ -942,13 +1040,38 @@
   // Pages: visual editor (live preview in an iframe of the store)
   // ---------------------------------------------------------------------------
   const PAGES = {
-    home: { title: "Home page", route: "home", sections: { hero: "Hero", categories: "Shop by category", arrivals: "New arrivals", editorial: "Photo pair", footer: "Footer" } },
+    home: { title: "Home page", route: "home", sections: { hero: "Hero", tryLook: "Try the look", house: "Oversized items", poster: "Offer poster", arrivals: "Product showcase", lookbook: "Lookbook", categories: "Shop by category", footer: "Footer" } },
     about: { title: "About us", route: "about" },
     contact: { title: "Contact us", route: "contact" },
+    stores: { title: "Store locations", route: "store-locations" },
+    franchise: { title: "Franchise", route: "franchise" },
     terms: { title: "Terms & conditions", route: "terms" },
     privacy: { title: "Privacy policy", route: "privacy" },
     refund: { title: "Return & refund policy", route: "refund" },
     delivery: { title: "Delivery policy", route: "delivery" }
+  };
+  const DISTRICTS = ["Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria", "Chandpur", "Chapai Nawabganj", "Chattogram", "Chuadanga",
+    "Cox's Bazar", "Cumilla", "Dhaka", "Dinajpur", "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj", "Habiganj", "Jamalpur", "Jashore", "Jhalokati", "Jhenaidah",
+    "Joypurhat", "Khagrachhari", "Khulna", "Kishoreganj", "Kurigram", "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur", "Magura", "Manikganj", "Meherpur",
+    "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon", "Narail", "Narayanganj", "Narsingdi", "Natore", "Netrokona", "Nilphamari", "Noakhali", "Pabna", "Panchagarh",
+    "Patuakhali", "Pirojpur", "Rajbari", "Rajshahi", "Rangamati", "Rangpur", "Satkhira", "Shariatpur", "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon"];
+  // Pages with cards you can add, edit, move and remove
+  const CARDS = {
+    stores: { list: "shops", label: "Shops", add: "Add shop", skip: ["shops", "districtOrder"],
+      help: "Each shop needs a name and a district. Mark it as a Ravelle own shop or a franchise shop; the page shows which one it is.",
+      empty: "No shops. The page shows the “no shops yet” message.",
+      title: (s) => s.name, sub: (s) => [s.district || "No district", s.type === "franchise" ? "Franchise" : "Ravelle own shop"].join(" · "),
+      blank: () => ({ name: "", type: "own", district: "", image: "", address: "", phone: "", email: "", hours: "", map: "" }),
+      fields: [["name", "Shop name", "text", "Ravelle Banani"], ["type", "Shop type", "select", [["own", "Ravelle own shop"], ["franchise", "Franchise shop"]]], ["district", "District", "district"],
+        ["image", "Shop photo", "image"], ["address", "Shop address", "textarea"], ["phone", "Shop number", "text", "01XXX-XXXXXX"], ["email", "Shop email", "text", "shop@ravellebd.com"],
+        ["hours", "Opening hours (optional)", "text", "Every day, 11am – 10pm"], ["map", "Google Maps link (optional)", "text", "Leave empty to search the address"]] },
+    franchise: { list: "stories", label: "Franchise partner cards", add: "Add partner card", skip: ["stories", "pdf"],
+      help: "Stories from franchise store owners. If you remove every card, the whole section is hidden on the page.",
+      empty: "No cards. The partner section is hidden on the page.",
+      title: (s) => s.ownerName, sub: (s) => s.storeName || "",
+      blank: () => ({ storeName: "", storeImage: "", address: "", ownerName: "", ownerImage: "", opinion: "", experience: "" }),
+      fields: [["storeName", "Store name", "text", "Ravelle GEC Circle"], ["storeImage", "Store photo", "image"], ["address", "Store address", "textarea"], ["ownerName", "Owner name", "text"],
+        ["ownerImage", "Owner photo", "image"], ["opinion", "Owner's opinion (short quote)", "textarea"], ["experience", "Owner's experience", "textarea"]] }
   };
   const isImageKey = (k, v) => /(^|[a-z])(image|Image|avatars?|logo)/.test(k) || (typeof v === "string" && /\.(png|jpe?g|webp|gif|avif)(\?|$)|^data:image\//i.test(v));
   const isMdKey = (k) => k === "body" || k === "story";
@@ -956,7 +1079,7 @@
     setTitle("Pages");
     const pages = ((await api("GET", "/api/pages").catch(fail)) || {}).pages || {};
     view.innerHTML = `<div class="head"><div><h1 class="h1">Pages</h1><p class="muted">Change the words and pictures on every page. The design stays the same, so the store always looks right.</p></div></div>
-      <div class="grid-3">${Object.keys(PAGES).filter((k) => pages[k]).map((k) => `<a class="card" href="#/pages/${k}" style="text-decoration:none"><h2 class="h2">${esc(PAGES[k].title)}</h2><p class="muted small" style="margin:0">${k === "home" ? "Hero, categories, new arrivals, photo pair and footer" : pages[k].updated ? "Last updated " + esc(pages[k].updated) : esc((pages[k].intro || "").slice(0, 90))}</p><span class="btn btn--ghost btn--sm" style="justify-self:start">Edit page</span></a>`).join("")}</div>
+      <div class="grid-3">${Object.keys(PAGES).filter((k) => pages[k]).map((k) => `<a class="card" href="#/pages/${k}" style="text-decoration:none"><h2 class="h2">${esc(PAGES[k].title)}</h2><p class="muted small" style="margin:0">${k === "home" ? "Hero, collections, offer poster, lookbook and footer" : pages[k].updated ? "Last updated " + esc(pages[k].updated) : esc((pages[k].intro || "").slice(0, 90))}</p><span class="btn btn--ghost btn--sm" style="justify-self:start">Edit page</span></a>`).join("")}</div>
       <div class="card"><h2 class="h2">Where are the footer and header links?</h2><p class="muted" style="margin:0">Menus live in <a href="#/menus">Menus</a>. Company details, the trade license, TIN and DBID shown on About us and in the footer come from <a href="#/settings">Settings</a>.</p></div>`;
   }
   async function viewPageEditor(key) {
@@ -989,21 +1112,25 @@
       if (isImageKey(k, v)) return imgField(path, v, label);
       if (isMdKey(k)) return `<label class="field" data-path="${esc(path)}"><span>${label}</span><textarea class="input input--md" data-p="${esc(path)}">${esc(v)}</textarea><small>## Heading · - list item · 1. step · **bold** · [link text](#contact)</small></label>`;
       const long = v.length > 60 || v.indexOf("\n") > -1;
-      const linkHint = /link$/i.test(k) ? `<small>A page link like #shop, #category/men, #about, or a full https:// address.</small>` : "";
+      const linkHint = /link$/i.test(k) ? `<small>A page link like #shop, #category/men, #about, or a full https:// address.</small>`
+        : k === "category" ? `<small>Category: ${esc(((store && store.categories) || []).map((c) => c.slug).join(", "))}, or top-selling. Join several with commas.</small>` : "";
       return `<label class="field" data-path="${esc(path)}"><span>${label}</span>${long ? `<textarea class="input" data-p="${esc(path)}" rows="${Math.min(6, Math.max(2, v.split("\n").length + 1))}">${esc(v)}</textarea>` : `<input class="input" data-p="${esc(path)}" value="${esc(v)}" ${/link$/i.test(k) ? 'list="peLinks"' : ""}>`}${linkHint}</label>`;
     };
     const build = (obj, path, depth) => Object.keys(obj).map((k) => {
       const v = obj[k], p = path ? path + "." + k : k;
+      if (!path && CARDS[key] && CARDS[key].skip.indexOf(k) > -1) return "";
       if (typeof v === "string") return fieldFor(k, v, p);
       if (Array.isArray(v)) {
         return `<details class="group"${depth ? "" : " open"}><summary>${human(k)}</summary><div class="group__body">${v.map((item, i) =>
           typeof item === "string" ? fieldFor(k.replace(/s$/, "") + " " + (i + 1), item, p + "." + i).replace(/<span>[^<]*<\/span>/, `<span>${human(k).replace(/s$/, "")} ${i + 1}</span>`)
-            : `<details class="group"><summary>${human(k).replace(/s$/, "")} ${i + 1}${item.title || item.name ? ": " + esc(String(item.title || item.name).split("\n")[0]) : ""}</summary><div class="group__body">${build(item, p + "." + i, depth + 2)}</div></details>`).join("")}</div></details>`;
+            : `<details class="group"><summary>${human(k).replace(/s$/, "")} ${i + 1}${item.title || item.name || item.label ? ": " + esc(String(item.title || item.name || item.label).split("\n")[0]) : ""}</summary><div class="group__body">${build(item, p + "." + i, depth + 2)}</div></details>`).join("")}</div></details>`;
       }
       if (v && typeof v === "object") return `<details class="group"${depth === 0 && key !== "home" ? " open" : ""} data-group="${esc(p)}"><summary>${esc((meta.sections && meta.sections[k]) || human(k))}</summary><div class="group__body">${build(v, p, depth + 1)}</div></details>`;
       return "";
     }).join("");
-    $("#peForm").innerHTML = build(draft, "", 0) + `<datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
+    $("#peForm").innerHTML = build(draft, "", 0) + `<div class="stack" id="peCards"></div><datalist id="peLinks">${["#shop", "#new-in", "#on-sale", "#about", "#contact", "#track", "#lookbook", "#arrivals"].concat(((store && store.categories) || []).map((c) => "#category/" + c.slug)).map((u) => `<option value="${esc(u)}">`).join("")}</datalist>`;
+    // opening a section scrolls it into view, so its fields are not hidden below the fold
+    if (!$("#peForm")._tog && ($("#peForm")._tog = true)) $("#peForm").addEventListener("toggle", (e) => { if (e.target.open) setTimeout(() => e.target.scrollIntoView({ block: "start", behavior: "smooth" }), 40); }, true);
     $("#peForm").addEventListener("input", (e) => {
       const el = e.target.closest("[data-p]");
       if (!el) return;
@@ -1012,6 +1139,91 @@
       post();
     });
     wireImgFields($("#peForm"), (path, u) => { setPath(path, u); setDirty(); post(path); });
+    // Card lists (shops, franchise partners): add, edit, move and remove cards
+    const spec = CARDS[key];
+    const drawCards = (openId) => {
+      const box = $("#peCards");
+      if (!spec || !box) return;
+      const list = draft[spec.list] = draft[spec.list] || [];
+      const fieldHtml = (item, i, f) => {
+        const [k, label, type, extra] = f, p = spec.list + "." + i + "." + k, v = item[k] || "";
+        if (type === "image") return imgField(p, v, label, extra || "");
+        if (type === "select") return `<label class="field"><span>${label}</span><select class="input" data-cp="${p}">${extra.map(([val, l]) => `<option value="${val}"${v === val ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+        if (type === "district") return `<label class="field"><span>${label} <b style="color:var(--danger)">*</b></span><select class="input" data-cp="${p}" required><option value="">Choose a district</option>${DISTRICTS.map((x) => `<option${v === x ? " selected" : ""}>${esc(x)}</option>`).join("")}</select><small>Shops are grouped and sorted by district.</small></label>`;
+        if (type === "textarea") return `<label class="field"><span>${label}</span><textarea class="input" rows="3" data-cp="${p}">${esc(v)}</textarea></label>`;
+        return `<label class="field"><span>${label}</span><input class="input" data-cp="${p}" value="${esc(v)}" ${extra ? `placeholder="${esc(extra)}"` : ""}></label>`;
+      };
+      let html = `<details class="group" open><summary>${esc(spec.label)} (${list.length})</summary><div class="group__body">
+        <p class="muted small" style="margin:0">${spec.help}</p>
+        ${list.map((item, i) => `<details class="group pe-card"${item.id === openId ? " open" : ""}><summary><span class="pe-card__title">${esc(spec.title(item) || "New card")}</span><small class="muted">${esc(spec.sub(item))}</small></summary>
+          <div class="group__body">${spec.fields.map((f) => fieldHtml(item, i, f)).join("")}
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-cact="up" data-i="${i}" ${i ? "" : "disabled"}>↑ Move up</button><button class="btn btn--ghost btn--sm" type="button" data-cact="down" data-i="${i}" ${i < list.length - 1 ? "" : "disabled"}>↓ Move down</button>
+          <button class="btn btn--danger btn--sm" type="button" data-cact="del" data-i="${i}" style="margin-left:auto">Remove card</button></div></div></details>`).join("") || `<p class="muted small" style="margin:0">${spec.empty}</p>`}
+        <button class="btn btn--dark btn--sm" type="button" data-cact="add" style="justify-self:start">+ ${esc(spec.add)}</button></div></details>`;
+      if (key === "stores") {
+        const order = (draft.districtOrder || []).slice();
+        list.forEach((s) => { if (s.district && order.indexOf(s.district) < 0) order.push(s.district); });
+        draft.districtOrder = order.filter((d, i) => order.indexOf(d) === i && list.some((s) => s.district === d));
+        html += `<details class="group" open><summary>District order</summary><div class="group__body"><p class="muted small" style="margin:0">The district at the top shows first on the page.</p>
+          ${draft.districtOrder.map((d, i) => `<div class="pe-dist"><span class="mono muted">${i + 1}</span><b>${esc(d)}</b><small class="muted">${list.filter((s) => s.district === d).length} shop(s)</small>
+            <button class="icon" type="button" data-dact="up" data-i="${i}" ${i ? "" : "disabled"} aria-label="Move up">↑</button><button class="icon" type="button" data-dact="down" data-i="${i}" ${i < draft.districtOrder.length - 1 ? "" : "disabled"} aria-label="Move down">↓</button></div>`).join("") || `<p class="muted small" style="margin:0">Add a shop and choose its district first.</p>`}</div></details>`;
+      }
+      if (key === "franchise") {
+        html += `<details class="group" open><summary>Franchise guide PDF</summary><div class="group__body">
+          <p class="small" style="margin:0">${draft.pdf ? `✓ A PDF is attached. <a href="${esc(draft.pdf)}" target="_blank" rel="noopener">Open it</a>` : `<span class="muted">No PDF yet. The page shows “PDF coming soon”.</span>`}</p>
+          <div class="flex"><label class="btn btn--ghost btn--sm" style="cursor:pointer">${draft.pdf ? "Replace PDF" : "Upload PDF"}<input type="file" accept="application/pdf" id="pePdf" hidden></label>
+          ${draft.pdf ? `<button class="btn btn--ghost btn--sm" type="button" id="pePdfDel">Remove PDF</button>` : ""}</div><small class="muted">Up to 10 MB.${demo ? " In this demo keep it under 3 MB." : ""}</small></div></details>`;
+      }
+      box.innerHTML = html;
+      wireImgFields(box, (path, u) => { setPath(path, u); setDirty(); post(); });
+      if ($("#pePdf")) $("#pePdf").onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.type !== "application/pdf") return toast("Choose a PDF file.", true);
+        if (file.size > (demo ? 3 : 10) * 1048576) return toast("That PDF is too big.", true);
+        const fr = new FileReader();
+        fr.onload = async () => {
+          try {
+            const url = demo ? fr.result : (await api("POST", "/api/files", { name: file.name, dataUrl: fr.result })).url;
+            draft.pdf = url; setDirty(); post(); drawCards(); toast("PDF attached. Press Save to publish.");
+          } catch (err) { fail(err); }
+        };
+        fr.readAsDataURL(file);
+      };
+      if ($("#pePdfDel")) $("#pePdfDel").onclick = () => { draft.pdf = ""; setDirty(); post(); drawCards(); };
+    };
+    if (spec) {
+      $("#peCards").addEventListener("input", (e) => {
+        const el = e.target.closest("[data-cp]");
+        if (!el) return;
+        setPath(el.dataset.cp, el.value); setDirty(); post();
+        const det = el.closest(".pe-card"), i = +el.dataset.cp.split(".")[1], item = draft[spec.list][i];
+        if (det) { $(".pe-card__title", det).textContent = spec.title(item) || "New card"; $("summary small", det).textContent = spec.sub(item); }
+        if (el.tagName === "SELECT" && key === "stores") drawCards(item.id);
+      });
+      $("#peCards").addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-cact], [data-dact]");
+        if (!b) return;
+        const list = draft[spec.list], i = +b.dataset.i;
+        if (b.dataset.dact) {
+          const o = draft.districtOrder, j = b.dataset.dact === "up" ? i - 1 : i + 1;
+          [o[i], o[j]] = [o[j], o[i]];
+        } else if (b.dataset.cact === "add") {
+          const item = Object.assign({ id: (key === "stores" ? "shp_" : "fst_") + Math.random().toString(36).slice(2, 8) }, spec.blank());
+          list.push(item); setDirty(); post(); return drawCards(item.id);
+        } else if (b.dataset.cact === "del") {
+          if (!(await confirmBox("Remove this card?", (spec.title(list[i]) || "This card") + " will be removed from the page when you save.", "Remove", true))) return;
+          list.splice(i, 1);
+        } else {
+          const j = b.dataset.cact === "up" ? i - 1 : i + 1;
+          [list[i], list[j]] = [list[j], list[i]];
+          setDirty(); post(); return drawCards(list[j].id);
+        }
+        setDirty(); post(); drawCards();
+      });
+      drawCards();
+    }
+
     const onMsg = (e) => {
       const m = e.data || {};
       if (e.source !== frame.contentWindow) return;
@@ -1058,18 +1270,33 @@
     let dirty = false;
     const links = [["Shop", [["All products", "#shop"], ["New in", "#new-in"], ["On sale", "#on-sale"], ["Search", "#search"]]],
       ["Categories", catTree(store.categories).map(({ c, depth }) => ["— ".repeat(depth) + c.name, "#category/" + c.slug])],
-      ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
+      ["Pages", [["Home", "#home"], ["About us", "#about"], ["Contact us", "#contact"], ["Store locations", "#store-locations"], ["Franchise", "#franchise"], ["Track order", "#track"], ["Saved items", "#saved"], ["Terms & conditions", "#terms"], ["Privacy policy", "#privacy"], ["Return & refund policy", "#refund"], ["Delivery policy", "#delivery"]]]];
     const linkSelect = `<select class="input input--sm" data-pick-link><option value="">Link to…</option>${links.map(([g, l]) => `<optgroup label="${g}">${l.map(([n, u]) => `<option value="${esc(u)}" data-label="${esc(n.replace(/^(— )+/, ""))}">${esc(n)}</option>`).join("")}</optgroup>`).join("")}</select>`;
     view.innerHTML = `<div class="head"><div><h1 class="h1">Menus</h1><p class="muted">The header menu (with dropdowns) and the footer columns. Link to categories, sub-categories, pages or any web address.</p></div><button class="btn btn--dark" id="mnSave" disabled>Saved</button></div>
-      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop the first half sits left of the logo, the rest on the right. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
+      <div class="cols cols--even"><div class="card"><div class="card__head"><h2 class="h2">Header menu</h2><button class="btn btn--ghost btn--sm" data-add="header">+ Add link</button></div><p class="muted small" style="margin:0">On desktop all links sit left of the logo. A link with dropdown links opens a panel: the links in columns (six per column unless you change it), then its photo on the right. On phones everything is in the menu button.</p><div class="stack stack--sm" id="mnHeader"></div></div>
         <div class="card"><div class="card__head"><h2 class="h2">Footer columns</h2><button class="btn btn--ghost btn--sm" data-add-col>+ Add column</button></div><div class="stack" id="mnFooter"></div></div></div>`;
     const setDirty = () => { dirty = true; $("#mnSave").disabled = false; $("#mnSave").textContent = "Save menus"; };
     const row = (it, path, canNest) => `<div><div class="menu-item" data-path="${path}"><input class="input input--sm" data-f="label" value="${esc(it.label)}" placeholder="Label">
       <div class="flex" style="flex-wrap:nowrap"><input class="input input--sm grow" data-f="url" value="${esc(it.url)}" placeholder="#shop or https://…">${linkSelect}</div>
-      <div class="menu-tools"><button class="icon" type="button" data-act="up" aria-label="Move up">↑</button><button class="icon" type="button" data-act="down" aria-label="Move down">↓</button>${canNest ? `<button class="icon" type="button" data-act="child" title="Add dropdown link">+</button>` : ""}<button class="icon" type="button" data-act="del" aria-label="Remove">✕</button></div></div>
+      <div class="menu-tools"><button class="icon" type="button" data-act="up" aria-label="Move up">↑</button><button class="icon" type="button" data-act="down" aria-label="Move down">↓</button>${canNest ? `<button class="icon" type="button" data-act="child" title="Add dropdown link">+</button>` : ""}<button class="icon" type="button" data-act="del" aria-label="Remove">✕</button></div>
+      ${path.indexOf("header.") === 0 ? `<div class="menu-photo"><span class="menu-photo__frame">${it.image ? `<img src="${esc(it.image)}" alt="" data-measure>` : ""}</span>
+        <div><b class="small">${canNest ? "Dropdown photo" : "Photo on hover (optional)"}</b><br><small class="muted">Upload <b>440 × 550 px</b> (4:5). It shows in a 220 × 275 frame${canNest ? " on the right of this link's dropdown" : " in place of the dropdown photo while this link is hovered"}.</small><br>
+        <small class="menu-photo__size" data-size></small>
+        ${canNest ? `<label class="flex small" style="margin-top:6px;gap:8px;align-items:center">Links per column <select class="input input--sm" data-f="perColumn" style="width:auto">${Array.from({ length: 12 }, (_, k) => k + 1).map((n) => `<option value="${n}"${(+it.perColumn || 6) === n ? " selected" : ""}>${n}${n === 6 ? " (default)" : ""}</option>`).join("")}</select></label>` : ""}
+        <div class="flex" style="margin-top:6px"><button class="btn btn--ghost btn--sm" type="button" data-act="img">${it.image ? "Change photo" : "Choose photo"}</button>${it.image ? `<button class="btn btn--ghost btn--sm" type="button" data-act="noimg">Remove</button>` : ""}</div></div></div>` : ""}</div>
       ${canNest && it.children && it.children.length ? `<div class="menu-kids">${it.children.map((c, j) => row(c, path + ".children." + j, false)).join("")}</div>` : ""}</div>`;
     const draw = () => {
       $("#mnHeader").innerHTML = menus.header.map((it, i) => row(it, "header." + i, true)).join("") || `<p class="muted">No links.</p>`;
+      // show each photo's real size, so a wrong size is easy to spot
+      $$("#mnHeader img[data-measure]").forEach((im) => {
+        const show = () => {
+          const out = $("[data-size]", im.closest(".menu-photo")), w = im.naturalWidth, h = im.naturalHeight;
+          if (!w) return;
+          const ok = Math.abs(w / h - 0.8) < 0.02 && w >= 440;
+          out.innerHTML = `This photo: ${w} × ${h} px ${ok ? "· good fit" : `· <span style="color:#b3261e">${Math.abs(w / h - 0.8) >= 0.02 ? "not 4:5, the edges will be cropped" : "smaller than 440 × 550, may look soft"}</span>`}`;
+        };
+        if (im.complete) show(); else im.onload = show;
+      });
       $("#mnFooter").innerHTML = menus.footer.map((col, ci) => `<div class="attr"><div class="flex"><input class="input input--sm grow" data-col="${ci}" value="${esc(col.title)}" placeholder="Column title"><button class="btn btn--ghost btn--sm" data-add="footer.${ci}.items">+ Link</button><button class="icon" data-del-col="${ci}" aria-label="Remove column">✕</button></div>
         <div class="stack stack--sm">${col.items.map((it, i) => row(it, "footer." + ci + ".items." + i, false)).join("")}</div></div>`).join("");
     };
@@ -1081,6 +1308,7 @@
       if (e.target.dataset.col != null) { menus.footer[+e.target.dataset.col].title = e.target.value; setDirty(); }
     });
     view.addEventListener("change", (e) => {
+      if (e.target.dataset.f === "perColumn") { get(e.target.closest(".menu-item").dataset.path).perColumn = +e.target.value; setDirty(); return; }
       const sel = e.target.closest("[data-pick-link]");
       if (!sel || !sel.value) return;
       const r = sel.closest(".menu-item"), it = get(r.dataset.path), opt = sel.selectedOptions[0];
@@ -1100,6 +1328,8 @@
         if (act.dataset.act === "up" && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
         if (act.dataset.act === "down" && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
         if (act.dataset.act === "child") { const it = list[i]; it.children = it.children || []; it.children.push({ label: "", url: "", children: [] }); }
+        if (act.dataset.act === "img") { pickMedia({ title: "Menu photo (440 × 550 px)" }).then((u) => { if (u) { list[i].image = u[0]; setDirty(); draw(); } }); return; }
+        if (act.dataset.act === "noimg") delete list[i].image;
         setDirty(); draw();
       }
     });
@@ -1162,7 +1392,7 @@
       const keepDraft = $("#chText") ? $("#chText").value : "";
       box.innerHTML = `<div class="inbox__head"><div><b>${esc(c.name || "Visitor")}</b> ${pill(c.status)}<br><small class="muted">Started ${dateTime(c.createdAt)}${c.page ? " on " + esc(c.page) : ""} · ID <span class="mono">${esc(c.id)}</span></small></div>
         <button class="btn btn--ghost btn--sm" id="chToggle">${c.status === "open" ? "Close chat" : "Reopen"}</button></div>
-        <div class="inbox__msgs" id="chMsgs">${c.messages.map((m) => `<div class="bubble${m.from === "customer" ? "" : " bubble--out"}${m.from === "bot" ? " bubble--bot" : ""}"><p>${esc(m.text)}</p><small>${m.from === "customer" ? esc(c.name || "Visitor") : esc(m.author || (m.from === "bot" ? "Bot" : "Team"))}${m.from === "bot" ? " · auto" : ""} · ${dateTime(m.at)}</small></div>`).join("")}</div>
+        <div class="inbox__msgs" id="chMsgs">${c.messages.map((m) => `<div class="bubble${m.from === "customer" ? "" : " bubble--out"}${m.from === "bot" ? " bubble--bot" : ""}">${m.image ? `<a href="${esc(m.image)}" target="_blank" rel="noopener"><img src="${esc(m.image)}" alt="Photo from the customer" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin-bottom:4px"></a>` : ""}${m.text ? `<p>${esc(m.text)}</p>` : ""}<small>${m.from === "customer" ? esc(c.name || "Visitor") : esc(m.author || (m.from === "bot" ? "Bot" : "Team"))}${m.from === "bot" ? " · auto" : ""} · ${dateTime(m.at)}</small></div>`).join("")}</div>
         <form class="inbox__form" id="chForm"><textarea class="input grow" id="chText" rows="2" placeholder="Write a reply… (Enter to send, Shift+Enter for a new line)"></textarea><button class="btn btn--dark" type="submit">Send</button></form>`;
       $("#chText").value = keepDraft;
       const msgs = $("#chMsgs");
@@ -1205,31 +1435,281 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Abandoned carts: checkouts that stopped before the order was placed
+  // ---------------------------------------------------------------------------
+  async function viewCarts() {
+    setTitle("Abandoned carts");
+    let r;
+    try { r = await api("GET", "/api/carts"); } catch (err) { return fail(err); }
+    let tab = "open";
+    const cs = r.settings;
+    const remState = (x) => {
+      const auto = (n) => x.reminders.find((m) => m.auto && m.n === n);
+      const cell = (n, label) => { const m = auto(n); return `<span class="cart-rem${m ? (m.ok === false ? " is-bad" : " is-ok") : ""}" title="${esc(m ? m.status + " · " + dateTime(m.at) : x.customer.email ? "Not sent yet" : "No email")}">${m ? (m.ok === false ? "✕" : "✓") : "○"} ${label}</span>`; };
+      return x.customer.email ? cell(1, cs.delay1 + " min") + cell(2, cs.delay2 + " h") : `<small class="muted">No email · call or WhatsApp</small>`;
+    };
+    const statusPill = (x) => x.status === "open" ? (x.abandoned ? `<span class="pill pill--pending">Abandoned</span>` : `<span class="pill pill--confirmed">At checkout now</span>`)
+      : x.status === "recovered" ? `<span class="pill pill--delivered">Recovered · ${esc(x.orderNumber)}</span>` : x.status === "ordered" ? `<span class="pill pill--paid">Ordered · ${esc(x.orderNumber)}</span>` : `<span class="pill pill--draft">Dismissed</span>`;
+    const draw = () => {
+      const list = r.carts.filter((x) => tab === "all" || (tab === "open" ? x.status === "open" : x.status === tab));
+      view.innerHTML = `<div class="head"><div><h1 class="h1">Abandoned carts</h1><p class="muted">People who typed their phone or email at checkout but didn't place the order. Reminder emails go out ${cs.delay1} minutes and ${cs.delay2} hours later${cs.enabled ? "" : " (reminders are off)"}.</p></div>
+          <div class="flex"><a class="btn btn--ghost" href="#/email">Reminder settings</a><button class="btn btn--ghost" id="caCsv">Export CSV</button></div></div>
+        ${r.emailReady ? "" : `<div class="card" style="background:var(--warn-bg)"><p class="small" style="margin:0">Reminder emails can't go out yet. ${window.Ravelle.mode === "demo" ? "The demo has no email server; on the live store, " : ""}connect your company Gmail in <a href="#/email">Email & reminders</a>. You can still call or WhatsApp people from here.</p></div>`}
+        <div class="kpis"><div class="kpi"><span class="kpi__label">Abandoned now</span><span class="kpi__value">${r.stats.open}</span><span class="kpi__delta">${taka(r.stats.openValue)} in bags</span></div>
+          <div class="kpi"><span class="kpi__label">Reminders sent</span><span class="kpi__value">${r.stats.reminders}</span><span class="kpi__delta">emails and calls</span></div>
+          <div class="kpi"><span class="kpi__label">Recovered</span><span class="kpi__value">${r.stats.recovered}</span><span class="kpi__delta">${taka(r.stats.recoveredValue)} in orders</span></div></div>
+        <div class="tabs" id="caTabs">${[["open", "Open"], ["recovered", "Recovered"], ["ordered", "Ordered"], ["dismissed", "Dismissed"], ["all", "All"]].map(([k, l]) => `<button class="tab${tab === k ? " is-on" : ""}" data-t="${k}">${l} <span class="muted">${r.carts.filter((x) => k === "all" || x.status === k).length}</span></button>`).join("")}</div>
+        <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Last active</th><th>Customer</th><th>Bag</th><th>Value</th><th>Reminders</th><th>Status</th><th></th></tr></thead><tbody>${list.map((x) => `
+          <tr><td>${ago(x.updatedAt)}<br><small class="muted">${dateTime(x.updatedAt)}</small></td>
+          <td><b>${esc(x.customer.name || "No name yet")}</b>${x.customer.phone ? `<br><a href="tel:${esc(x.customer.phone)}">${esc(x.customer.phone)}</a>` : ""}${x.customer.email ? `<br><small><a href="mailto:${esc(x.customer.email)}">${esc(x.customer.email)}</a></small>` : ""}</td>
+          <td><small>${x.items.map((i) => `${i.qty} × ${esc(i.name)}${Object.keys(i.options || {}).length ? " (" + esc(Object.values(i.options).join(", ")) + ")" : ""}`).join("<br>")}</small></td>
+          <td>${taka(x.total)}</td><td>${remState(x)}</td><td>${statusPill(x)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-open="${x.id}">Open</button></td></tr>`).join("") || `<tr><td colspan="7"><p class="empty">${tab === "open" ? "No abandoned carts right now." : "Nothing here."}</p></td></tr>`}</tbody></table></div></div>`;
+      $("#caTabs").onclick = (e) => { const b = e.target.closest("[data-t]"); if (b) { tab = b.dataset.t; draw(); } };
+      $("#caCsv").onclick = () => download("ravelle-abandoned-carts.csv", csv([["Last active", "Name", "Phone", "Email", "Address", "City", "Items", "Value", "Reminders", "Status", "Order"]]
+        .concat(r.carts.map((x) => [new Date(x.updatedAt).toISOString(), x.customer.name, x.customer.phone, x.customer.email, x.customer.address, x.customer.city, x.items.map((i) => i.qty + " x " + i.name).join("; "), x.total, x.reminders.length, x.status, x.orderNumber || ""]))));
+    };
+    draw();
+    view.onclick = async (e) => {
+      const b = e.target.closest("[data-open]");
+      if (!b) return;
+      const x = r.carts.find((y) => y.id === b.dataset.open);
+      const first = (x.customer.name || "").split(" ")[0];
+      const wa = x.customer.phone ? x.customer.phone.replace(/^0/, "880") : "";
+      const msg = `Hi${first ? " " + first : ""}, this is Ravelle. You left ${x.items.map((i) => i.name).join(", ")} in your bag. Complete your order here: ${x.link}`;
+      const body = modal(x.customer.name || "Abandoned cart", `<div class="stack">
+        <div class="flex">${x.customer.phone ? `<a class="btn btn--dark btn--sm" href="tel:${esc(x.customer.phone)}" data-contact="phone">Call ${esc(x.customer.phone)}</a><a class="btn btn--ghost btn--sm" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" data-contact="whatsapp">WhatsApp</a>` : ""}
+          ${x.customer.email ? `<button class="btn btn--ghost btn--sm" type="button" id="caRemind">Send reminder email now</button>` : ""}</div>
+        <dl class="row row--2" style="margin:0;gap:12px 20px"><div><dt class="mono muted small">Email</dt><dd style="margin:2px 0 0">${esc(x.customer.email || "—")}</dd></div><div><dt class="mono muted small">Address</dt><dd style="margin:2px 0 0">${esc([x.customer.address, x.customer.city].filter(Boolean).join(", ") || "—")}</dd></div>
+          <div><dt class="mono muted small">Started</dt><dd style="margin:2px 0 0">${dateTime(x.createdAt)}</dd></div><div><dt class="mono muted small">Came from</dt><dd style="margin:2px 0 0">${esc(x.source || "—")}</dd></div></dl>
+        <div class="card" style="padding:12px 14px">${x.items.map((i) => `<div class="flex flex--between small"><span>${i.qty} × ${esc(i.name)} ${Object.keys(i.options || {}).length ? `<span class="muted">(${esc(Object.values(i.options).join(", "))})</span>` : ""}</span><b>${taka(i.lineTotal)}</b></div>`).join("")}<div class="flex flex--between" style="margin-top:6px"><span>Total</span><b>${taka(x.total)}</b></div></div>
+        <label class="field"><span>Link that puts their bag back</span><div class="flex" style="flex-wrap:nowrap"><input class="input grow" value="${esc(x.link)}" readonly id="caLink"><button class="btn btn--ghost btn--sm" type="button" id="caCopy">Copy</button></div><small>Paste it in a message. It refills their bag and opens checkout.</small></label>
+        <div><p class="mono muted small" style="margin:0 0 6px">Follow-up</p>${x.reminders.length ? `<ul class="small" style="margin:0;padding-left:18px">${x.reminders.map((m) => `<li>${dateTime(m.at)} · ${m.channel === "email" ? (m.auto ? "Automatic email " + m.n : "Email sent by " + esc(m.by || "staff")) : esc(m.status)}${m.channel === "email" ? ` · <span style="color:${m.ok === false ? "var(--danger)" : "inherit"}">${esc(m.status)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="small muted" style="margin:0">Nothing sent yet.</p>`}${x.clickedAt ? `<p class="small" style="margin:6px 0 0">✓ Opened the link ${ago(x.clickedAt)}.</p>` : ""}</div>
+        <div class="modal__foot"><button class="btn btn--danger" type="button" id="caDel" style="margin-right:auto">Delete</button>${x.status === "open" ? `<button class="btn btn--ghost" type="button" id="caDismiss">Dismiss</button>` : x.status === "dismissed" ? `<button class="btn btn--ghost" type="button" id="caReopen">Reopen</button>` : ""}<button class="btn btn--dark" type="button" data-modal-close>Close</button></div></div>`, { wide: true, noFocus: true });
+      const reload = async () => { r = await api("GET", "/api/carts"); draw(); };
+      $("#caCopy", body).onclick = () => { $("#caLink").select(); try { navigator.clipboard.writeText(x.link); } catch (err) { document.execCommand("copy"); } toast("Link copied"); };
+      $$("[data-contact]", body).forEach((a) => a.addEventListener("click", () => { api("POST", "/api/carts/" + x.id + "/contacted", { channel: a.dataset.contact }).then(reload, () => {}); }));
+      if ($("#caRemind", body)) $("#caRemind", body).onclick = async (ev) => { busy(ev.target, true); try { const o = await api("POST", "/api/carts/" + x.id + "/remind"); toast(o.status === "sending" ? "Reminder email is on its way" : o.status, o.status !== "sending"); closeModal(); reload(); } catch (err) { fail(err); busy(ev.target, false); } };
+      const setStatus = async (s) => { try { await api("PATCH", "/api/carts/" + x.id, { status: s }); closeModal(); toast(s === "dismissed" ? "Dismissed. No more reminders for this cart." : "Reopened"); reload(); } catch (err) { fail(err); } };
+      if ($("#caDismiss", body)) $("#caDismiss", body).onclick = () => setStatus("dismissed");
+      if ($("#caReopen", body)) $("#caReopen", body).onclick = () => setStatus("open");
+      $("#caDel", body).onclick = async () => { if (!(await confirmBox("Delete this cart?", "This can't be undone.", "Delete", true))) return; try { await api("DELETE", "/api/carts/" + x.id); toast("Deleted"); reload(); } catch (err) { fail(err); } };
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Email & reminders: company Gmail, order invoices, abandoned-cart reminders, email log
+  // ---------------------------------------------------------------------------
+  async function viewEmail() {
+    setTitle("Email & reminders");
+    let r;
+    try { r = await api("GET", "/api/email-settings"); } catch (err) { return fail(err); }
+    const e = r.email, c = r.carts, demo = window.Ravelle.mode === "demo";
+    const steps = (list) => `<ol class="trk__steps">${list.map((x) => `<li>${x}</li>`).join("")}</ol>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Email & reminders</h1><p class="muted">Send order invoices and abandoned-cart reminders from your company Gmail, automatically.</p></div></div>
+      <form class="stack" id="emForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Company Gmail</h2><span class="trk__state ${e.enabled && e.passwordSet ? "is-on" : ""}">${e.enabled && e.passwordSet ? "● Connected" : "○ Not connected"}</span></div>
+          ${demo ? `<p class="small muted" style="margin:0">The demo has no email server, so emails are listed in the log below but not sent. On the live store they go out for real.</p>` : ""}
+          <div class="row row--2"><label class="field"><span>Gmail address</span><input class="input" name="user" type="email" value="${esc(e.user)}" placeholder="orders@gmail.com or you@ravellebd.com"><small>Emails come from this address.</small></label>
+          <label class="field"><span>App password</span><input class="input" name="password" type="password" autocomplete="new-password" placeholder="${e.passwordSet ? "Saved. Paste a new one to replace it." : "16 letters from Google, like abcd efgh ijkl mnop"}"><small>Not your normal Gmail password. Kept on your server only.${e.passwordSet ? ` <a href="#" id="emPwClear">Remove</a>` : ""}</small></label></div>
+          <div class="row row--3"><label class="field"><span>Sender name</span><input class="input" name="fromName" value="${esc(e.fromName)}"></label><label class="field"><span>Replies go to (optional)</span><input class="input" name="replyTo" type="email" value="${esc(e.replyTo)}" placeholder="Same as the Gmail address"></label>
+          <label class="field"><span>Mail server</span><select class="input" name="server"><option value="smtp.gmail.com:465"${e.host === "smtp.gmail.com" ? " selected" : ""}>Gmail / Google Workspace</option><option value="custom"${e.host !== "smtp.gmail.com" ? " selected" : ""}>Other (${esc(e.host)}:${esc(e.port)})</option></select></label></div>
+          <div class="row row--2" id="emCustom" ${e.host === "smtp.gmail.com" ? "hidden" : ""}><label class="field"><span>SMTP host</span><input class="input" name="host" value="${esc(e.host)}"></label><label class="field"><span>Port</span><input class="input" name="port" type="number" value="${esc(e.port)}"><small>465 (SSL) or 587 (STARTTLS)</small></label></div>
+          <label class="switch"><input type="checkbox" name="enabled" ${e.enabled ? "checked" : ""}> Send emails from this address</label>
+          <div class="flex"><input class="input" id="emTestTo" type="email" placeholder="Send a test to…" value="${esc(e.user)}" style="max-width:280px"><button class="btn btn--ghost btn--sm" type="button" id="emTest">Send test email</button><span class="small" id="emTestOut"></span></div>
+          <details class="trk__guide"><summary>How to get a Gmail app password</summary>${steps([
+            `Sign in to the Gmail account you want to send from, then open <a href="https://myaccount.google.com/security" target="_blank" rel="noopener">Google Account › Security</a>.`,
+            `Turn on <b>2-Step Verification</b> if it's off. Google only gives app passwords to accounts with it on.`,
+            `Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App passwords</a>, type the name "Ravelle store" and press <b>Create</b>.`,
+            `Copy the 16-letter password into <b>App password</b> above, tick <b>Send emails from this address</b> and press Save.`,
+            `Press <b>Send test email</b>. It should arrive within a minute. Check Spam the first time and mark it "Not spam".`])}
+            <p class="muted small">A free Gmail account can send about 500 emails a day; Google Workspace about 2,000. Some hosting companies block outgoing mail ports (465/587) on new servers. If the test fails with a timeout, ask your host to open them.</p></details></div>
+        <div class="card"><h2 class="h2">Order invoice</h2>
+          <label class="switch"><input type="checkbox" name="invoice" ${e.invoice ? "checked" : ""}> Email an invoice to the customer the moment they place an order</label>
+          <p class="small muted" style="margin:0">It lists the items, prices, delivery charge, total, payment method, delivery address and a Track order button. Customers who leave the email empty don't get one.</p>
+          <label class="field"><span>Also send a copy of every new order to (optional)</span><input class="input" name="copyTo" value="${esc(e.copyTo)}" placeholder="you@ravellebd.com"><small>Separate several addresses with commas.</small></label></div>
+        <div class="card"><h2 class="h2">Abandoned cart reminders</h2>
+          <label class="switch"><input type="checkbox" name="cEnabled" ${c.enabled ? "checked" : ""}> Email people who left checkout without ordering</label>
+          <div class="row row--2"><label class="field"><span>First reminder after (minutes)</span><input class="input" type="number" min="5" max="1440" name="delay1" value="${esc(c.delay1)}"></label><label class="field"><span>Second reminder after (hours)</span><input class="input" type="number" min="1" max="168" name="delay2" value="${esc(c.delay2)}"></label></div>
+          <div class="row row--2"><label class="field"><span>First email subject</span><input class="input" name="subject1" value="${esc(c.subject1)}"></label><label class="field"><span>Second email subject</span><input class="input" name="subject2" value="${esc(c.subject2)}"></label></div>
+          <div class="row row--2"><label class="field"><span>First email message</span><textarea class="input" rows="3" name="text1">${esc(c.text1)}</textarea></label><label class="field"><span>Second email message</span><textarea class="input" rows="3" name="text2">${esc(c.text2)}</textarea></label></div>
+          <label class="field"><span>Coupon in the second email (optional)</span><input class="input" name="coupon" value="${esc(c.coupon)}" placeholder="e.g. COMEBACK5" style="max-width:240px"><small>Create the coupon in <a href="#/coupons">Coupons</a> first.</small></label>
+          <p class="small muted" style="margin:0">Each email shows their bag and a "Complete your order" button that refills it. Reminders stop as soon as they order. People who only gave a phone number appear in <a href="#/carts">Abandoned carts</a> for a call or WhatsApp.</p></div>
+        <div class="sticky-save"><span class="small">Changes apply right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>
+      <div class="card card--flush"><div class="card__head" style="padding:16px 18px 0"><h2 class="h2">Email log</h2><span class="muted small">Last ${r.log.length}</span></div><div class="table-wrap"><table class="t"><thead><tr><th>Time</th><th>To</th><th>Email</th><th>Result</th></tr></thead><tbody>${r.log.map((l) => `
+        <tr><td>${dateTime(l.at)}</td><td>${esc(l.to)}</td><td>${esc(l.subject)}<br><small class="muted">${esc({ invoice: "Invoice", "invoice-copy": "Order copy", "cart-reminder-1": "Cart reminder 1", "cart-reminder-2": "Cart reminder 2", test: "Test" }[l.kind] || l.kind)}${l.ref ? " · " + esc(l.ref) : ""}</small></td>
+        <td style="color:${l.ok === false ? "var(--danger)" : l.ok ? "var(--ok)" : "inherit"}">${esc(l.status)}</td></tr>`).join("") || `<tr><td colspan="4"><p class="empty">No emails yet.</p></td></tr>`}</tbody></table></div></div>`;
+    const form = $("#emForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.server.onchange = () => { $("#emCustom").hidden = form.server.value !== "custom"; if (form.server.value !== "custom") { form.host.value = "smtp.gmail.com"; form.port.value = 465; } };
+    if ($("#emPwClear")) $("#emPwClear").onclick = (ev) => { ev.preventDefault(); form.dataset.pwClear = "1"; dirty = true; ev.target.textContent = "Will be removed when you save"; };
+    $("#emTest").onclick = async () => {
+      if (dirty) return toast("Save first, then test.", true);
+      const out = $("#emTestOut"); out.textContent = "Sending…"; out.style.color = "";
+      try {
+        const t = await api("POST", "/api/email/test", { to: $("#emTestTo").value.trim() });
+        if (t.status !== "sending") { out.textContent = t.status; out.style.color = "var(--danger)"; return; }
+        for (let i = 0; i < 15; i++) {
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const l = (await api("GET", "/api/email/log/" + t.id)).email;
+          if (l.ok !== null) { out.textContent = l.ok ? "✓ Sent. Check the inbox (and Spam)." : l.status; out.style.color = l.ok ? "var(--ok)" : "var(--danger)"; return; }
+        }
+        out.textContent = "Still sending… check the log below in a minute.";
+      } catch (err) { out.textContent = err.message; out.style.color = "var(--danger)"; }
+    };
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const email = { user: f.user.value.trim(), fromName: f.fromName.value.trim(), replyTo: f.replyTo.value.trim(), host: f.host.value.trim() || "smtp.gmail.com", port: +f.port.value || 465, enabled: f.enabled.checked, invoice: f.invoice.checked, copyTo: f.copyTo.value.trim() };
+      if (f.password.value.trim()) email.password = f.password.value.trim();
+      if (form.dataset.pwClear) email.passwordClear = true;
+      const carts = { enabled: f.cEnabled.checked, delay1: +f.delay1.value, delay2: +f.delay2.value, subject1: f.subject1.value, subject2: f.subject2.value, text1: f.text1.value, text2: f.text2.value, coupon: f.coupon.value };
+      try { await api("PUT", "/api/email-settings", { email, carts }); dirty = false; toast("Saved"); viewEmail(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Popup banner on the home page
+  // ---------------------------------------------------------------------------
+  async function viewPopup() {
+    setTitle("Popup banner");
+    let p;
+    try { p = (await api("GET", "/api/pages/popup")).page; } catch (err) { return fail(err); }
+    const demo = window.Ravelle.mode === "demo";
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Popup banner</h1><p class="muted">A banner that pops up on the home page for offers, events or news. It opens a moment after someone lands on the home page, shows once per visit, and closes with the ✕ in the corner.</p></div>
+        <a class="btn btn--ghost" href="./?popup${demo ? "&demo" : ""}#home" target="_blank" rel="noopener">Preview ↗</a></div>
+      <form class="stack" id="ppForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Show the popup</h2><span class="pill pill--${p.enabled ? "active" : "inactive"}">${p.enabled ? "On" : "Off"}</span></div>
+          <label class="switch"><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}> Show the popup banner on the home page</label>
+          <div class="row row--2"><label class="field"><span>Show after (seconds)</span><input class="input" type="number" min="0" max="30" step="0.5" name="delay" value="${esc(p.delay == null ? 2 : p.delay)}"></label>
+          <div class="field"><span>How often</span><p class="small muted" style="margin:0">Once per visit. If they close the site and come back later, they see it again.</p></div></div></div>
+        <div class="card"><h2 class="h2">Picture</h2><div class="row row--2">${imgField("popupImage", p.image, "Banner picture", "Shown on the left on computers and on top on phones.")}${imgField("popupMobile", p.mobileImage, "Phone picture (optional)", "Leave empty to use the same picture on phones.")}</div>
+          <label class="field"><span>Picture description (for screen readers)</span><input class="input" name="imageAlt" value="${esc(p.imageAlt || "")}"></label></div>
+        <div class="card"><h2 class="h2">Text and button</h2><p class="muted small" style="margin:0">Leave the text and button empty to show only the picture. The picture then links to the button link.</p>
+          <div class="row row--2"><label class="field"><span>Small heading</span><input class="input" name="eyebrow" value="${esc(p.eyebrow || "")}" placeholder="This week only"></label><label class="field"><span>Title</span><textarea class="input" name="title" rows="2" placeholder="Eid sale\nUp to 40% off">${esc(p.title || "")}</textarea></label></div>
+          <label class="field"><span>Text</span><textarea class="input" name="text" rows="3">${esc(p.text || "")}</textarea></label>
+          <div class="row row--2"><label class="field"><span>Button text</span><input class="input" name="buttonText" value="${esc(p.buttonText || "")}" placeholder="Shop now"></label>
+          <label class="field"><span>Button link</span><input class="input" name="buttonLink" value="${esc(p.buttonLink || "")}" placeholder="#on-sale, #category/men or https://…"></label></div></div>
+        <div class="sticky-save"><span class="small">Changes apply to the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#ppForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    form.addEventListener("change", () => { dirty = true; });
+    wireImgFields(form, () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, page = Object.assign({}, p, { enabled: f.enabled.checked, delay: Math.max(0, Math.min(30, +f.delay.value || 0)), image: f.popupImage.value, mobileImage: f.popupMobile.value,
+        imageAlt: f.imageAlt.value.trim(), eyebrow: f.eyebrow.value.trim(), title: f.title.value.trim(), text: f.text.value.trim(), buttonText: f.buttonText.value.trim(), buttonLink: f.buttonLink.value.trim(), version: (+p.version || 0) + 1 });
+      if (page.enabled && !page.image && !page.title && !page.text) return toast("Add a picture or a title before turning the popup on.", true);
+      try { await api("PUT", "/api/pages/popup", { page }); dirty = false; toast(page.enabled ? "Saved. The popup is on." : "Saved. The popup is off."); viewPopup(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Franchise requests (from the Franchise page form)
+  // ---------------------------------------------------------------------------
+  const FR_LABEL = { new: "New", contacted: "Contacted", meeting: "Meeting set", approved: "Approved", declined: "Declined" };
+  async function viewFranchise() {
+    setTitle("Franchise requests");
+    const r = (await api("GET", "/api/franchise").catch(fail)) || { requests: [], statuses: [] };
+    let filter = "";
+    const meet = (q) => q.meetingDate ? new Date(q.meetingDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + (q.meetingTime ? ", " + q.meetingTime : "") : q.meetingTime || "Any time";
+    const draw = () => {
+      const list = r.requests.filter((q) => !filter || q.status === filter);
+      view.innerHTML = `<div class="head"><div><h1 class="h1">Franchise requests</h1><p class="muted">Sent from the Franchise page. Call them, set the meeting, and keep notes here.</p></div><button class="btn btn--ghost" id="frCsv">Export CSV</button></div>
+        <div class="tabs" id="frTabs"><button class="tab${filter ? "" : " is-on"}" data-f="">All <span class="muted">${r.requests.length}</span></button>${r.statuses.map((s) => `<button class="tab${filter === s ? " is-on" : ""}" data-f="${s}">${FR_LABEL[s]} <span class="muted">${r.requests.filter((q) => q.status === s).length}</span></button>`).join("")}</div>
+        <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Received</th><th>Name</th><th>Phone</th><th>District</th><th>Budget</th><th>Meeting</th><th>Status</th><th></th></tr></thead><tbody>${list.map((q) => `
+          <tr${q.read ? "" : ' style="box-shadow:inset 3px 0 0 var(--accent)"'}><td>${dateTime(q.createdAt)}</td><td><b>${esc(q.name)}</b>${q.email ? `<br><small class="muted">${esc(q.email)}</small>` : ""}</td><td><a href="tel:${esc(q.phone)}">${esc(q.phone)}</a></td>
+          <td>${esc(q.district)}${q.area ? `<br><small class="muted">${esc(q.area)}</small>` : ""}</td><td>${esc(q.investment || "–")}</td><td>${esc(meet(q))}<br><small class="muted">${esc(q.meetingType || "")}</small></td>
+          <td><span class="pill pill--fr-${q.status}">${FR_LABEL[q.status] || q.status}</span></td><td class="right"><button class="btn btn--ghost btn--sm" data-open="${q.id}">Open</button></td></tr>`).join("") || `<tr><td colspan="8"><p class="empty">${r.requests.length ? "No requests with this status." : "No franchise requests yet. They appear here when someone sends the form on the Franchise page."}</p></td></tr>`}</tbody></table></div></div>`;
+      $("#frTabs").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; draw(); } };
+      $("#frCsv").onclick = () => download("ravelle-franchise-requests.csv", csv([["Date", "Name", "Phone", "Email", "District", "Area", "Shop space", "Investment", "Experience", "Meeting type", "Meeting date", "Meeting time", "Message", "Status", "Notes"]]
+        .concat(r.requests.map((q) => [new Date(q.createdAt).toISOString(), q.name, q.phone, q.email, q.district, q.area, q.space, q.investment, q.experience, q.meetingType, q.meetingDate, q.meetingTime, q.message, FR_LABEL[q.status], q.note]))));
+    };
+    draw();
+    view.onclick = async (e) => {
+      const b = e.target.closest("[data-open]");
+      if (!b) return;
+      const q = r.requests.find((x) => x.id === b.dataset.open);
+      if (!q.read) { q.read = true; api("PATCH", "/api/franchise/" + q.id, { read: true }).then(refreshCounts, () => {}); }
+      const row = (l, v) => v ? `<div><dt class="mono muted small">${l}</dt><dd style="margin:2px 0 0;white-space:pre-wrap">${esc(v)}</dd></div>` : "";
+      const wa = q.phone.replace(/^0/, "880");
+      const body = modal(q.name, `<div class="stack"><div class="flex"><a class="btn btn--dark btn--sm" href="tel:${esc(q.phone)}">Call ${esc(q.phone)}</a><a class="btn btn--ghost btn--sm" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>${q.email ? `<a class="btn btn--ghost btn--sm" href="mailto:${esc(q.email)}?subject=${encodeURIComponent("Your Ravelle franchise request")}">Email</a>` : ""}</div>
+        <dl class="row row--2" style="margin:0;gap:12px 20px">${row("District", q.district)}${row("Area or market", q.area)}${row("Shop space", q.space)}${row("Planned investment", q.investment)}${row("Meeting", q.meetingType)}${row("Preferred date and time", meet(q))}${row("Received", dateTime(q.createdAt))}${row("Email", q.email)}</dl>
+        ${row("Business experience", q.experience)}${row("Message", q.message)}
+        <form class="stack" id="frEdit"><label class="field"><span>Status</span><select class="input" name="status">${r.statuses.map((s) => `<option value="${s}"${s === q.status ? " selected" : ""}>${FR_LABEL[s]}</option>`).join("")}</select></label>
+        <label class="field"><span>Notes (only you see these)</span><textarea class="input" name="note" rows="3" placeholder="Meeting confirmed for Sunday 4pm…">${esc(q.note || "")}</textarea></label>
+        <div class="modal__foot"><button class="btn btn--danger" type="button" id="frDel" style="margin-right:auto">Delete</button><button class="btn btn--ghost" type="button" data-modal-close>Close</button><button class="btn btn--dark" type="submit">Save</button></div></form></div>`, { wide: true, noFocus: true });
+      $("#frEdit", body).onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { Object.assign(q, (await api("PATCH", "/api/franchise/" + q.id, formData(ev.target))).request); closeModal(); toast("Saved"); draw(); } catch (err) { fail(err); }
+      };
+      $("#frDel", body).onclick = async () => {
+        if (!(await confirmBox("Delete this request?", "This can't be undone.", "Delete", true))) return;
+        try { await api("DELETE", "/api/franchise/" + q.id); r.requests = r.requests.filter((x) => x !== q); toast("Deleted"); refreshCounts(); draw(); } catch (err) { fail(err); }
+      };
+      draw();
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Users
   // ---------------------------------------------------------------------------
+  // Each area is one module (or a few related ones) in the menu on the left
+  const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders & Abandoned carts", customers: "Customers", products: "Products & Stock", catalog: "Categories & Variations",
+    coupons: "Coupons", content: "Pages, Menus & Media library", chat: "Live chat", messages: "Messages", franchise: "Franchise requests", users: "Users",
+    settings: "Settings, Header & footer, Pixel & Analytics, Email & reminders, Acore", integrations: "API & webhooks" };
   async function viewUsers() {
     setTitle("Users");
     const r = (await api("GET", "/api/users").catch(fail)) || { users: [], roles: {} };
-    const AREA = { dashboard: "Dashboard", orders: "Orders", customers: "Customers", products: "Products", catalog: "Categories & variations", coupons: "Coupons", content: "Pages, menus & media", chat: "Live chat", messages: "Messages", users: "Users", settings: "Settings", integrations: "API & webhooks" };
-    view.innerHTML = `<div class="head"><div><h1 class="h1">Users</h1><p class="muted">People who can sign in to this admin panel, and what each role can open.</p></div><button class="btn btn--dark" id="usAdd">Add user</button></div>
-      <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead><tbody>${r.users.map((u) => `
-        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
-      <div class="grid-3">${Object.keys(r.roles).map((k) => `<div class="card"><h2 class="h2">${esc(r.roles[k].label)}</h2><p class="muted small" style="margin:0">${r.roles[k].areas.map((a) => AREA[a] || a).join(", ")}</p></div>`).join("")}</div>`;
+    const areaNames = (list) => list.map((a) => AREA[a] || a).join(", ");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Users</h1><p class="muted">People who can sign in to this admin panel with their email and password. Pick a role, or choose “Custom access” and tick exactly which modules they can open.</p></div><button class="btn btn--dark" id="usAdd">Add user</button></div>
+      <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead><tbody>${r.users.map((u) => `
+        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}${u.role === "custom" ? `<br><small class="muted">${esc(areaNames(u.areas || []))}</small>` : ""}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
+      <div class="grid-3">${Object.keys(r.roles).map((k) => `<div class="card"><h2 class="h2">${esc(r.roles[k].label)}</h2><p class="muted small" style="margin:0">${r.roles[k].custom ? "Only the modules you tick for that person." : areaNames(r.roles[k].areas)}</p></div>`).join("")}</div>`;
     const roleOpts = (sel) => Object.keys(r.roles).map((k) => `<option value="${k}"${k === sel ? " selected" : ""}>${esc(r.roles[k].label)}</option>`).join("");
+    const areaBoxes = (u) => `<fieldset class="us-areas" data-areas ${u.role === "custom" ? "" : "hidden"}><legend class="small">Modules this person can open</legend>
+      <div class="us-areas__grid">${Object.keys(AREA).map((a) => `<label class="switch"><input type="checkbox" value="${a}" ${(u.areas || []).indexOf(a) > -1 ? "checked" : ""}> ${esc(AREA[a])}</label>`).join("")}</div>
+      <div class="flex"><button class="btn btn--link btn--sm" type="button" data-all="1">Tick all</button><button class="btn btn--link btn--sm" type="button" data-all="0">Clear</button></div></fieldset>`;
+    const wire = (form, u) => {
+      const sel = $("[name=role]", form), box = $("[data-areas]", form);
+      const sync = () => {
+        box.hidden = sel.value !== "custom";
+        if (sel.value !== "custom") $$("input", box).forEach((c) => { c.checked = (r.roles[sel.value].areas || []).indexOf(c.value) > -1; });
+      };
+      sel.onchange = sync;
+      if (sel.value !== "custom") sync();
+      box.onclick = (e) => { const b = e.target.closest("[data-all]"); if (b) $$("input", box).forEach((c) => { c.checked = b.dataset.all === "1"; }); };
+    };
+    const payload = (form) => {
+      const d = formData(form);
+      $$("[data-areas] input", form).forEach((c) => delete d[c.name]);
+      if (d.role === "custom") d.areas = $$("[data-areas] input:checked", form).map((c) => c.value);
+      return d;
+    };
     $("#usAdd").onclick = () => {
-      modal("Add user", `<form class="stack" id="usForm"><label class="field"><span>Name</span><input class="input" name="name" required></label><label class="field"><span>Email</span><input class="input" name="email" type="email" required></label>
-        <div class="row row--2"><label class="field"><span>Role</span><select class="input" name="role">${roleOpts("manager")}</select></label><label class="field"><span>Password</span><input class="input" name="password" type="text" minlength="8" required value="${Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8)}"><small>Share it with them; they can change it later.</small></label></div>
-        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Add user</button></div></form>`);
-      $("#usForm").onsubmit = async (e) => { e.preventDefault(); try { await api("POST", "/api/users", formData(e.target)); closeModal(); toast("User added"); viewUsers(); } catch (err) { fail(err); } };
+      const u = { role: "custom", areas: ["orders", "customers"] };
+      modal("Add user", `<form class="stack" id="usForm"><div class="row row--2"><label class="field"><span>Name</span><input class="input" name="name" required></label><label class="field"><span>Email (they sign in with this)</span><input class="input" name="email" type="email" required></label></div>
+        <div class="row row--2"><label class="field"><span>Access</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>Password</span><input class="input" name="password" type="text" minlength="8" required value="${Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8)}"><small>At least 8 characters. Share it with them; they can change it later.</small></label></div>
+        ${areaBoxes(u)}
+        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Add user</button></div></form>`, { wide: true });
+      wire($("#usForm"), u);
+      $("#usForm").onsubmit = async (e) => { e.preventDefault(); try { await api("POST", "/api/users", payload(e.target)); closeModal(); toast("User added. They can sign in at /admin."); viewUsers(); } catch (err) { fail(err); } };
     };
     view.onclick = (e) => {
       const b = e.target.closest("[data-edit]");
       if (!b) return;
       const u = r.users.find((x) => x.id === b.dataset.edit);
-      modal("Edit " + u.name, `<form class="stack" id="usForm"><label class="field"><span>Name</span><input class="input" name="name" value="${esc(u.name)}"></label>
-        <label class="field"><span>Role</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>New password</span><input class="input" name="password" type="text" minlength="8" placeholder="Leave empty to keep"><small>Changing it signs them out everywhere.</small></label>
-        <div class="modal__foot">${u.id === me.id ? "" : `<button class="btn btn--danger" type="button" id="usDel" style="margin-right:auto">Remove</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save</button></div></form>`);
-      $("#usForm").onsubmit = async (ev) => { ev.preventDefault(); const d = formData(ev.target); if (!d.password) delete d.password; try { await api("PATCH", "/api/users/" + u.id, d); closeModal(); toast("Saved"); viewUsers(); } catch (err) { fail(err); } };
+      modal("Edit " + u.name, `<form class="stack" id="usForm"><div class="row row--2"><label class="field"><span>Name</span><input class="input" name="name" value="${esc(u.name)}"></label><label class="field"><span>Email</span><input class="input" value="${esc(u.email)}" disabled></label></div>
+        <div class="row row--2"><label class="field"><span>Access</span><select class="input" name="role">${roleOpts(u.role)}</select></label><label class="field"><span>New password</span><input class="input" name="password" type="text" minlength="8" placeholder="Leave empty to keep"><small>Changing it signs them out everywhere.</small></label></div>
+        ${areaBoxes(u)}
+        <div class="modal__foot">${u.id === me.id ? "" : `<button class="btn btn--danger" type="button" id="usDel" style="margin-right:auto">Remove</button>`}<button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save</button></div></form>`, { wide: true });
+      wire($("#usForm"), u);
+      $("#usForm").onsubmit = async (ev) => { ev.preventDefault(); const d = payload(ev.target); if (!d.password) delete d.password; try { await api("PATCH", "/api/users/" + u.id, d); closeModal(); toast("Saved"); viewUsers(); } catch (err) { fail(err); } };
       if ($("#usDel")) $("#usDel").onclick = async () => { if (!(await confirmBox("Remove " + u.name + "?", "They won't be able to sign in any more.", "Remove", true))) return; try { await api("DELETE", "/api/users/" + u.id); toast("Removed"); viewUsers(); } catch (err) { fail(err); } };
     };
   }
@@ -1291,6 +1771,394 @@
       out.announcement = $("#announcement").value;
       out.lowStock = +$("#lowStock").value || 0;
       try { await api("PUT", "/api/settings", { settings: out }); toast("Settings saved"); store = null; } catch (err) { fail(err); }
+    };
+    view.insertAdjacentHTML("beforeend", `<div class="card" style="margin-top:16px"><h2 class="h2">Site cache</h2>
+      <p class="muted small" style="margin:0 0 12px">Browsers keep a saved copy of the site's design and scripts so pages open fast. The store already gives every update a new version, so visitors get it straight away. If someone still sees an old look after an update, click <b>Clear cache</b>: every browser then downloads fresh files on its next visit. Your products, orders and settings are not touched.</p>
+      <div class="flex" style="gap:12px;align-items:center;flex-wrap:wrap"><button class="btn btn--ghost btn--sm" type="button" id="clearCache">Clear cache</button><span class="muted small" id="cacheNote">${s.cacheClearedAt ? "Last cleared " + esc(new Date(s.cacheClearedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })) : ""}</span></div></div>`);
+    $("#clearCache").onclick = async (e) => {
+      if (!confirm("Clear the site cache? Visitors will download fresh design files on their next visit.")) return;
+      busy(e.target, true);
+      try {
+        await api("POST", "/api/cache/clear", {});
+        $("#cacheNote").textContent = "Cleared. Reloading the admin with fresh files…";
+        setTimeout(() => location.reload(), 900);
+      } catch (err) { busy(e.target, false); fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Header & footer: what shows in the store's header and footer, plus tracking code
+  // ---------------------------------------------------------------------------
+  async function viewLayout() {
+    setTitle("Header & footer");
+    let s, home;
+    try {
+      [s, home] = await Promise.all([api("GET", "/api/settings").then((r) => r.settings), api("GET", "/api/pages/home").then((r) => r.page)]);
+    } catch (err) { return fail(err); }
+    const H = s.layout.header, F = s.layout.footer, code = s.code || {}, foot = home.footer || {};
+    const sw = (g, k, label, on) => `<label class="switch"><input type="checkbox" data-l="${g}" name="${k}" ${on ? "checked" : ""}> ${label}</label>`;
+    const txt = (attr, k, label, value, hint, ph) => `<label class="field"><span>${label}</span><input class="input" ${attr} name="${k}" value="${esc(value || "")}" placeholder="${esc(ph || "")}">${hint ? `<small>${hint}</small>` : ""}</label>`;
+    const color = (k, label, value) => `<label class="field"><span>${label}</span><span class="flex" style="flex-wrap:nowrap"><input type="color" data-l="header" name="${k}" value="${esc(value)}" style="width:44px;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:none"><code class="small" data-hex="${k}">${esc(value)}</code></span></label>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Header & footer</h1><p class="muted">Everything at the top and bottom of every store page. Meta Pixel and Google Analytics are in <a href="#/tracking">Pixel & Analytics</a>.</p></div>
+      <a class="btn btn--ghost" href="#/menus">Edit menu links</a></div>
+      <form class="stack" id="layForm">
+        <div class="card"><h2 class="h2">Announcement bar</h2><p class="muted small" style="margin:0">The thin strip above the header.</p>
+          ${sw("header", "announce", "Show the announcement bar", H.announce)}
+          <label class="field"><span>Text</span><input class="input" id="announcement" value="${esc(s.announcement || "")}" placeholder="Free delivery inside Dhaka over ৳2,000"></label>
+          <div class="row row--3">${color("announceBg", "Background colour", H.announceBg)}${color("announceColor", "Text colour", H.announceColor)}
+            <div class="field"><span>Preview</span><div id="annPrev" style="padding:9px 12px;border-radius:8px;font:500 12px/1.3 ui-monospace,monospace;text-align:center;letter-spacing:.04em"></div></div></div></div>
+        <div class="card"><h2 class="h2">Header</h2>
+          ${imgField("logo", H.logo, "Logo", "Leave empty to use the Ravelle logo.")}
+          <div class="row row--3"><label class="field"><span>Logo height (px)</span><input class="input" type="number" min="20" max="80" data-l="header" name="logoHeight" value="${esc(H.logoHeight)}"><small>20 to 80. The default is 40.</small></label></div>
+          ${sw("header", "sticky", "Show the slim header bar when people scroll down", H.sticky)}
+          ${sw("header", "showSearch", "Show the search icon", H.showSearch)}
+          ${sw("header", "showAccount", "Show the order tracking icon", H.showAccount)}
+          <p class="muted small" style="margin:0">Menu links, dropdowns and their photos are in <a href="#/menus">Menus</a>.</p></div>
+        <div class="card"><h2 class="h2">Footer</h2>
+          <label class="field"><span>Tagline</span><textarea class="input" id="tagline" rows="2">${esc(foot.tagline || "")}</textarea><small>The big line at the top of the footer. Press Enter for a new line.</small></label>
+          ${sw("footer", "newsletter", "Show the email sign-up", F.newsletter)}
+          <div class="row row--2">${txt('id="newsPh"', "newsPh", "Email box text", foot.newsletter, "", "Your email for drop alerts")}${txt('data-l="footer"', "newsletterButton", "Button text", F.newsletterButton, "", "Notify me")}</div>
+          ${sw("footer", "showContact", "Show the contact column (address, phone, email)", F.showContact)}
+          ${sw("footer", "showSocial", "Show social media links", F.showSocial)}
+          ${sw("footer", "showPayments", "Show the payment methods row", F.showPayments)}
+          ${sw("footer", "showLegal", "Show trade license, TIN and DBID", F.showLegal)}
+          ${sw("footer", "showWordmark", "Show the big name at the bottom", F.showWordmark)}
+          <div class="row row--2">${txt('data-l="footer"', "wordmark", "Big name text", F.wordmark, "", "RAVELLE")}${txt('data-l="footer"', "copyright", "Copyright line", F.copyright, "Leave empty for the default. Write {year} for the current year.", "© {year} Ravelle · Prices in BDT (৳)")}</div>
+          <p class="muted small" style="margin:0">Footer link columns are in <a href="#/menus">Menus</a>. Address, phone and legal numbers are in <a href="#/settings">Settings</a>.</p></div>
+        <div class="card"><h2 class="h2">Social links</h2><div class="row row--2">
+          ${["facebook", "instagram", "tiktok", "youtube"].map((k) => txt('data-s="social"', k, k === "tiktok" ? "TikTok" : k === "youtube" ? "YouTube" : k.charAt(0).toUpperCase() + k.slice(1), (s.social || {})[k], "", `https://www.${k}.com/ravellebd`)).join("")}
+          ${txt('data-s="store"', "whatsapp", "WhatsApp number", (s.store || {}).whatsapp, "Turns on the WhatsApp button.", "+880 17XX-XXXXXX")}</div></div>
+        <div class="sticky-save"><span class="small">Changes show on the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#layForm");
+    let dirty = false;
+    wireImgFields(form, () => { dirty = true; });
+    const prev = () => {
+      const p = $("#annPrev");
+      p.style.background = $('[name="announceBg"]').value; p.style.color = $('[name="announceColor"]').value;
+      p.textContent = $("#announcement").value || "Your announcement";
+      $$("[data-hex]").forEach((c) => { c.textContent = $(`[name="${c.dataset.hex}"]`).value; });
+    };
+    prev();
+    form.addEventListener("input", () => { dirty = true; prev(); });
+    form.addEventListener("change", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const layout = { header: {}, footer: {} }, out = { social: {}, store: {}, code: {} };
+      $$("[data-l]", form).forEach((el) => { layout[el.dataset.l][el.name] = el.type === "checkbox" ? el.checked : el.type === "number" ? +el.value : el.value; });
+      layout.header.logo = $('input[name="logo"]', form).value;
+      $$("[data-s]", form).forEach((el) => { out[el.dataset.s][el.name] = el.value; });
+      $$("[data-c]", form).forEach((el) => { out.code[el.name] = el.value; });
+
+      out.layout = layout; out.announcement = $("#announcement").value;
+      try {
+        await api("PUT", "/api/settings", { settings: out });
+        const page = Object.assign({}, home, { footer: Object.assign({}, home.footer, { tagline: $("#tagline").value, newsletter: $("#newsPh").value }) });
+        await api("PUT", "/api/pages/home", { page });
+        dirty = false; store = null;
+        toast("Header and footer saved");
+      } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pixel & Analytics: Meta Pixel + Conversions API, Google Analytics 4 + server purchases, with guides and tests
+  // ---------------------------------------------------------------------------
+  async function viewTracking() {
+    setTitle("Pixel & Analytics");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const c = s.code || {}, demo = window.Ravelle.mode === "demo";
+    const dot = (on, label) => `<span class="trk__state ${on ? "is-on" : ""}">${on ? "●" : "○"} ${label}</span>`;
+    const status = (x, none) => x ? `<p class="small" style="margin:0;color:${x.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last server event: <b>${esc(x.event)}</b> · ${esc(x.message)} · ${dateTime(x.at)}</p>` : `<p class="muted small" style="margin:0">${demo ? "The demo has no server, so server events can't be sent from here. This works on the live store." : none}</p>`;
+    const steps = (list) => `<ol class="trk__steps">${list.map((x) => `<li>${x}</li>`).join("")}</ol>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Pixel & Analytics</h1><p class="muted">Connect Meta (Facebook and Instagram ads) and Google Analytics. Paste the IDs below. The store sends every event by itself, so you don't need Google Tag Manager or any other app.</p></div></div>
+      <form class="stack" id="trkForm">
+        <div class="card"><div class="card__head"><h2 class="h2">Meta Pixel and Conversions API</h2>
+            <div class="flex">${dot(!!c.pixelId, "Pixel (browser)")}${dot(!!(c.pixelId && c.capiTokenSet), "Conversions API (server)")}</div></div>
+          <div class="row row--2">
+            <label class="field"><span>Pixel ID</span><input class="input" name="pixelId" value="${esc(c.pixelId || "")}" placeholder="123456789012345" inputmode="numeric"><small>15–16 digits. Events Manager › Data sources › your pixel.</small></label>
+            <label class="field"><span>Conversions API access token</span><input class="input" type="password" autocomplete="off" name="capiToken" value="" placeholder="${c.capiTokenSet ? "Saved. Paste a new one to replace it." : "Paste the token from Events Manager"}">
+              <small>Kept on your server only, never shown on the website.${c.capiTokenSet ? ` <a href="#" id="capiClear">Remove token</a>` : ""}</small></label></div>
+          <div class="row row--2">
+            <label class="field"><span>Test event code (only while testing)</span><input class="input" name="capiTest" value="${esc(c.capiTest || "")}" placeholder="TEST12345"><small>From Events Manager › Test events. Clear it when you're done, or real events stay in test mode.</small></label>
+            <div class="field"><span>Check the connection</span><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-test="meta">Send a test event to Meta</button></div><div id="metaStatus">${status(c.capiStatus, c.capiTokenSet ? "No server events sent yet." : "Add the token to turn on server events.")}</div></div></div>
+          <details class="trk__guide"><summary>Step-by-step: set up the Pixel and Conversions API</summary>
+            <h3>1. Create the Pixel</h3>${steps([
+              `Open <a href="https://business.facebook.com/events_manager2" target="_blank" rel="noopener">Meta Events Manager</a> with the Business account that runs your ads.`,
+              `Click <b>Connect data sources › Web › Meta Pixel</b>. Name it "Ravelle website" and enter <b>ravellebd.com</b>.`,
+              `When it asks how to install, close that window. You don't need to paste Meta's code; this store adds it.`,
+              `Copy the <b>Pixel ID</b> (the number under the pixel's name) into the box above and press Save.`])}
+            <h3>2. Turn on the Conversions API</h3>${steps([
+              `In Events Manager, open your pixel and go to <b>Settings</b>.`,
+              `Under <b>Conversions API</b>, choose <b>Set up direct integration</b> (or "Generate access token").`,
+              `Click <b>Generate access token</b>, copy it, and paste it into the token box above. Press Save. Meta shows the token only once.`])}
+            <h3>3. Test it</h3>${steps([
+              `In Events Manager, open <b>Test events</b> and copy the test code (like TEST12345) into <b>Test event code</b>. Save.`,
+              `Press <b>Send a test event to Meta</b> above. It should appear in Test events within a minute, marked <b>Server</b>.`,
+              `Open your store in another tab, view a product, add it to the bag and place a test order. Each event should show twice, <b>Browser</b> and <b>Server</b>, and Meta marks them "Deduplicated".`,
+              `Clear the test code and Save.`])}
+            <h3>4. Finish in Business Settings</h3>${steps([
+              `<a href="https://business.facebook.com/settings/owned-domains" target="_blank" rel="noopener">Business Settings › Brand safety › Domains</a>: add and verify ravellebd.com.`,
+              `In your pixel, open <b>Aggregated event measurement</b> and put <b>Purchase</b> at the top, then InitiateCheckout, AddToCart, ViewContent.`,
+              `After a few days, check <b>Overview › Event match quality</b>. Purchase usually reaches "Good" or "Great" because the server sends hashed phone numbers.`])}
+            <p class="muted small">Events the store sends: PageView, ViewCategory, ViewContent, Search, AddToWishlist, AddToCart, InitiateCheckout, AddPaymentInfo, Purchase, Lead, Contact.</p>
+          </details></div>
+        <div class="card"><div class="card__head"><h2 class="h2">Google Analytics 4</h2>
+            <div class="flex">${dot(!!c.gaId, "Tag (browser)")}${dot(!!(c.gaId && c.gaSecretSet), "Purchases from server")}</div></div>
+          <div class="row row--2">
+            <label class="field"><span>Measurement ID</span><input class="input" name="gaId" value="${esc(c.gaId || "")}" placeholder="G-XXXXXXXXXX"><small>Starts with G-. Admin › Data streams › your web stream.</small></label>
+            <label class="field"><span>Measurement Protocol API secret</span><input class="input" type="password" autocomplete="off" name="gaSecret" value="" placeholder="${c.gaSecretSet ? "Saved. Paste a new one to replace it." : "Paste the secret from Google Analytics"}">
+              <small>Kept on your server only.${c.gaSecretSet ? ` <a href="#" id="gaClear">Remove secret</a>` : ""}</small></label></div>
+          <div class="field"><span>Check the connection</span><div class="flex"><button class="btn btn--ghost btn--sm" type="button" data-test="ga">Check with Google</button></div><div id="gaStatus">${status(c.gaStatus, c.gaSecretSet ? "Nothing sent yet. It sends when an order is placed." : "Add the API secret to send purchases from the server.")}</div></div>
+          <details class="trk__guide"><summary>Step-by-step: set up Google Analytics</summary>
+            <h3>1. Create the property</h3>${steps([
+              `Go to <a href="https://analytics.google.com" target="_blank" rel="noopener">analytics.google.com</a> › <b>Admin › Create › Property</b>. Name it "Ravelle", time zone <b>Bangladesh</b>, currency <b>Bangladeshi Taka (BDT)</b>.`,
+              `Choose <b>Web</b> as the platform, enter <b>https://ravellebd.com</b>, and create the stream.`,
+              `Copy the <b>Measurement ID</b> (G-…) into the box above and press Save. Skip Google's "install manually" code; the store adds it.`])}
+            <h3>2. Send purchases from the server</h3>${steps([
+              `In the same web stream page, open <b>Measurement Protocol API secrets › Create</b>. Accept the terms if asked.`,
+              `Name it "Ravelle server", copy the <b>Secret value</b>, paste it above and Save.`,
+              `Press <b>Check with Google</b>. Google checks the event and the result shows under the button.`])}
+            <h3>3. Check it works</h3>${steps([
+              `Open <b>Reports › Realtime</b> in Google Analytics, then open your store in another tab. You should appear within a minute.`,
+              `Place a test order. It shows under <b>Reports › Monetization › Ecommerce purchases</b> within a few hours.`,
+              `Optional: link Google Ads and Search Console under <b>Admin › Product links</b>.`])}
+            <p class="muted small">Events the store sends: page_view, view_item_list, view_item, search, add_to_wishlist, add_to_cart, begin_checkout, add_payment_info, purchase, generate_lead, contact, and refund when you cancel or return an order.</p>
+          </details></div>
+        <div class="card"><h2 class="h2">Other tracking code</h2><p class="muted small" style="margin:0">For TikTok Pixel, Google Search Console verification or any other snippet that says "paste in the head". You don't need this for Meta or Google Analytics.</p>
+          <label class="field"><span>Code inside &lt;head&gt;</span><textarea class="input mono" name="head" rows="6" spellcheck="false" placeholder="&lt;!-- Paste code here --&gt;">${esc(c.head || "")}</textarea></label>
+          <label class="field"><span>Code before &lt;/body&gt;</span><textarea class="input mono" name="bodyEnd" rows="4" spellcheck="false">${esc(c.bodyEnd || "")}</textarea></label>
+          <p class="small" style="margin:0;color:var(--warn)">Only paste code from services you trust. It runs for every visitor.</p></div>
+        <div class="sticky-save"><span class="small">Changes apply to the store right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    const form = $("#trkForm");
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = true; });
+    leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
+    if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    $$("[data-test]", form).forEach((b) => {
+      b.onclick = async () => {
+        if (dirty) return toast("Save first, then test.", "warn");
+        const kind = b.dataset.test, out = $(kind === "meta" ? "#metaStatus" : "#gaStatus");
+        b.disabled = true; out.innerHTML = `<p class="muted small" style="margin:0">Sending…</p>`;
+        try {
+          const r = await api("POST", "/api/tracking/test", { kind });
+          out.innerHTML = `<p class="small" style="margin:0;color:${r.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">${esc(r.message)}</p>`;
+        } catch (err) { out.innerHTML = `<p class="small" style="margin:0;color:var(--danger)">${esc(err.message)}</p>`; }
+        b.disabled = false;
+      };
+    });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, code = { pixelId: f.pixelId.value.trim(), capiTest: f.capiTest.value.trim(), gaId: f.gaId.value.trim(), head: f.head.value, bodyEnd: f.bodyEnd.value };
+      if (f.capiToken.value.trim()) code.capiToken = f.capiToken.value.trim();
+      if (f.gaSecret.value.trim()) code.gaSecret = f.gaSecret.value.trim();
+      if (form.dataset.capiClear) code.capiTokenClear = true;
+      if (form.dataset.gaClear) code.gaSecretClear = true;
+      try { await api("PUT", "/api/settings", { settings: { code } }); dirty = false; toast("Saved"); viewTracking(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Acore: website orders go to Acore; Acore sends status and courier updates back
+  // ---------------------------------------------------------------------------
+  async function viewAcore() {
+    setTitle("Acore");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const a = s.acore || {}, demo = window.Ravelle.mode === "demo";
+    const hookUrl = a.webhookUrl || (location.origin + "/api/acore/webhook");
+    const last = (x, none) => x ? `<span style="color:${x.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">${esc(x.message)}</span> <small class="muted">${dateTime(x.at)}</small>` : `<span class="muted">${none}</span>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Acore</h1><p class="muted">Every website order goes to Acore by itself. When you hold, cancel or send an order to the courier in Acore, the order here updates by itself, and customers see it on Track order.</p></div></div>
+      <form class="stack" id="acForm">
+        <div class="card"><h2 class="h2">Connection</h2>
+          <label class="switch"><input type="checkbox" name="enabled" ${a.enabled ? "checked" : ""}> Connect to Acore</label>
+          <div class="row row--2"><label class="field"><span>Acore address</span><input class="input" name="url" value="${esc(a.url || "")}" placeholder="https://acore.example.com"><small>The web address of your Acore app, without /api.</small></label>
+          <label class="field"><span>Store API key</span><input class="input" type="password" autocomplete="off" name="apiKey" value="" placeholder="${a.apiKeySet ? "Saved. Paste a new one to replace it." : "From Acore › Stores › your store"}"><small>Acore makes this key when you add the store there.</small></label></div>
+          ${demo ? `<p class="small" style="margin:0;color:var(--warn)">This demo has no server, so it can't talk to Acore. This page works on the live store.</p>` : ""}</div>
+        <div class="card"><h2 class="h2">Paste these into Acore</h2><p class="muted small" style="margin:0">In Acore, open your store's settings and fill in its webhook with these two.</p>
+          <div class="row row--2"><label class="field"><span>Webhook URL</span><input class="input mono" readonly value="${esc(hookUrl)}" data-copy></label>
+          <label class="field"><span>Webhook secret</span><input class="input mono" readonly value="${esc(a.webhookSecret || "Save once to create it")}" data-copy></label></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="newSecret">Make a new secret</button><small class="muted">Making a new one stops the old one working, so update Acore too.</small></div></div>
+        <div class="card"><h2 class="h2">Status</h2><dl class="kv">
+          <dt>Last order sent</dt><dd>${last(a.lastSend, "Nothing sent since the server started.")}</dd>
+          <dt>Last update from Acore</dt><dd>${last(a.lastWebhook, "No updates received since the server started.")}</dd>
+          <dt>Connected since</dt><dd>${a.enabled && a.since ? dateTime(a.since) : "—"}</dd></dl>
+          <p class="muted small" style="margin:0">Orders placed while connected are sent. If Acore can't be reached, the website keeps trying for two weeks. To send an older order, open it and press Send to Acore.</p></div>
+        <div class="card"><h2 class="h2">How statuses match</h2>
+          <div class="table-wrap"><table class="t"><thead><tr><th>In Acore</th><th>On the website</th><th>Customer sees</th></tr></thead><tbody>
+          ${[["confirmed", "Confirmed", "Order confirmed"], ["hold", "On hold", "Order on hold. We'll contact you."], ["cancelled", "Cancelled (stock goes back)", "Order cancelled"],
+            ["processing", "Processing", "Packing your order"], ["sent_to_courier", "Shipped", "Handed to the courier, with the parcel number"], ["in_transit", "Shipped", "On the way"], ["delivered", "Delivered (cash on delivery marked paid)", "Delivered"], ["returned", "Returned (stock goes back)", "Returned to us"]]
+            .map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody></table></div></div>
+        <div class="sticky-save"><span class="small">Saved settings take effect right away.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    $$("[data-copy]").forEach((el) => { el.onclick = () => { el.select(); try { navigator.clipboard.writeText(el.value); toast("Copied"); } catch (_) {} }; });
+    let renew = false;
+    $("#newSecret").onclick = (e) => { renew = true; e.target.textContent = "A new secret is made when you save"; };
+    $("#acForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, out = { enabled: f.enabled.checked, url: f.url.value.trim() };
+      if (f.apiKey.value.trim()) out.apiKey = f.apiKey.value.trim();
+      if (renew) out.newSecret = true;
+      if (out.enabled && (!out.url || !(out.apiKey || a.apiKeySet))) return toast("Add the Acore address and API key to connect.", "warn");
+      try { await api("PUT", "/api/settings", { settings: { acore: out } }); toast("Acore settings saved"); viewAcore(); } catch (err) { fail(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Analytics: traffic, sources, devices, funnel, sales, products and customers
+  // ---------------------------------------------------------------------------
+  let anDays = 30;
+  const pageName = (p) => {
+    const named = { home: "Home", shop: "Shop", men: "Men", women: "Women", "new-in": "New in", "on-sale": "On sale", checkout: "Checkout", search: "Search results",
+      track: "Track order", saved: "Saved items", about: "About us", contact: "Contact us", order: "Order confirmation" };
+    if (named[p]) return named[p];
+    if (/^product\//.test(p)) return "Product: " + p.slice(8).replace(/-/g, " ");
+    if (/^category\//.test(p)) return "Category: " + p.slice(9).replace(/-/g, " ");
+    return p.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+  };
+  async function viewAnalytics() {
+    setTitle("Analytics");
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Analytics</h1><p class="muted">Visitors, where they come from, what they do, and what they buy.</p></div>
+      <div class="flex"><div class="tabs" id="anRange">${[[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "12 months"]].map(([d, l]) => `<button class="tab${d === anDays ? " is-on" : ""}" data-d="${d}">${l}</button>`).join("")}</div>
+      <button class="btn btn--ghost btn--sm" id="anCsv" disabled>Export CSV</button></div></div>
+      <div id="an"><p class="muted">Loading…</p></div>`;
+    $("#anRange").onclick = (e) => { const b = e.target.closest("[data-d]"); if (b) { anDays = +b.dataset.d; viewAnalytics(); } };
+    let d;
+    try { d = await api("GET", "/api/analytics?days=" + anDays); } catch (err) { return fail(err); }
+    const t = d.totals, p = d.previous, tr = d.traffic, pct = (a, b) => (b ? (a / b * 100).toFixed(1) : "0.0") + "%";
+    const delta = (a, b) => {
+      if (!b) return `<span class="kpi__delta">${a ? "New this period" : "No data before"}</span>`;
+      const ch = (a - b) / b * 100;
+      return `<span class="kpi__delta"><b class="${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(1)}%</b> vs previous period</span>`;
+    };
+    const kpi = (label, value, sub) => `<div class="kpi"><span class="kpi__label">${label}</span><span class="kpi__value">${value}</span>${sub}</div>`;
+    const card = (title, body, note) => `<div class="card"><h2 class="h2">${title}</h2>${note ? `<p class="muted small" style="margin:-4px 0 4px">${note}</p>` : ""}${body}</div>`;
+    const share = (rows) => { const sum = rows.reduce((s, r) => s + r.value, 0) || 1; return rows.map((r) => ({ label: `${r.label} · ${Math.round(r.value / sum * 100)}%`, value: r.value })); };
+    const table = (head, rows) => rows.length ? `<div class="table-wrap"><table class="t"><thead><tr>${head.map((h, i) => `<th${i ? ' class="right"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="right num"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p class="muted">No data in this period.</p>`;
+    let series = d.series;
+    const byWeek = series.length > 92;
+    if (byWeek) {
+      const w = [];
+      for (let i = 0; i < series.length; i += 7) {
+        const c = series.slice(i, i + 7), s = (k) => c.reduce((a, x) => a + x[k], 0);
+        w.push({ date: c[0].date, visits: s("visits"), pageviews: s("pageviews"), orders: s("orders"), revenue: s("revenue"), newVisitors: s("newVisitors") });
+      }
+      series = w;
+    }
+    const lab = (s) => new Date(s + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    const per = byWeek ? "per week" : "per day";
+    const funnelTop = d.funnel[0].value || 1;
+    const funnel = `<div class="funnel">${d.funnel.map((f, i) => `<div class="funnel__row"><span class="funnel__label">${esc(f.label)}</span>
+      <span class="hbar__track"><span class="hbar__fill" style="width:${(f.value / funnelTop * 100).toFixed(1)}%"></span></span>
+      <span class="num"><b>${int(f.value)}</b> <small class="muted">${pct(f.value, funnelTop)}${i ? ` · ${pct(f.value, d.funnel[i - 1].value)} of previous step` : ""}</small></span></div>`).join("")}</div>`;
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const hourLab = (h) => (h % 12 || 12) + (h < 12 ? "am" : "pm");
+    $("#an").innerHTML = `
+      <div class="kpis">
+        ${kpi("Visitors", int(tr.visits), delta(t.visits, p.visits))}
+        ${kpi("Page views", int(tr.pageviews), `<span class="kpi__delta">${tr.pagesPerVisit} pages per visit</span>`)}
+        ${kpi("New visitors", pct(tr.newVisitors, tr.visits), `<span class="kpi__delta">${int(tr.newVisitors)} first-time · ${int(tr.visits - tr.newVisitors)} returning</span>`)}
+        ${kpi("Conversion rate", t.conversion + "%", delta(t.conversion, p.conversion))}
+        ${kpi("Revenue", taka(t.revenue), delta(t.revenue, p.revenue))}
+        ${kpi("Orders", int(t.orders), delta(t.orders, p.orders))}
+        ${kpi("Average order", taka(t.aov), delta(t.aov, p.aov))}
+        ${kpi("Abandoned checkouts", int(d.rates.abandoned), `<span class="kpi__delta">${d.rates.bagToOrder}% of bags become orders</span>`)}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        <div class="card"><div class="card__head"><h2 class="h2">Visitors ${per}</h2></div><div class="chart" id="aVis"></div></div>
+        <div class="card"><div class="card__head"><h2 class="h2">Revenue ${per}</h2></div><div class="chart" id="aRev"></div></div>
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Shopping funnel", funnel, "How many visitors reach each step. Each visitor is counted once a day.")}
+        <div class="card"><div class="card__head"><h2 class="h2">Page views ${per}</h2></div><div class="chart" id="aPv"></div></div>
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Where visitors come from</h2>
+      <div class="cols cols--even">
+        ${card("Traffic sources", hbars(share(d.sources)), "From the link people clicked: Facebook, Instagram, Google, or typed in (Direct). Add ?utm_source=name to links in your ads to name them.")}
+        ${card("Revenue by source", hbars(d.revenueBySource, taka), "Which source the buyer first came from.")}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Landing pages", hbars(d.landing.map((r) => ({ label: pageName(r.label), value: r.value }))), "The first page people open.")}
+        ${card("Most viewed pages", hbars(d.pages.slice(0, 12).map((r) => ({ label: pageName(r.label), value: r.value }))))}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Devices</h2>
+      <div class="cols cols--3">
+        ${card("Device", hbars(share(d.devices)))}
+        ${card("Browser", hbars(share(d.browsers)))}
+        ${card("Operating system", hbars(share(d.systems)))}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">When people shop <small class="muted">(Bangladesh time)</small></h2>
+      <div class="cols cols--even">
+        <div class="card"><h2 class="h2">Visitors by hour</h2><div class="chart" id="aHour"></div></div>
+        <div class="card"><h2 class="h2">Orders by day of week</h2><div class="chart" id="aWeek"></div></div>
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Search</h2>
+      <div class="cols cols--even">
+        ${card("What people search for", hbars(d.searches))}
+        ${card("Searches with no results", hbars(d.noResults), "Products people want that the store doesn't have yet.")}
+      </div>
+      <h2 class="h2" style="margin:26px 0 10px">Sales</h2>
+      <div class="cols cols--3">
+        ${card("Payment method", hbars(Object.keys(d.byPayment).map((k) => ({ label: PAY_LABEL[k] || k, value: d.byPayment[k] })), taka))}
+        ${card("Payment status", hbars(d.paymentStatus.map((r) => ({ label: human(r.label), value: r.value }))))}
+        ${card("Order status", hbars(STATUSES.map((s) => ({ label: human(s), value: d.byStatus[s] || 0 })).filter((r) => r.value)) +
+          `<dl class="kv" style="margin-top:10px"><dt>Cancelled</dt><dd>${d.rates.cancelled}%</dd><dt>Returned</dt><dd>${d.rates.returned}%</dd><dt>Discounts given</dt><dd>${taka(t.discounts)}</dd><dt>Items sold</dt><dd>${int(t.items)}</dd></dl>`)}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Revenue by city", hbars(d.revenueByCity, taka))}
+        ${card("Revenue by category", hbars(d.categories.map((c) => ({ label: c.name, value: c.revenue })), taka))}
+      </div>
+      <div class="cols cols--even" style="margin-top:18px">
+        ${card("Sizes sold", hbars(d.sizes), "Units sold per size. Use it to plan stock.")}
+        ${card("Colours sold", hbars(d.colours))}
+      </div>
+      <div class="card card--flush" style="margin-top:18px"><div class="card__head" style="padding:16px 18px 6px"><div><h2 class="h2">Products</h2><p class="muted small">Click a column to sort. Conversion = orders ÷ views.</p></div></div>
+        <div class="table-wrap"><table class="t" id="anProd"></table></div></div>
+      <h2 class="h2" style="margin:26px 0 10px">Customers</h2>
+      <div class="cols cols--even">
+        ${card("New and returning", hbars([{ label: "New customers", value: d.customers.newRevenue }, { label: "Returning customers", value: d.customers.returningRevenue }], taka) +
+          `<dl class="kv" style="margin-top:10px"><dt>Bought this period</dt><dd>${int(d.customers.buyers)}</dd><dt>Bought before too</dt><dd>${int(d.customers.returning)}</dd><dt>All customers</dt><dd>${int(d.customers.total)}</dd></dl>`, "Revenue from first-time buyers and people who bought before.")}
+        ${card("Top customers", table(["Customer", "Orders", "Spent"], d.customers.top.map((c) => [`${esc(c.name)}<br><small class="muted">${esc(c.phone)}</small>`, c.orders, taka(c.revenue)])))}
+      </div>
+      <div style="margin-top:18px">${card("Coupons", table(["Code", "Orders", "Discount given", "Revenue"], d.coupons.map((c) => [`<b class="mono">${esc(c.code)}</b>`, c.orders, taka(c.discount), taka(c.revenue)])))}</div>`;
+    const rows = (key, fmt, unit) => series.map((s) => ({ label: lab(s.date), value: s[key], tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${fmt(s[key])} ${unit}` }));
+    chart($("#aVis"), series.map((s) => ({ label: lab(s.date), value: s.visits, tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${int(s.visits)} visitors · ${int(s.newVisitors)} new` })), { label: "Visitors", type: "line" });
+    chart($("#aRev"), series.map((s) => ({ label: lab(s.date), value: s.revenue, tip: `<b>${byWeek ? "Week of " : ""}${lab(s.date)}</b><br>${taka(s.revenue)} · ${s.orders} order${s.orders === 1 ? "" : "s"}` })), { label: "Revenue", format: taka, short: shortTaka });
+    chart($("#aPv"), rows("pageviews", int, "page views"), { label: "Page views", type: "line" });
+    chart($("#aHour"), d.hours.map((h, i) => ({ label: hourLab(i), value: h.visits, tip: `<b>${hourLab(i)}–${hourLab((i + 1) % 24)}</b><br>${int(h.visits)} visitors · ${h.orders} order${h.orders === 1 ? "" : "s"}` })), { label: "Visitors by hour" });
+    chart($("#aWeek"), d.weekdays.map((w, i) => ({ label: days[i], value: w.orders, tip: `<b>${days[i]}</b><br>${w.orders} order${w.orders === 1 ? "" : "s"} · ${taka(w.revenue)}` })), { label: "Orders by day of week" });
+    let sortKey = "revenue", dir = -1;
+    const cols = [["name", "Product"], ["views", "Views"], ["carts", "Add to bag"], ["orders", "Orders"], ["units", "Units"], ["revenue", "Revenue"], ["conversion", "Conversion"], ["stock", "Stock"]];
+    const drawProd = () => {
+      const list = d.products.slice().sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * dir);
+      $("#anProd").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th class="sortable${k === "name" ? "" : " right"}" data-k="${k}">${l}${k === sortKey ? (dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead><tbody>${list.map((x) => `
+        <tr class="is-link" data-href="#/products/${esc(x.id)}"><td><div class="flex" style="flex-wrap:nowrap">${x.image ? `<img class="thumb" src="${esc(x.image)}" alt="" loading="lazy">` : ""}<span>${esc(x.name)}<br><small class="muted mono">${esc(x.sku)}</small></span></div></td>
+        <td class="right num">${int(x.views)}</td><td class="right num">${int(x.carts)}</td><td class="right num">${int(x.orders)}</td><td class="right num">${int(x.units)}</td><td class="right num">${taka(x.revenue)}</td><td class="right num">${x.conversion}%</td><td class="right num">${x.stock == null ? "—" : int(x.stock)}</td></tr>`).join("")}</tbody>`;
+    };
+    drawProd();
+    $("#anProd").addEventListener("click", (e) => {
+      const th = e.target.closest("th[data-k]");
+      if (!th) return;
+      if (sortKey === th.dataset.k) dir = -dir; else { sortKey = th.dataset.k; dir = th.dataset.k === "name" ? 1 : -1; }
+      drawProd();
+    });
+    const btn = $("#anCsv");
+    btn.disabled = false;
+    btn.onclick = () => {
+      const out = [["Report", "Item", "Value"]];
+      const add = (name, list, fmt) => list.forEach((r) => out.push([name, r.label, fmt ? fmt(r) : r.value]));
+      series.forEach((s) => out.push(["Daily", s.date, `${s.visits} visitors; ${s.pageviews} page views; ${s.orders} orders; ${s.revenue} BDT`]));
+      add("Funnel", d.funnel); add("Traffic source", d.sources); add("Revenue by source (BDT)", d.revenueBySource);
+      add("Device", d.devices); add("Browser", d.browsers); add("Operating system", d.systems);
+      add("Landing page", d.landing.map((r) => ({ label: pageName(r.label), value: r.value }))); add("Page", d.pages.map((r) => ({ label: pageName(r.label), value: r.value })));
+      add("Search", d.searches); add("Search with no results", d.noResults);
+      add("Revenue by city (BDT)", d.revenueByCity); add("Size sold", d.sizes); add("Colour sold", d.colours);
+      d.products.forEach((x) => out.push(["Product", x.name, `${x.views} views; ${x.carts} add to bag; ${x.orders} orders; ${x.units} units; ${x.revenue} BDT`]));
+      download(`ravelle-analytics-${anDays}d.csv`, csv(out));
     };
   }
 
@@ -1385,14 +2253,14 @@
   // Shell: sidebar, router, sign in
   // ---------------------------------------------------------------------------
   const NAV = [
-    ["", [["dashboard", "Dashboard", "dashboard"]]],
-    ["Sales", [["orders", "Orders", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
+    ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
+    ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["coupons", "Coupons", "coupons"]]],
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
-    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["media", "Media library", "content"]]],
-    ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"]]],
-    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["integrations", "API & webhooks", "integrations"]]]
+    ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
+    ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
+    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
   ];
-  const counts = { orders: 0, chat: 0, messages: 0 };
+  const counts = { orders: 0, chat: 0, messages: 0, franchise: 0, carts: 0 };
   function drawSide() {
     const cur = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "dashboard";
     $("#sideNav").innerHTML = NAV.map(([g, items]) => {
@@ -1407,6 +2275,8 @@
     if (can("orders")) jobs.push(api("GET", "/api/orders?status=pending").then((r) => { counts.orders = r.total; }, () => {}));
     if (can("chat")) jobs.push(api("GET", "/api/chats?status=open").then((r) => { counts.chat = r.chats.reduce((s, c) => s + (c.unread ? 1 : 0), 0); }, () => {}));
     if (can("messages")) jobs.push(api("GET", "/api/messages").then((r) => { counts.messages = r.messages.filter((m) => !m.read).length; }, () => {}));
+    if (can("orders")) jobs.push(api("GET", "/api/carts").then((r) => { counts.carts = r.stats.open; }, () => {}));
+    if (can("franchise")) jobs.push(api("GET", "/api/franchise").then((r) => { counts.franchise = r.requests.filter((m) => !m.read).length; }, () => {}));
     await Promise.all(jobs);
     drawSide();
   }
@@ -1420,15 +2290,15 @@
   function notFound() { view.innerHTML = `<p class="empty">That page doesn't exist. <a href="#/dashboard">Go to the dashboard</a></p>`; }
 
   const ROUTES = [
-    [/^dashboard$/, viewDashboard, "dashboard"],
+    [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"], [/^popup$/, viewPopup, "content"],
     [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"],
-    [/^coupons$/, viewCoupons, "coupons"],
+    [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"],
     [/^chat$/, viewChat, "chat"], [/^chat\/([^/]+)$/, viewChat, "chat"], [/^messages$/, viewMessages, "messages"],
-    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"],
+    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"], [/^acore$/, viewAcore, "settings"],
     [/^account$/, viewAccount, null]
   ];
   let leaveGuard = null, cleanup = null, lastHash = location.hash;
@@ -1437,6 +2307,7 @@
     if (leaveGuard && !leaveGuard()) { history.replaceState(null, "", lastHash); return; }
     leaveGuard = null;
     if (cleanup) { cleanup(); cleanup = null; }
+    if (!$("#modal").hidden) closeModal();
     lastHash = location.hash;
     const raw = location.hash.replace(/^#\/?/, ""), path = raw.split("?")[0], query = raw.split("?")[1] || "";
     const first = NAV.flatMap((g) => g[1]).find((i) => can(i[2]));
@@ -1503,12 +2374,54 @@
     } catch (err) { $("#loginErr").textContent = err.message || "Couldn't sign in."; $("#loginErr").hidden = false; }
     busy(btn, false);
   };
+  // Forgot password / reset link (admin users only)
+  const demoQs = () => (/[?&]demo\b/.test(location.search) ? "?demo" : "");
+  const loginCard = (id) => ["loginForm", "forgotForm", "resetForm"].forEach((k) => { $("#" + k).hidden = k !== id; });
+  $("#forgotLink").onclick = (e) => { e.preventDefault(); $("#forgotForm").email.value = $("#loginForm").email.value; $("#forgotErr").hidden = true; loginCard("forgotForm"); $("#forgotForm").email.focus(); };
+  $$("[data-back-login]").forEach((a) => { a.onclick = (e) => { e.preventDefault(); history.replaceState(null, "", location.pathname + demoQs()); loginCard("loginForm"); }; });
+  $("#forgotForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = $("button[type=submit]", e.target);
+    $("#forgotErr").hidden = true; busy(btn, true);
+    try {
+      const r = await window.Ravelle.call("POST", "/api/auth/forgot", { email: e.target.email.value.trim() });
+      $("#forgotNote").innerHTML = esc(r.message) + (r.demoLink ? ` <a href="${esc(r.demoLink)}${demoQs() ? "&demo" : ""}" id="demoResetLink">Open the reset link</a>` : "");
+      $("#forgotNote").classList.remove("muted");
+    } catch (err) { $("#forgotErr").textContent = err.message; $("#forgotErr").hidden = false; }
+    busy(btn, false);
+  };
+  const resetToken = new URLSearchParams(location.search).get("reset");
+  async function showReset() {
+    $("#app").hidden = true; $("#login").hidden = false; loginCard("resetForm");
+    const f = $("#resetForm");
+    try {
+      const r = await window.Ravelle.call("GET", "/api/auth/reset/" + encodeURIComponent(resetToken));
+      $("#resetNote").textContent = `Choose a new password for ${r.email}. At least 8 characters.`;
+      f.password.focus();
+    } catch (err) { $("#resetNote").textContent = err.message; $$("input, button", f).forEach((x) => { x.disabled = true; }); }
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      $("#resetErr").hidden = true;
+      if (f.password.value !== f.password2.value) { $("#resetErr").textContent = "The two passwords don't match."; $("#resetErr").hidden = false; return; }
+      const btn = $("button[type=submit]", f); busy(btn, true);
+      try {
+        const r = await window.Ravelle.call("POST", "/api/auth/reset", { token: resetToken, password: f.password.value });
+        history.replaceState(null, "", location.pathname + demoQs());
+        loginCard("loginForm");
+        $("#loginForm").email.value = r.email; $("#loginForm").password.value = "";
+        $("#loginNote").textContent = "Password changed. Sign in with your new password.";
+        $("#loginForm").password.focus();
+      } catch (err) { $("#resetErr").textContent = err.message; $("#resetErr").hidden = false; }
+      busy(btn, false);
+    };
+  }
   $("#logout").onclick = () => signOut();
   $("#menuBtn").onclick = () => { $("#side").classList.add("is-open"); $("#sideScrim").hidden = false; };
   $("#sideScrim").onclick = () => { $("#side").classList.remove("is-open"); $("#sideScrim").hidden = true; };
   $("#resetDemo").onclick = async () => { if (await confirmBox("Reset the demo?", "This puts back the sample products, orders and pages and removes your changes in this browser.", "Reset demo", true)) window.Ravelle.resetDemo(); };
 
   window.Ravelle.ready.then(async () => {
+    if (resetToken) return showReset();
     if (!token) return showLogin();
     try {
       const r = await window.Ravelle.call("GET", "/api/auth/me", null, token);

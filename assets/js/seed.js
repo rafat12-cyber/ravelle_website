@@ -8,8 +8,8 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  // Product photos: front, front close-up, side, back (assets/img/products/<name>-1..4.jpg)
-  var photos = function (name, count) { var out = []; for (var i = 1; i <= count; i++) out.push("assets/img/products/" + name + "-" + i + ".jpg"); return out; };
+  // Product photos: front, front close-up, side, back (assets/img/products/<name>-1..4.webp)
+  var photos = function (name, count) { var out = []; for (var i = 1; i <= count; i++) out.push("assets/img/products/" + name + "-" + i + ".webp"); return out; };
   var T0 = Date.UTC(2026, 9, 20);
 
   // ---------------------------------------------------------------------------
@@ -124,10 +124,10 @@
   var products = P.map(function (r, i) {
     var line = r[0], color = r[1], sku = "RV-" + LINE[line].code + "-" + COLOR[color], type = TYPE[LINE[line].type || "tee"];
     return {
-      id: "prd_" + r[5].replace(/-/g, "_").slice(0, 40), slug: r[5], sku: sku, status: "published",
+      id: "prd_" + r[5].replace(/-/g, "_").slice(0, 60), slug: r[5], sku: sku, status: "published",
       name: type.name(line, color), line: line, color: color, hex: r[2],
       price: r[3], comparePrice: r[4], description: LINE[line].about, details: FIT.slice(),
-      images: r[6], sizeGuide: "assets/img/size-guide-sample.png",
+      images: r[6], sizeGuide: "assets/img/size-guide-sample.webp",
       categoryIds: ["cat_men", type.cat], isNew: r[7], featured: r[8], trackStock: true, stock: 0,
       attributes: [{ name: "Size", values: SIZES.slice() }],
       variants: SIZES.map(function (s) { return { id: "var_" + i + "_" + s.toLowerCase(), sku: sku + "-" + s, options: { Size: s }, price: null, stock: STOCK[s] - (i % 4) * 2 }; }),
@@ -167,27 +167,63 @@
   var pages = {
     home: {
       hero: {
-        kicker: "Autumn 2026", title: "The new collection", cta: "Shop now", ctaLink: "#shop",
-        image: "assets/img/home/classic-hero.jpg", imageAlt: "Three models in Ravelle oversized tees"
+        line1: "Designed for presence,", lead: "not", accent: "attention!",
+        cta1: "Shop now", cta1Link: "#shop", cta2: "Explore the House", cta2Link: "#category/the-house",
+        image: "assets/img/home/h-hero-fearless.webp", imageAlt: "Two models in the Fearless tee in black and in ocean blue"
       },
-      categories: {
-        items: [
-          { label: "T-shirts", image: "assets/img/home/classic-tees.jpg", link: "#category/t-shirt" },
-          { label: "Shirts", image: "assets/img/products/shirt-mosaic-1.jpg", link: "#category/half-shirt" },
-          { label: "Trousers", image: "assets/img/products/baggy-trouser-charcoal-2.jpg", link: "#category/trouser" }
+      tryLook: {
+        title: "Try the Look.", sub: "Eleven looks, styled head to toe. Tap a look to see the pieces.", panelTitle: "In this look", totalTitle: "Complete the look", cta: "Add full look to bag",
+        looks: [
+          { name: "Fearless", image: "assets/img/home/look-1.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with the black baggy trouser", products: "fearless-oversized-t-shirt-yellow, baggy-trouser-black" },
+          { name: "RVCHL", image: "assets/img/home/look-2.webp", imageAlt: "Model in the RVCHL oversized T-shirt in black with the black baggy trouser", products: "rvchl-oversized-t-shirt-black, baggy-trouser-black" },
+          { name: "574", image: "assets/img/home/look-7.webp", imageAlt: "Model in the 574 acid washed oversized T-shirt in brick red with the black baggy trouser", products: "574-oversized-t-shirt-brick-red, baggy-trouser-black" },
+          { name: "Starlight Blue", image: "assets/img/home/look-10.webp", imageAlt: "Model in the Starlight oversized T-shirt in ocean blue, seen from the back with the black baggy trouser", products: "starlight-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Paradox", image: "assets/img/home/look-8.webp", imageAlt: "Model in the Paradox oversized T-shirt in cream with the black baggy trouser", products: "paradox-oversized-t-shirt-cream, baggy-trouser-black" },
+          { name: "Starlight Black", image: "assets/img/home/look-5.webp", imageAlt: "Model in the Starlight oversized T-shirt in black with the black baggy trouser", products: "starlight-oversized-t-shirt-black, baggy-trouser-black" },
+          { name: "RVCHL Blue", image: "assets/img/home/look-11.webp", imageAlt: "Model in the RVCHL oversized T-shirt in ocean blue, seen from the back with the black baggy trouser", products: "rvchl-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Fearless Blue", image: "assets/img/home/look-12.webp", imageAlt: "Model in the Fearless oversized T-shirt in ocean blue with the black baggy trouser", products: "fearless-oversized-t-shirt-ocean-blue, baggy-trouser-black" },
+          { name: "Stride Out", image: "assets/img/home/look-6.webp", imageAlt: "Model in the Stride Out oversized T-shirt in blue with the black baggy trouser", products: "stride-out-oversized-t-shirt-blue, baggy-trouser-black" },
+          { name: "Fearless Black", image: "assets/img/home/look-13.webp", imageAlt: "Model in the Fearless oversized T-shirt in black with the black baggy trouser", products: "oversized-t-shirt-fearless-black, baggy-trouser-black" },
+          { name: "Trust Broken", image: "assets/img/home/look-14.webp", imageAlt: "Model in the Trust Broken oversized T-shirt in black with the black baggy trouser", products: "trust-broken-oversized-t-shirt-black, baggy-trouser-black" }
         ]
       },
-      arrivals: { title: "New arrivals" },
-      editorial: {
-        title: "Back prints", cta: "Shop now", link: "#shop",
-        imageA: "assets/img/home/classic-pair-1.jpg", imageB: "assets/img/home/classic-pair-2.jpg"
+      house: {
+        eyebrow: "New in", titleStart: "Trendy", accent: "oversized", titleEnd: "items.", linkLabel: "Shop all →", link: "#category/men",
+        card1: { image: "assets/img/home/h-tee-cat-full.webp", meta: "Shop T-shirts →", title: "Oversized\nT-shirt", link: "#category/t-shirt" },
+        card2: { image: "assets/img/home/h-shirt-cat-full.webp", meta: "Shop shirts →", title: "Boxy Fitted\nShirt", link: "#category/half-shirt" }
       },
+      poster: {
+        kicker: "Up to 31% off", title: "Raining offers\nfor hot summer", cta: "Shop the sale", ctaLink: "#on-sale",
+        image: "assets/img/home/h-poster-fearless.webp", imageAlt: "Model in the Fearless oversized T-shirt in yellow with black baggy trousers, in front of a Fearless flag",
+        marqueeTop: "RAINING OFFERS FOR HOT SUMMER", marqueeBottom: "OWN THE STREET"
+      },
+      arrivals: {
+        titleStart: "Fresh fits for your", accent: "next", titleEnd: "move!",
+        // Tabs under the heading. Category is a category slug (t-shirt, half-shirt, full-shirt, trouser,
+        // polo...) or top-selling; join several slugs with commas. Clear a label to hide its tab.
+        tabs: [
+          { label: "T-shirt", category: "t-shirt" },
+          { label: "Shirt", category: "half-shirt, full-shirt" },
+          { label: "Trouser", category: "trouser" },
+          { label: "Polo", category: "polo" },
+          { label: "Top Selling", category: "top-selling" }
+        ]
+      },
+      lookbook: {
+        marqueeBack: "FRESH FITS FOR YOUR NEXT MOVE", marqueeFront: "YOUR NEXT MOVE",
+        looks: [
+          { image: "assets/img/home/lb-1.webp", name: "Fearless tee\nOcean blue" },
+          { image: "assets/img/home/lb-2.webp", name: "Brand New Day tee\nBlack" },
+          { image: "assets/img/home/lb-3.webp", name: "Starlight tee\nBlack" }
+        ]
+      },
+      categories: { eyebrow: "Shop men" },
       footer: { tagline: "Designed for presence,\nnot attention.", newsletter: "Your email for drop alerts" }
     },
     about: {
       eyebrow: "About us", title: "Own your style.", accent: "Define", titleEnd: "your identity.",
       intro: "Ravelle is a lifestyle brand from Dhaka, built for people who dress for themselves.",
-      image: "assets/img/c-black.webp", imageAlt: "Model in the Fearless oversized T-shirt in black",
+      image: "assets/img/about.webp", imageAlt: "Two models in Fearless oversized T-shirts, black and blue, with black star baggy trousers",
       storyTitle: "Our story",
       story: "Ravelle blends modern streetwear with classic polish. We make everyday staples and bolder statement pieces that feel good, last long and look like you.\n\nEvery piece starts with fabric. We cut heavyweight cotton into relaxed, oversized shapes, then finish them with washes and prints that age well. The result works for a long day in the city and still looks considered at night.\n\nOur goal is simple: make contemporary fashion more expressive, more accessible and more meaningful for people who want to stand out on their own terms.",
       values: [
@@ -204,6 +240,52 @@
       intro: "Questions about sizes, an order or a collaboration? Send a message, chat with us or call during store hours.",
       formTitle: "Send a message", formNote: "We reply within one working day.",
       image: "assets/img/c-blue.webp"
+    },
+    // Home page popup banner (Admin › Popup banner): shows 2 seconds after the home page opens, once per visit
+    popup: {
+      enabled: true, delay: 2, image: "assets/img/home/h-poster-fearless.webp", mobileImage: "", imageAlt: "Fearless oversized T-shirt",
+      eyebrow: "This week only", title: "Fearless drop\n25% off", text: "The new Fearless oversized tees in four washes. Cash on delivery all over Bangladesh.",
+      buttonText: "Shop the drop", buttonLink: "#on-sale", version: 1
+    },
+    // Store locations: shops are grouped by district, in the order set in districtOrder (Admin › Pages › Store locations)
+    stores: {
+      eyebrow: "Store locations", title: "Find a", accent: "Ravelle", titleEnd: "store.",
+      intro: "Try the fit in person. Every store carries the latest drops.",
+      emptyText: "We have no shops yet, you can order online.",
+      districtOrder: ["Dhaka", "Chattogram", "Sylhet"],
+      shops: [
+        { id: "shp_demo1", name: "Ravelle Banani", type: "own", district: "Dhaka", image: "assets/img/about.webp", address: "House 12, Road 11, Banani, Dhaka 1213",
+          phone: "01700-000001", email: "banani@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
+        { id: "shp_demo2", name: "Ravelle Dhanmondi", type: "own", district: "Dhaka", image: "assets/img/home/lb-2.webp", address: "Road 27, Dhanmondi, Dhaka 1209",
+          phone: "01700-000002", email: "dhanmondi@ravellebd.com", hours: "Every day, 11am – 10pm", map: "" },
+        { id: "shp_demo3", name: "Ravelle GEC Circle", type: "franchise", district: "Chattogram", image: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram 4000",
+          phone: "01700-000003", email: "gec@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" },
+        { id: "shp_demo4", name: "Ravelle Zindabazar", type: "franchise", district: "Sylhet", image: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet 3100",
+          phone: "01700-000004", email: "sylhet@ravellebd.com", hours: "Sat – Thu, 11am – 9pm", map: "" }
+      ]
+    },
+    franchise: {
+      eyebrow: "Franchise", title: "Open a", accent: "Ravelle", titleEnd: "store.",
+      intro: "Bring Ravelle to your city. We give you the brand, the stock and the support. You run the store.",
+      points: [
+        { title: "Proven products", text: "Our best-selling oversized tees, shirts and trousers, restocked every month." },
+        { title: "Full support", text: "Store design, staff training, launch marketing and our order system from day one." },
+        { title: "Shared growth", text: "Online orders from your area can be picked up and exchanged at your store." }
+      ],
+      pdfTitle: "Franchise guide", pdfText: "Rules, investment, store requirements and how the franchise system works.", pdf: "",
+      formTitle: "Request a franchise", formNote: "Tell us about you and your location, and pick a time to meet. We reply within two working days.",
+      storiesTitle: "From our franchise partners",
+      stories: [
+        { id: "fst_demo1", storeName: "Ravelle GEC Circle", storeImage: "assets/img/home/lb-1.webp", address: "Level 2, GEC Circle, Chattogram",
+          ownerName: "Tanvir Hossain", ownerImage: "assets/img/demo/owner-1.webp", opinion: "The products sell themselves. Customers come in already knowing the designs from Instagram.",
+          experience: "We opened in March with a 400 sq ft space. Ravelle's team set up the store and trained our staff, and we broke even in the fifth month." },
+        { id: "fst_demo2", storeName: "Ravelle Zindabazar", storeImage: "assets/img/home/h-tee-cat-full.webp", address: "Zindabazar, Sylhet",
+          ownerName: "Arif Rahman", ownerImage: "assets/img/demo/owner-2.webp", opinion: "Restocks arrive on time and the margins are clear from the start.",
+          experience: "I ran a small clothing shop before. Moving to Ravelle gave me a brand people trust, and weekend sales doubled within three months." },
+        { id: "fst_demo3", storeName: "Ravelle Uttara", storeImage: "assets/img/home/lb-2.webp", address: "Sector 7, Uttara, Dhaka",
+          ownerName: "Nabil Ahmed", ownerImage: "assets/img/demo/owner-3.webp", opinion: "Support is one call away. They helped with everything from the shop sign to the first drop.",
+          experience: "We started as a pop-up during Eid and turned it into a full store a month later." }
+      ]
     },
     terms: {
       title: "Terms & conditions", updated: "28 October 2026",
@@ -233,20 +315,16 @@
   var catLink = function (slug, label) { return { id: "mi_" + slug, label: label, url: "#category/" + slug, children: [] }; };
   var menus = {
     header: [
-      { id: "mi_shop", label: "Shop", url: "#shop", children: [
+      { id: "mi_shop", label: "Shop", url: "#shop", image: "assets/img/menu-shop.webp", children: [
         { id: "mi_all", label: "All products", url: "#shop", children: [] },
         { id: "mi_new", label: "New in", url: "#new-in", children: [] },
         { id: "mi_sale2", label: "On sale", url: "#on-sale", children: [] }
       ] },
-      { id: "mi_men", label: "Men", url: "#category/men", children: [
+      { id: "mi_men", label: "Men", url: "#category/men", image: "assets/img/menu-men.webp", children: [
         catLink("t-shirt", "T-shirt"), catLink("polo", "Polo"), catLink("half-shirt", "Half shirt"),
         catLink("full-shirt", "Full shirt"), catLink("trouser", "Trouser"), catLink("denim-pant", "Denim pant")
       ] },
       { id: "mi_women", label: "Women", url: "#category/women", children: [] },
-      { id: "mi_house", label: "The House", url: "#category/the-house", children: [
-        catLink("nior-division", "Nior Division"), catLink("saint-sinners", "Saint & Sinners Hype"), catLink("essential", "Essential Collection"),
-        catLink("obsedian", "Obsedian Virtue"), catLink("monarch-drop", "Monarch Drop")
-      ] },
       { id: "mi_newin", label: "New in", url: "#new-in", children: [] },
       { id: "mi_sale", label: "On sale", url: "#on-sale", children: [] }
     ],
@@ -258,7 +336,8 @@
       ] },
       { id: "fc_company", title: "Company", items: [
         { id: "f6", label: "About us", url: "#about", children: [] }, { id: "f7", label: "Contact us", url: "#contact", children: [] },
-        { id: "f8", label: "Track order", url: "#track", children: [] }, { id: "f9", label: "Saved items", url: "#saved", children: [] }
+        { id: "f8", label: "Track order", url: "#track", children: [] }, { id: "f9", label: "Saved items", url: "#saved", children: [] },
+        { id: "f_stores", label: "Store locations", url: "#store-locations", children: [] }, { id: "f_franchise", label: "Franchise", url: "#franchise", children: [] }
       ] },
       { id: "fc_policies", title: "Policies", items: [
         { id: "f10", label: "Terms & conditions", url: "#terms", children: [] }, { id: "f11", label: "Privacy policy", url: "#privacy", children: [] },

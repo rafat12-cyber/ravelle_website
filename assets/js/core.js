@@ -34,6 +34,13 @@
   function isPhone(p) { return /^(?:\+?88)?01[3-9]\d{8}$/.test(String(p).replace(/[\s-]/g, "")); }
   function normPhone(p) { var d = String(p).replace(/[^\d]/g, ""); return d.length === 13 && d.indexOf("88") === 0 ? d.slice(2) : d; }
   function isEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+  // Links typed in the admin: web pages, store sections, email and phone only. "javascript:" links would run code for whoever clicks.
+  function safeUrl(u) {
+    u = String(u == null ? "" : u).trim();
+    var bare = u.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
+    if (/^[a-z][a-z0-9+.-]*:/.test(bare) && !/^(https?|mailto|tel|sms|whatsapp):/.test(bare)) return "";
+    return u;
+  }
 
   // SHA-256 (sync, used for API keys, sessions and the demo's passwords).
   function sha256(ascii) {
@@ -79,20 +86,27 @@
   // ---------------------------------------------------------------------------
   // Roles and permissions
   // ---------------------------------------------------------------------------
-  var AREAS = ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "users", "settings", "integrations"];
+  var AREAS = ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "franchise", "users", "settings", "integrations"];
   var ROLES = {
     owner: { label: "Owner", areas: AREAS },
-    manager: { label: "Manager", areas: ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "settings"] },
+    manager: { label: "Manager", areas: ["dashboard", "orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "franchise", "settings"] },
     editor: { label: "Content editor", areas: ["products", "catalog", "content"] },
-    support: { label: "Customer support", areas: ["dashboard", "orders", "customers", "chat", "messages"] }
+    support: { label: "Customer support", areas: ["dashboard", "orders", "customers", "chat", "messages"] },
+    custom: { label: "Custom access", areas: [], custom: true }
   };
+  // What a user can open: their role's areas, or the modules ticked for them when the role is "Custom access"
+  function userAreas(u) {
+    if (u.role === "custom") return (u.areas || []).filter(function (a) { return AREAS.indexOf(a) > -1; });
+    return (ROLES[u.role] || ROLES.support).areas;
+  }
+  var FRANCHISE_STATUSES = ["new", "contacted", "meeting", "approved", "declined"];
   // API keys reach the store data, never users, settings or other keys.
   var KEY_AREAS = ["orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "dashboard"];
 
-  var ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"];
+  var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
   var PAYMENT_STATUSES = ["unpaid", "paid", "refunded", "failed"];
   var EVENTS = ["order.created", "order.updated", "product.created", "product.updated", "product.deleted", "stock.updated", "stock.low",
-    "customer.created", "chat.message.created", "contact.created", "coupon.used"];
+    "customer.created", "chat.message.created", "contact.created", "coupon.used", "franchise.created"];
 
   // ---------------------------------------------------------------------------
   // Shapes
@@ -104,7 +118,7 @@
   }
   function publicProduct(p) {
     return {
-      id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex,
+      id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex, colorGroup: p.colorGroup || "",
       price: p.price, comparePrice: p.comparePrice || 0, description: p.description, details: p.details || [],
       images: p.images || [], sizeGuide: p.sizeGuide || "", categoryIds: p.categoryIds || [],
       attributes: p.attributes || [], isNew: !!p.isNew, featured: !!p.featured, trackStock: !!p.trackStock,
@@ -115,7 +129,7 @@
     };
   }
   function publicUser(u) {
-    return { id: u.id, name: u.name, email: u.email, role: u.role, createdAt: u.createdAt, lastLogin: u.lastLogin || null };
+    return { id: u.id, name: u.name, email: u.email, role: u.role, areas: userAreas(u), createdAt: u.createdAt, lastLogin: u.lastLogin || null };
   }
   function orderSummary(o) {
     return { id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
@@ -124,14 +138,43 @@
   function chatSummary(c) {
     var last = c.messages[c.messages.length - 1];
     return { id: c.id, name: c.name, phone: c.phone, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt,
-      unread: c.unreadAdmin || 0, lastMessage: last ? { from: last.from, text: last.text, at: last.at } : null, page: c.page || "" };
+      unread: c.unreadAdmin || 0, lastMessage: last ? { from: last.from, text: last.text || (last.image ? "Photo" : ""), at: last.at } : null, page: c.page || "" };
+  }
+  // Header and footer options (Admin > Header & footer). Older databases get these defaults.
+  var LAYOUT_DEFAULTS = {
+    header: { announce: true, announceBg: "#111214", announceColor: "#ffffff", logo: "", logoHeight: 40, sticky: true, showSearch: true, showAccount: true },
+    footer: { newsletter: true, newsletterButton: "Notify me", showPayments: true, showWordmark: true, wordmark: "RAVELLE", showContact: true,
+      showSocial: true, showLegal: true, copyright: "" }
+  };
+  function siteLayout(s) {
+    var l = (s && s.layout) || {}, out = {};
+    Object.keys(LAYOUT_DEFAULTS).forEach(function (k) {
+      out[k] = {};
+      Object.keys(LAYOUT_DEFAULTS[k]).forEach(function (f) { var v = (l[k] || {})[f]; out[k][f] = v === undefined ? LAYOUT_DEFAULTS[k][f] : v; });
+    });
+    return out;
+  }
+  function siteCode(s) {
+    var c = (s && s.code) || {};
+    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "", gaSecret: c.gaSecret || "" };
+  }
+  // The tracking snippets that go in <head>: Google Analytics 4, Meta Pixel, then any custom code
+  function headCode(s) {
+    var c = siteCode(s), out = "";
+    if (c.gaId) out += '<script async src="https://www.googletagmanager.com/gtag/js?id=' + c.gaId + '"></script>\n' +
+      "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','" + c.gaId + "');</script>\n";
+    if (c.pixelId) out += "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
+      "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];" +
+      "s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','" + c.pixelId + "');</script>\n";
+    return out + c.head;
   }
   function publicSettings(s) {
     return {
       store: s.store, social: s.social, shipping: s.shipping,
       payments: { cod: !!(s.payments && s.payments.cod), sslcommerz: !!(s.payments && s.payments.sslcommerz && s.payments.sslcommerz.enabled) },
       chat: { enabled: !!(s.chat && s.chat.enabled), greeting: s.chat && s.chat.greeting, title: s.chat && s.chat.title },
-      seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock
+      seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock,
+      layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd, pixelId: siteCode(s).pixelId, gaId: siteCode(s).gaId }
     };
   }
 
@@ -173,7 +216,7 @@
       if (!s) return null;
       var user = db.users.filter(function (u) { return u.id === s.userId; })[0];
       if (!user) return null;
-      return { kind: "user", user: user, areas: (ROLES[user.role] || ROLES.support).areas, write: true, name: user.name };
+      return { kind: "user", user: user, areas: userAreas(user), write: true, name: user.name };
     }
     function canSee(auth, area) { return auth && auth.areas.indexOf(area) > -1; }
 
@@ -187,6 +230,7 @@
       if (!p.name) fail(400, "Product name is required.");
       if (b.slug !== undefined || !p.slug) p.slug = uniqueSlug(db.products, str(b.slug) || p.name, p.id);
       ["line", "color", "description"].forEach(function (k) { if (b[k] !== undefined) p[k] = str(b[k], k === "description" ? 4000 : 120); });
+      if (b.colorGroup !== undefined) p.colorGroup = str(b.colorGroup, 30);
       if (b.hex !== undefined) p.hex = /^#[0-9a-f]{6}$/i.test(b.hex) ? b.hex : (p.hex || "#888888");
       if (b.sku !== undefined) p.sku = str(b.sku, 60).toUpperCase();
       if (b.status !== undefined) p.status = b.status === "draft" ? "draft" : "published";
@@ -319,7 +363,8 @@
           if (!v) fail(400, "Choose a size for " + p.name + ".");
         }
         var stock = v ? v.stock : p.stock;
-        if (p.trackStock && stock < qty) {
+        var key = p.id + "|" + (v ? v.id : ""), already = lines.filter(function (l) { return l.productId + "|" + (l.variantId || "") === key; }).reduce(function (n, l) { return n + l.qty; }, 0);
+        if (p.trackStock && stock < qty + already) {
           fail(409, stock > 0 ? "Only " + stock + " left of " + p.name + (v ? " (" + optionText(v.options) + ")" : "") + "." : p.name + (v ? " (" + optionText(v.options) + ")" : "") + " is out of stock.");
         }
         var price = v && v.price != null ? v.price : p.price;
@@ -363,14 +408,127 @@
       });
       o.restocked = true;
     }
-    function track(db, type, productId, sid, extra) {
-      var d = dayKey(now());
+    // Meta Conversions API: the server sends the same event as the browser Pixel, with the same event ID,
+    // so Meta counts it once even when an ad blocker stops the browser copy. Only the Node server sends it.
+    var CAPI_NAMES = { page: "PageView", view: "ViewContent", cart: "AddToCart", checkout: "InitiateCheckout", search: "Search",
+      wishlist: "AddToWishlist", category: "ViewCategory", payment: "AddPaymentInfo", lead: "Lead", contact: "Contact" };
+    function hashed(v) { v = String(v || "").trim().toLowerCase(); return v ? sha256(v) : undefined; }
+    function capi(c, name, eventId, custom, person) {
+      var code = siteCode(c.db.settings), req = c.req || {}, h = req.headers || {}, m = (c.body && c.body.meta) || c.body || {};
+      if (!host.metaEvent || !code.pixelId || !code.capiToken || !eventId) return;
+      person = person || {};
+      var phone = person.phone ? "88" + normPhone(person.phone) : "";
+      var names = String(person.name || "").trim().split(/\s+/);
+      var user = {
+        client_ip_address: req.ip || undefined, client_user_agent: h["user-agent"] || undefined,
+        fbp: str(m.fbp, 120) || undefined, fbc: str(m.fbc, 300) || undefined,
+        external_id: m.sid ? [hashed(m.sid)] : phone ? [hashed(phone)] : undefined,
+        ph: phone ? [hashed(phone)] : undefined, em: person.email ? [hashed(person.email)] : undefined,
+        fn: names[0] ? [hashed(names[0])] : undefined, ln: names.length > 1 ? [hashed(names[names.length - 1])] : undefined,
+        ct: person.city ? [hashed(String(person.city).replace(/[^a-z]/gi, ""))] : undefined, country: [hashed("bd")]
+      };
+      Object.keys(user).forEach(function (k) { if (user[k] === undefined || (Array.isArray(user[k]) && !user[k][0])) delete user[k]; });
+      host.metaEvent({
+        pixelId: code.pixelId, token: code.capiToken, testCode: code.capiTest,
+        event: { event_name: name, event_time: Math.floor(now() / 1000), event_id: String(eventId).slice(0, 80), action_source: "website",
+          event_source_url: str(m.url, 500) || undefined, user_data: user, custom_data: custom || undefined }
+      });
+    }
+    // Google Analytics 4 Measurement Protocol: the server reports purchases and refunds itself, so sales
+    // still reach GA when an ad blocker stops the browser tag. GA drops a purchase it already has (same transaction_id).
+    // Ads and catalogs know a product by its main SKU, not the size SKU
+    function baseSku(db, it) { var p = findProduct(db, it.productId); return (p && p.sku) || it.sku; }
+    function gaServer(c, order, name) {
+      var code = siteCode(c.db.settings), ga = order.ga || {};
+      if (!host.gaEvent || !code.gaId || !code.gaSecret) return;
+      var params = {
+        transaction_id: order.number, currency: "BDT", value: order.total, engagement_time_msec: 1,
+        items: order.items.map(function (it) { return { item_id: baseSku(c.db, it), item_name: it.name, item_variant: it.color || undefined, price: it.price, quantity: it.qty }; })
+      };
+      if (name === "purchase") { params.shipping = order.shipping || 0; if (order.coupon) params.coupon = order.coupon; if (order.discount) params.discount = order.discount; }
+      if (ga.sid) params.session_id = ga.sid;
+      host.gaEvent({ measurementId: code.gaId, secret: code.gaSecret, body: {
+        client_id: ga.cid || ("rv." + (ga.vid || order.id)), timestamp_micros: (name === "purchase" ? order.createdAt : now()) * 1000,
+        events: [{ name: name, params: params }]
+      } });
+    }
+    // Admin "test" buttons on the Pixel & Analytics page
+    route("POST", "/api/tracking/test", "settings", function (c) {
+      var code = siteCode(c.db.settings), kind = str(c.body.kind, 10);
+      if (kind === "meta") {
+        if (!code.pixelId) fail(400, "Add the Pixel ID first.");
+        if (!code.capiToken) fail(400, "Add the Conversions API access token first.");
+        if (!host.metaEvent) fail(400, "Server events are sent from the live store. The demo has no server.");
+        var cust = { name: "Test Customer", phone: "01700000000", city: "Dhaka" };
+        capi({ db: c.db, req: c.req, body: { meta: { url: (c.req.headers || {}).referer || "", sid: "admin-test" } } }, "PageView", "test." + now(), { content_name: "Ravelle admin test" }, cust);
+        return { ok: true, message: "Sent a test PageView to Meta. " + (code.capiTest ? "Look for it in Events Manager › Test events (code " + code.capiTest + ")." : "Add a test event code to see it in Events Manager › Test events.") + " Meta's answer shows here after you reload." };
+      }
+      if (kind === "ga") {
+        if (!code.gaId) fail(400, "Add the Measurement ID first.");
+        if (!code.gaSecret) fail(400, "Add the API secret first.");
+        if (!host.gaEvent) fail(400, "Server events are sent from the live store. The demo has no server.");
+        host.gaEvent({ measurementId: code.gaId, secret: code.gaSecret, debug: true, body: { client_id: "ravelle.admin.test", events: [{ name: "ravelle_test", params: { engagement_time_msec: 1 } }] } });
+        return { ok: true, message: "Asked Google to check the ID and secret. The result shows here after you reload." };
+      }
+      fail(400, "Unknown test.");
+    });
+    function capiTrack(c, t, b) {
+      var name = CAPI_NAMES[t];
+      if (!name || !host.metaEvent) return;
+      var p = b.productId ? findProduct(c.db, str(b.productId, 40)) : null, custom = null;
+      if ((t === "view" || t === "cart" || t === "wishlist") && !p) return;
+      var catName = function (x) { var ids = x.categoryIds || [], cat = findCategory(ids[ids.length - 1]) || findCategory(ids[0]); return cat ? cat.name : undefined; };
+      var findCategory = function (id) { return c.db.categories.filter(function (x) { return x.id === id; })[0]; };
+      if (p) {
+        var q = t === "cart" ? Math.max(1, int(b.qty, 1)) : 1;
+        custom = { content_ids: [p.sku], content_name: p.name, content_category: catName(p), content_type: "product",
+          contents: [{ id: p.sku, quantity: q, item_price: p.price }], currency: "BDT", value: p.price * q };
+      }
+      if (t === "checkout" || t === "payment") {
+        var items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map(function (l) { var x = findProduct(c.db, str(l.productId, 40)); return x ? { id: x.sku, quantity: Math.max(1, int(l.qty, 1)), item_price: x.price } : null; }).filter(Boolean);
+        custom = { content_ids: items.map(function (x) { return x.id; }), contents: items, content_type: "product", currency: "BDT",
+          num_items: items.reduce(function (s, x) { return s + x.quantity; }, 0), value: items.reduce(function (s, x) { return s + x.item_price * x.quantity; }, 0) };
+        if (t === "payment") custom.payment_method = str(b.method, 40);
+      }
+      if (t === "search") custom = { search_string: str(b.q, 60), content_type: "product", content_ids: (Array.isArray(b.ids) ? b.ids : []).slice(0, 10).map(function (x) { return str(x, 40); }) };
+      if (t === "category") custom = { content_category: str(b.name, 80), content_type: "product", content_ids: (Array.isArray(b.ids) ? b.ids : []).slice(0, 20).map(function (x) { return str(x, 40); }) };
+      if (t === "lead") custom = { content_name: str(b.topic, 80), content_category: "email signup" };
+      if (t === "contact") custom = { content_name: str(b.method, 40) };
+      var cu = b.cu && typeof b.cu === "object" ? { name: str(b.cu.name, 80), phone: isPhone(b.cu.phone || "") ? str(b.cu.phone, 20) : "", email: str(b.cu.email, 120), city: str(b.cu.city, 60) } : {};
+      if (t === "lead" && b.em) cu.email = str(b.em, 120);
+      capi(c, name, str(b.eid, 80), custom, cu);
+    }
+    // Add one to a counter in a map, folding rare keys into "Other" so a day stays small
+    function bump(map, key, by, cap) {
+      key = String(key || "").slice(0, 60) || "Unknown";
+      if (!(key in map) && Object.keys(map).length >= (cap || 150)) key = "Other";
+      map[key] = (map[key] || 0) + (by || 1);
+    }
+    var FUNNEL_BIT = { view: 2, cart: 4, checkout: 8 };
+    function track(db, type, productId, sid, extra, info) {
+      var t = now(), d = dayKey(t);
+      info = info || {};
       db.stats = db.stats || { days: {} };
       var day = db.stats.days[d] = db.stats.days[d] || { visits: 0, views: {}, carts: {}, sids: {} };
+      day.sids = day.sids || {};
+      ["pages", "src", "dev", "br", "os", "lands", "searches", "noResults"].forEach(function (k) { day[k] = day[k] || {}; });
+      day.hours = day.hours || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      day.funnel = day.funnel || { view: 0, cart: 0, checkout: 0 };
+      var mask = sid ? (day.sids[sid] || 0) : 0;
       if (type === "visit") {
-        if (sid && !day.sids[sid]) { day.sids[sid] = 1; day.visits++; }
+        if (sid && !(mask & 1)) {
+          day.sids[sid] = mask | 1; day.visits++;
+          if (info.nv) day.newVisitors = (day.newVisitors || 0) + 1;
+          bump(day.src, info.src || "Direct"); bump(day.dev, info.dev); bump(day.br, info.br); bump(day.os, info.os);
+          bump(day.lands, info.path || "home");
+          day.hours[(new Date(t).getUTCHours() + 6) % 24]++; // Bangladesh time
+        }
         return;
       }
+      if (type === "page") { day.pageviews = (day.pageviews || 0) + 1; bump(day.pages, info.path || "home", 1, 300); return; }
+      if (type === "search") { bump(day.searches, String(info.q || "").toLowerCase().trim(), 1, 300); if (!info.n) bump(day.noResults, String(info.q || "").toLowerCase().trim(), 1, 200); return; }
+      if (FUNNEL_BIT[type] && sid && !(mask & FUNNEL_BIT[type])) { day.sids[sid] = mask | FUNNEL_BIT[type]; day.funnel[type]++; }
+      if (type === "checkout") { day.checkouts = (day.checkouts || 0) + 1; return; }
       if (!productId) return;
       var bucket = type === "view" ? day.views : type === "cart" ? day.carts : null;
       if (bucket) bucket[productId] = (bucket[productId] || 0) + (extra || 1);
@@ -500,6 +658,86 @@
       };
     }
 
+    // Everything on the Analytics page: traffic, sources, devices, funnel, sales and products
+    function analytics(db, days) {
+      var base = dashboard(db, days);
+      var start = base.range.start, end = base.range.end, n = base.range.days;
+      var counted = function (o) { return o.status !== "cancelled" && o.paymentStatus !== "failed"; };
+      var sumMaps = function (key) {
+        var out = {};
+        Object.keys((db.stats || {}).days || {}).forEach(function (k) {
+          var t = new Date(k + "T12:00:00Z").getTime();
+          if (t < start || t > end) return;
+          var m = db.stats.days[k][key] || {};
+          Object.keys(m).forEach(function (x) { out[x] = (out[x] || 0) + m[x]; });
+        });
+        return Object.keys(out).map(function (x) { return { label: x, value: out[x] }; }).sort(function (a, b) { return b.value - a.value; });
+      };
+      var tot = { pageviews: 0, newVisitors: 0, checkouts: 0, fView: 0, fCart: 0, fCheckout: 0 }, hours = [];
+      for (var h = 0; h < 24; h++) hours.push({ visits: 0, orders: 0, revenue: 0 });
+      var series = base.series.map(function (s) {
+        var ds = ((db.stats || {}).days || {})[s.date] || {};
+        tot.pageviews += ds.pageviews || 0; tot.newVisitors += ds.newVisitors || 0; tot.checkouts += ds.checkouts || 0;
+        var f = ds.funnel || {};
+        tot.fView += f.view || 0; tot.fCart += f.cart || 0; tot.fCheckout += f.checkout || 0;
+        (ds.hours || []).forEach(function (v, i) { hours[i].visits += v; });
+        return { date: s.date, visits: s.visits, pageviews: ds.pageviews || 0, orders: s.orders, revenue: s.revenue, newVisitors: ds.newVisitors || 0 };
+      });
+      var orders = db.orders.filter(function (o) { return o.createdAt >= start && o.createdAt <= end; });
+      var good = orders.filter(counted);
+      var weekdays = [0, 1, 2, 3, 4, 5, 6].map(function () { return { orders: 0, revenue: 0 }; });
+      var bySource = {}, byCity = {}, coupons = {}, sizes = {}, colours = {}, payStatus = {}, customers = {};
+      good.forEach(function (o) {
+        var bd = new Date(o.createdAt + 6 * 36e5);
+        hours[bd.getUTCHours()].orders++; hours[bd.getUTCHours()].revenue += o.total;
+        weekdays[bd.getUTCDay()].orders++; weekdays[bd.getUTCDay()].revenue += o.total;
+        bump(bySource, o.source && o.source !== "website" ? o.source : "Direct", o.total, 100);
+        bump(byCity, (o.customer.city || "").trim() || (o.shippingZone && o.shippingZone.name) || "Not given", o.total, 100);
+        if (o.coupon) { coupons[o.coupon] = coupons[o.coupon] || { code: o.coupon, orders: 0, discount: 0, revenue: 0 }; coupons[o.coupon].orders++; coupons[o.coupon].discount += o.discount || 0; coupons[o.coupon].revenue += o.total; }
+        o.items.forEach(function (it) {
+          var size = (it.options || {}).Size || (it.options || {}).size || Object.keys(it.options || {}).map(function (k) { return it.options[k]; }).join(" / ") || "One size";
+          bump(sizes, size, it.qty, 60); bump(colours, it.color || "Other", it.qty, 60);
+        });
+        var ph = normPhone(o.customer.phone);
+        customers[ph] = customers[ph] || { name: o.customer.name, phone: ph, orders: 0, revenue: 0, first: o.createdAt };
+        customers[ph].orders++; customers[ph].revenue += o.total;
+      });
+      orders.forEach(function (o) { bump(payStatus, o.paymentStatus || "unpaid"); });
+      var list = function (m) { return Object.keys(m).map(function (k) { return { label: k, value: m[k] }; }).sort(function (a, b) { return b.value - a.value; }); };
+      var newRev = 0, retRev = 0;
+      Object.keys(customers).forEach(function (ph) {
+        var before = db.orders.some(function (o) { return normPhone(o.customer.phone) === ph && o.createdAt < start; });
+        if (before) retRev += customers[ph].revenue; else newRev += customers[ph].revenue;
+      });
+      var cancelled = orders.filter(function (o) { return o.status === "cancelled"; }).length;
+      var returned = orders.filter(function (o) { return o.status === "returned"; }).length;
+      var visits = base.totals.visits;
+      return {
+        range: base.range, totals: base.totals, previous: base.previous,
+        traffic: { visits: visits, pageviews: tot.pageviews, newVisitors: Math.min(tot.newVisitors, visits), pagesPerVisit: visits ? +(tot.pageviews / visits).toFixed(1) : 0, checkouts: tot.checkouts },
+        series: series,
+        funnel: [
+          { label: "Visited the store", value: visits },
+          { label: "Viewed a product", value: Math.min(visits, tot.fView) },
+          { label: "Added to bag", value: Math.min(visits, tot.fCart) },
+          { label: "Started checkout", value: Math.min(visits, tot.fCheckout) },
+          { label: "Placed an order", value: base.totals.orders }
+        ],
+        sources: sumMaps("src"), devices: sumMaps("dev"), browsers: sumMaps("br"), systems: sumMaps("os"),
+        pages: sumMaps("pages").slice(0, 25), landing: sumMaps("lands").slice(0, 15),
+        searches: sumMaps("searches").slice(0, 20), noResults: sumMaps("noResults").slice(0, 20),
+        hours: hours, weekdays: weekdays,
+        revenueBySource: list(bySource), revenueByCity: list(byCity).slice(0, 15),
+        coupons: Object.keys(coupons).map(function (k) { return coupons[k]; }).sort(function (a, b) { return b.orders - a.orders; }),
+        sizes: list(sizes), colours: list(colours).slice(0, 15), paymentStatus: list(payStatus),
+        byPayment: base.byPayment, byStatus: base.byStatus, byZone: base.byZone, categories: base.categories, products: base.products,
+        customers: { buyers: base.customers.buyers, returning: base.customers.returning, total: base.customers.total, newRevenue: newRev, returningRevenue: retRev,
+          top: Object.keys(customers).map(function (k) { return customers[k]; }).sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 10) },
+        rates: { cancelled: orders.length ? +(cancelled / orders.length * 100).toFixed(1) : 0, returned: orders.length ? +(returned / orders.length * 100).toFixed(1) : 0,
+          bagToOrder: tot.fCart ? +(base.totals.orders / tot.fCart * 100).toFixed(1) : 0, abandoned: Math.max(0, tot.fCheckout - base.totals.orders) }
+      };
+    }
+
     // =========================================================================
     // Routes
     // =========================================================================
@@ -518,9 +756,12 @@
       };
     });
     route("POST", "/api/track", null, function (c) {
-      var t = str(c.body.type, 10);
-      if (["visit", "view", "cart"].indexOf(t) < 0) fail(400, "Unknown event.");
-      track(c.db, t, str(c.body.productId, 40), str(c.body.sid, 40));
+      var t = str(c.body.type, 10), b = c.body;
+      if (["visit", "view", "cart", "page", "search", "checkout", "wishlist", "category", "payment", "lead", "contact"].indexOf(t) < 0) fail(400, "Unknown event.");
+      track(c.db, t, str(b.productId, 40), str(b.sid, 40), 0, {
+        path: str(b.path, 80), src: str(b.src, 40), dev: str(b.dev, 20), br: str(b.br, 30), os: str(b.os, 20), nv: !!b.nv, q: str(b.q, 60), n: int(b.n)
+      });
+      capiTrack(c, t, b);
       return { ok: true };
     }, { quiet: true });
 
@@ -575,7 +816,17 @@
       var cust = upsertCustomer(db, info);
       order.customerId = cust.id;
       db.orders.push(order);
+      var gm = b.meta || {};
+      order.ga = { cid: str(gm.gaCid, 60), sid: str(gm.gaSid, 30), vid: str(gm.sid, 40) };
       emit(db, "order.created", order);
+      gaServer(c, order, "purchase");
+      acoreSync(c, order);
+      cartsOrdered(db, order, str(b.cartId, 40));
+      invoiceEmail(db, order);
+      capi(c, "Purchase", order.number, {
+        content_ids: order.items.map(function (it) { return baseSku(db, it); }), content_type: "product", num_items: order.items.reduce(function (n, it) { return n + it.qty; }, 0), currency: "BDT", value: order.total, delivery_category: "home_delivery",
+        contents: order.items.map(function (it) { return { id: baseSku(db, it), quantity: it.qty, item_price: it.price }; }), order_id: order.number
+      }, order.customer);
       return { order: publicOrder(order) };
     }, { status: 201 });
 
@@ -583,7 +834,8 @@
       return { number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
         customer: { name: o.customer.name, phone: o.customer.phone.replace(/^(\d{3})\d{5}/, "$1•••••"), address: o.customer.address, city: o.customer.city },
         shippingZone: o.shippingZone, items: o.items, subtotal: o.subtotal, discount: o.discount, coupon: o.coupon, shipping: o.shipping, total: o.total,
-        tracking: o.tracking || "", history: o.history.filter(function (h) { return !h.internal; }).map(function (h) { return { at: h.at, status: h.status, note: h.public || "" }; }) };
+        tracking: o.tracking || "", courier: o.courier ? { name: o.courier.name || "", code: o.courier.trackingCode || o.courier.consignmentId || "", url: o.courier.trackingUrl || "",
+          rider: o.status === "shipped" ? o.courier.riderName || "" : "", riderPhone: o.status === "shipped" ? o.courier.riderPhone || "" : "" } : null, history: o.history.filter(function (h) { return !h.internal; }).map(function (h) { return { at: h.at, status: h.status, note: h.public || "" }; }) };
     }
     route("POST", "/api/orders/track", null, function (c) {
       var number = str(c.body.number, 20).toUpperCase().replace(/^#/, ""), phone = normPhone(c.body.phone);
@@ -607,6 +859,267 @@
       return { ok: true };
     }, { status: 201 });
 
+    // =========================================================================
+    // Email (company Gmail over SMTP) and abandoned carts
+    // =========================================================================
+    var EMAIL_DEFAULTS = { enabled: false, host: "smtp.gmail.com", port: 465, user: "", password: "", fromName: "Ravelle", replyTo: "", invoice: true, copyTo: "" };
+    var CART_DEFAULTS = { enabled: true, delay1: 20, delay2: 24, subject1: "You left something in your bag", text1: "Your pieces are still waiting. Sizes sell out fast, so finish your order while they're in stock.",
+      subject2: "Still thinking it over?", text2: "Your bag is saved. Complete your order today with cash on delivery all over Bangladesh.", coupon: "" };
+    function emailSettings(db) { return Object.assign({}, EMAIL_DEFAULTS, (db.settings || {}).email || {}); }
+    function cartSettings(db) { return Object.assign({}, CART_DEFAULTS, (db.settings || {}).carts || {}); }
+    function siteUrl(db) { return String(host.publicUrl || ((db.settings.store || {}).website ? "https://" + String(db.settings.store.website).replace(/^https?:\/\//, "") : "")).replace(/\/+$/, ""); }
+    function money(n) { return "৳" + Number(n || 0).toLocaleString("en-IN"); }
+    function h(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]; }); }
+    function absImg(db, u) { if (!u || /^data:/.test(u)) return ""; return /^https?:/.test(u) ? u : siteUrl(db) ? siteUrl(db) + "/" + u.replace(/^\//, "") : ""; }
+    // Sends one email, and keeps a line in the email log (Admin › Email & reminders)
+    function sendEmail(db, to, subject, html, text, kind, ref) {
+      var es = emailSettings(db);
+      db.emailLog = db.emailLog || [];
+      var entry = { id: newId("eml"), at: now(), to: to, subject: subject, kind: kind, ref: ref || "", status: "sending", ok: null };
+      db.emailLog.push(entry);
+      if (db.emailLog.length > 300) db.emailLog = db.emailLog.slice(-300);
+      if (!host.sendEmail) { entry.status = "Demo: not sent (the demo has no email server)"; entry.ok = false; return entry; }
+      if (!es.enabled || !es.user || !es.password) { entry.status = "Not sent: turn on email in Admin › Email & reminders"; entry.ok = false; return entry; }
+      host.sendEmail({ id: entry.id, smtp: { host: es.host, port: int(es.port, 465), user: es.user, password: es.password },
+        from: { name: es.fromName || (db.settings.store || {}).name || "Ravelle", email: es.user }, replyTo: es.replyTo || "", to: to, subject: subject, html: html, text: text });
+      return entry;
+    }
+    function emailShell(db, title, body) {
+      var st = db.settings.store || {}, site = siteUrl(db);
+      return '<!doctype html><html><body style="margin:0;background:#eef0f1;font-family:Arial,Helvetica,sans-serif;color:#111214">' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef0f1;padding:24px 12px"><tr><td align="center">' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">' +
+        '<tr><td style="background:#111214;padding:22px 28px;color:#ffffff;font-size:20px;letter-spacing:6px;font-weight:bold">' + h((st.name || "Ravelle").toUpperCase()) + "</td></tr>" +
+        '<tr><td style="padding:28px">' + (title ? '<h1 style="margin:0 0 14px;font-size:22px;text-transform:uppercase">' + h(title) + "</h1>" : "") + body + "</td></tr>" +
+        '<tr><td style="padding:18px 28px;background:#f6f7f8;font-size:12px;color:#5f6368;line-height:1.6">' + h(st.legalName || st.name || "Ravelle") +
+          (st.address ? "<br>" + h(st.address) : "") + (st.phone ? "<br>Phone: " + h(st.phone) : "") + (st.email ? " · " + h(st.email) : "") + (site ? '<br><a href="' + h(site) + '" style="color:#5f6368">' + h(site.replace(/^https?:\/\//, "")) + "</a>" : "") +
+        "</td></tr></table></td></tr></table></body></html>";
+    }
+    function itemsTable(db, items) {
+      return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px">' + items.map(function (it) {
+        var img = absImg(db, it.image), opts = Object.keys(it.options || {}).map(function (k) { return k + ": " + it.options[k]; }).join(", ");
+        return '<tr><td style="padding:10px 0;border-bottom:1px solid #e3e5e8;width:64px">' + (img ? '<img src="' + h(img) + '" width="56" height="70" style="display:block;border-radius:8px;object-fit:cover" alt="">' : "") + "</td>" +
+          '<td style="padding:10px 12px;border-bottom:1px solid #e3e5e8"><b>' + h(it.name) + '</b><br><span style="color:#5f6368;font-size:12px">' + h(opts) + (opts ? " · " : "") + "Qty " + it.qty + "</span></td>" +
+          '<td align="right" style="padding:10px 0;border-bottom:1px solid #e3e5e8;white-space:nowrap">' + money(it.lineTotal != null ? it.lineTotal : it.price * it.qty) + "</td></tr>";
+      }).join("") + "</table>";
+    }
+    function button(url, label) { return url ? '<p style="margin:22px 0 6px"><a href="' + h(url) + '" style="display:inline-block;background:#111214;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:999px;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">' + h(label) + "</a></p>" : ""; }
+    // Invoice email, sent the moment an order is placed
+    function invoiceEmail(db, o) {
+      var es = emailSettings(db), site = siteUrl(db);
+      if (!es.invoice) return;
+      var to = [o.customer.email].filter(function (e) { return e && isEmail(e); });
+      var copy = String(es.copyTo || "").split(/[,\s]+/).filter(isEmail);
+      if (!to.length && !copy.length) return;
+      var pay = o.paymentMethod === "cod" ? "Cash on delivery" : "Online payment (SSLCOMMERZ)";
+      var row = function (l, v, b) { return '<tr><td style="padding:4px 0;color:#5f6368">' + l + '</td><td align="right" style="padding:4px 0' + (b ? ";font-weight:bold;font-size:16px" : "") + '">' + v + "</td></tr>"; };
+      var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h(o.customer.name.split(" ")[0]) + ", thanks for your order. We'll call you on " + h(o.customer.phone) + " to confirm it.</p>" +
+        '<table role="presentation" width="100%" style="font-size:13px;margin-bottom:16px"><tr><td><b>Invoice / Order ' + h(o.number) + "</b></td><td align=\"right\" style=\"color:#5f6368\">" + h(new Date(o.createdAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Dhaka" })) + "</td></tr></table>" +
+        itemsTable(db, o.items) +
+        '<table role="presentation" width="100%" style="font-size:14px;margin-top:12px">' + row("Subtotal", money(o.subtotal)) + (o.discount ? row("Discount" + (o.coupon ? " (" + h(o.coupon) + ")" : ""), "−" + money(o.discount)) : "") +
+          row("Delivery" + (o.shippingZone ? " · " + h(o.shippingZone.name) : ""), money(o.shipping)) + row("Total", money(o.total), true) + row("Payment", pay) + "</table>" +
+        '<table role="presentation" width="100%" style="font-size:13px;margin-top:20px;background:#f6f7f8;border-radius:12px"><tr><td style="padding:14px 16px;line-height:1.6"><b>Delivery to</b><br>' + h(o.customer.name) + "<br>" + h(o.customer.address) + (o.customer.city ? ", " + h(o.customer.city) : "") + "<br>" + h(o.customer.phone) +
+          (o.shippingZone && o.shippingZone.days ? '<br><span style="color:#5f6368">Delivery in ' + h(o.shippingZone.days) + "</span>" : "") + (o.note ? '<br><span style="color:#5f6368">Note: ' + h(o.note) + "</span>" : "") + "</td></tr></table>" +
+        button(site ? site + "/#track" : "", "Track your order");
+      var text = "Thanks for your order " + o.number + ".\n\n" + o.items.map(function (it) { return it.qty + " × " + it.name + " – " + money(it.lineTotal); }).join("\n") +
+        "\n\nTotal: " + money(o.total) + " (" + pay + ")\nDelivery to: " + o.customer.name + ", " + o.customer.address + (o.customer.city ? ", " + o.customer.city : "") + "\n" + (site ? "\nTrack your order: " + site + "/#track\n" : "");
+      var subject = "Your order " + o.number + " · invoice from " + ((db.settings.store || {}).name || "Ravelle");
+      if (to.length) sendEmail(db, to[0], subject, emailShell(db, "Order received", body), text, "invoice", o.number);
+      copy.forEach(function (e) { sendEmail(db, e, "New order " + o.number + " · " + money(o.total) + " · " + o.customer.name, emailShell(db, "New order", body), text, "invoice-copy", o.number); });
+    }
+    function reminderEmail(db, cart, n) {
+      var cs = cartSettings(db), site = siteUrl(db), link = site ? site + "/#restore/" + cart.token : "";
+      var subject = n === 1 ? cs.subject1 : cs.subject2, intro = n === 1 ? cs.text1 : cs.text2;
+      var body = '<p style="margin:0 0 16px;font-size:15px;line-height:1.6">Hi ' + h((cart.customer.name || "there").split(" ")[0]) + ", " + h(intro) + "</p>" + itemsTable(db, cart.items) +
+        '<p style="margin:12px 0 0;font-size:15px;text-align:right"><b>' + money(cart.total) + "</b></p>" +
+        (n === 2 && cs.coupon ? '<p style="margin:18px 0 0;padding:14px 16px;background:#f6f7f8;border-radius:12px;font-size:14px">Use code <b style="letter-spacing:1px">' + h(cs.coupon) + "</b> at checkout.</p>" : "") +
+        button(link, "Complete your order");
+      var text = intro + "\n\n" + cart.items.map(function (it) { return it.qty + " × " + it.name; }).join("\n") + (n === 2 && cs.coupon ? "\n\nUse code " + cs.coupon + " at checkout." : "") + (link ? "\n\nComplete your order: " + link : "");
+      return sendEmail(db, cart.customer.email, subject, emailShell(db, "", body), text, "cart-reminder-" + n, cart.id);
+    }
+    function restoreLink(db, cart) { var site = siteUrl(db); return (site || "") + "/#restore/" + cart.token; }
+
+    // Checkout details are saved as the customer types, so an unfinished checkout can be followed up
+    route("POST", "/api/carts/capture", null, function (c) {
+      var db = c.db, b = c.body || {}, cu = b.customer || {};
+      var info = { name: str(cu.name, 80), phone: str(cu.phone, 20), email: str(cu.email, 120).toLowerCase(), address: str(cu.address, 300), city: str(cu.city, 60) };
+      var okPhone = isPhone(info.phone), okEmail = info.email && isEmail(info.email);
+      if (!okPhone && !okEmail) return { ok: false };
+      if (okPhone) info.phone = normPhone(info.phone); else info.phone = "";
+      if (!okEmail) info.email = "";
+      var lines;
+      try { lines = priceCart(db, (b.items || []).slice(0, 30)); } catch (e) { return { ok: false }; }
+      if (!lines.lines.length) return { ok: false };
+      db.carts = db.carts || [];
+      var cid = str(b.cid, 40), t = now();
+      var cart = db.carts.filter(function (x) { return x.cid === cid && x.status === "open"; })[0];
+      if (!cart) { cart = { id: newId("crt"), token: host.random(12), cid: cid, createdAt: t, status: "open", reminders: [] }; db.carts.push(cart); }
+      cart.customer = info;
+      cart.items = lines.lines.map(function (l) { return { productId: l.productId, variantId: l.variantId, name: l.name, options: l.options, image: l.image, price: l.price, qty: l.qty, lineTotal: l.lineTotal }; });
+      cart.total = lines.subtotal;
+      cart.zone = str(b.zone, 40);
+      cart.updatedAt = t;
+      cart.source = str(b.source, 40) || cart.source || "";
+      if (db.carts.length > 3000) db.carts = db.carts.slice(-3000);
+      return { ok: true };
+    });
+    // The "Complete your order" link puts the bag back
+    route("GET", "/api/carts/restore/:token", null, function (c) {
+      var cart = (c.db.carts || []).filter(function (x) { return x.token === c.params.token; })[0];
+      if (!cart) fail(404, "This link has expired.");
+      cart.clickedAt = now();
+      return { items: cart.items.map(function (i) { return { productId: i.productId, variantId: i.variantId, qty: i.qty }; }), customer: { name: cart.customer.name, phone: cart.customer.phone, email: cart.customer.email, address: cart.customer.address, city: cart.customer.city }, zone: cart.zone };
+    });
+    function cartsOrdered(db, order, cid) {
+      (db.carts || []).forEach(function (x) {
+        if (x.status !== "open" && x.status !== "dismissed") return;
+        if (!((cid && x.cid === cid) || (x.customer.phone && x.customer.phone === order.customer.phone))) return;
+        x.status = x.reminders.length || x.clickedAt ? "recovered" : "ordered";
+        x.orderNumber = order.number; x.orderTotal = order.total; x.orderedAt = order.createdAt;
+      });
+    }
+    function cartDue(db, x, t) {
+      var cs = cartSettings(db);
+      if (x.status !== "open" || !x.customer.email) return 0;
+      var sent = x.reminders.filter(function (r) { return r.auto; }).map(function (r) { return r.n; });
+      if (sent.indexOf(1) < 0 && t - x.updatedAt >= num(cs.delay1, 20) * 60e3 && t - x.updatedAt < 7 * 864e5) return 1;
+      if (sent.indexOf(2) < 0 && t - x.updatedAt >= num(cs.delay2, 24) * 36e5 && t - x.updatedAt < 9 * 864e5) return 2;
+      return 0;
+    }
+    // Runs every minute on the server: sends the 20-minute and 24-hour reminders
+    route("POST", "/api/internal/cart-reminders", "internal", function (c) {
+      var db = c.db, cs = cartSettings(db), t = now(), sent = 0;
+      if (!cs.enabled) return { sent: 0 };
+      (db.carts || []).forEach(function (x) {
+        var n = cartDue(db, x, t);
+        if (!n || sent >= 20) return;
+        // Anyone can type any email at checkout. Send each address at most two reminders a day, so the store's Gmail
+        // can't be used to flood a stranger's inbox (which would also get the Gmail account blocked).
+        var to = String(x.customer.email).toLowerCase();
+        var recent = (db.emailLog || []).filter(function (e) { return /^cart-reminder/.test(e.kind) && String(e.to).toLowerCase() === to && t - e.at < 864e5; }).length;
+        if (recent >= 2) { x.reminders.push({ n: n, at: t, auto: true, channel: "email", status: "Skipped: this address already got 2 reminders today" }); return; }
+        var e = reminderEmail(db, x, n);
+        x.reminders.push({ n: n, at: t, auto: true, channel: "email", status: e.status, emailId: e.id });
+        sent++;
+      });
+      return { sent: sent };
+    });
+    route("GET", "/api/carts", "orders", function (c) {
+      var db = c.db, list = (db.carts || []).slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; }), t = now();
+      var log = {};
+      (db.emailLog || []).forEach(function (e) { log[e.id] = e; });
+      var abandoned = function (x) { return x.status === "open" && t - x.updatedAt >= num(cartSettings(db).delay1, 20) * 60e3; };
+      return {
+        carts: list.map(function (x) {
+          var o = clone(x);
+          o.abandoned = abandoned(x);
+          o.reminders = x.reminders.map(function (r) { var e = log[r.emailId]; return Object.assign({}, r, { status: e ? e.status : r.status, ok: e ? e.ok : null }); });
+          o.link = restoreLink(db, x);
+          return o;
+        }),
+        stats: { open: list.filter(abandoned).length, openValue: list.filter(abandoned).reduce(function (s, x) { return s + x.total; }, 0),
+          recovered: list.filter(function (x) { return x.status === "recovered"; }).length, recoveredValue: list.filter(function (x) { return x.status === "recovered"; }).reduce(function (s, x) { return s + (x.orderTotal || 0); }, 0),
+          reminders: list.reduce(function (s, x) { return s + x.reminders.length; }, 0) },
+        settings: cartSettings(db), emailReady: !!(host.sendEmail && emailSettings(db).enabled && emailSettings(db).user && emailSettings(db).password)
+      };
+    }, { readonly: true });
+    route("POST", "/api/carts/:id/remind", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      if (!x.customer.email) fail(400, "This customer didn't give an email. Call or WhatsApp them instead.");
+      var n = x.reminders.length ? 2 : 1, e = reminderEmail(c.db, x, n);
+      x.reminders.push({ n: n, at: now(), auto: false, channel: "email", status: e.status, emailId: e.id, by: c.auth.name });
+      return { ok: true, status: e.status };
+    });
+    route("POST", "/api/carts/:id/contacted", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      x.reminders.push({ n: 0, at: now(), auto: false, channel: str(c.body.channel, 20) || "phone", status: "Contacted by " + (c.auth.name || "staff"), by: c.auth.name });
+      return { ok: true };
+    });
+    route("PATCH", "/api/carts/:id", "orders", function (c) {
+      var x = (c.db.carts || []).filter(function (y) { return y.id === c.params.id; })[0];
+      if (!x) fail(404, "Cart not found.");
+      if (c.body.status !== undefined) { if (["open", "dismissed"].indexOf(c.body.status) < 0) fail(400, "Unknown status."); x.status = c.body.status; }
+      if (c.body.note !== undefined) x.note = str(c.body.note, 1000);
+      return { cart: x };
+    });
+    route("DELETE", "/api/carts/:id", "orders", function (c) {
+      c.db.carts = (c.db.carts || []).filter(function (y) { return y.id !== c.params.id; });
+      return { ok: true };
+    });
+    // Email settings (Admin › Email & reminders). The app password is never sent back.
+    route("GET", "/api/email-settings", "settings", function (c) {
+      var es = emailSettings(c.db);
+      es.passwordSet = !!es.password; es.password = "";
+      return { email: es, carts: cartSettings(c.db), log: (c.db.emailLog || []).slice(-60).reverse(), server: !!host.sendEmail };
+    }, { readonly: true });
+    route("PUT", "/api/email-settings", "settings", function (c) {
+      var s = c.db.settings, b = c.body || {};
+      if (b.email) {
+        var e = emailSettings(c.db), x = b.email;
+        // The Gmail app password is sent to the mail server saved here. Changing the server or address needs the owner, and forgets the old password.
+        var nh = x.host !== undefined ? str(x.host, 300) : e.host, nu = x.user !== undefined ? str(x.user, 300).toLowerCase() : e.user, np = x.port !== undefined ? int(x.port, 465) : e.port;
+        var serverChanged = nh !== e.host || nu !== String(e.user || "").toLowerCase() || np !== int(e.port, 465);
+        if (serverChanged || x.password || x.passwordClear) needOwner(c, "change the email server, Gmail address or app password");
+        if (serverChanged && !x.password) e.password = "";
+        if (nh && !/^[a-z0-9.-]+$/i.test(nh)) fail(400, "The mail server name doesn't look right.");
+        ["host", "user", "fromName", "replyTo", "copyTo"].forEach(function (k) { if (x[k] !== undefined) e[k] = str(x[k], 300).trim(); });
+        if (x.port !== undefined) e.port = int(x.port, 465);
+        ["enabled", "invoice"].forEach(function (k) { if (x[k] !== undefined) e[k] = bool(x[k]); });
+        if (x.password) e.password = str(x.password, 200).replace(/\s+/g, "");
+        if (x.passwordClear) e.password = "";
+        e.user = e.user.toLowerCase();
+        if (e.user && !isEmail(e.user)) fail(400, "The Gmail address doesn't look right.");
+        if (e.replyTo && !isEmail(e.replyTo)) fail(400, "The reply-to address doesn't look right.");
+        if (e.copyTo && String(e.copyTo).split(/[,\s]+/).some(function (a) { return a && !isEmail(a); })) fail(400, "Check the copy-to address.");
+        if (e.enabled && (!e.user || !e.password)) fail(400, "Add the Gmail address and app password before turning email on.");
+        s.email = e;
+      }
+      if (b.carts) {
+        var cs = cartSettings(c.db), y = b.carts;
+        if (y.enabled !== undefined) cs.enabled = bool(y.enabled);
+        if (y.delay1 !== undefined) cs.delay1 = Math.max(5, Math.min(1440, int(y.delay1, 20)));
+        if (y.delay2 !== undefined) cs.delay2 = Math.max(1, Math.min(168, num(y.delay2, 24)));
+        ["subject1", "text1", "subject2", "text2"].forEach(function (k) { if (y[k] !== undefined) cs[k] = str(y[k], k.indexOf("text") === 0 ? 1000 : 150) || CART_DEFAULTS[k]; });
+        if (y.coupon !== undefined) cs.coupon = str(y.coupon, 40).toUpperCase();
+        s.carts = cs;
+      }
+      return { ok: true };
+    });
+    route("POST", "/api/email/test", "settings", function (c) {
+      var to = str(c.body.to, 120);
+      if (!isEmail(to)) fail(400, "Enter the address to send the test to.");
+      var e = sendEmail(c.db, to, "Test email from your store", emailShell(c.db, "It works", '<p style="margin:0;font-size:15px;line-height:1.6">Your store can send emails from this address. Invoices and cart reminders will come from here.</p>'),
+        "Your store can send emails from this address.", "test", "");
+      return { ok: true, id: e.id, status: e.status };
+    });
+    route("GET", "/api/email/log/:id", "settings", function (c) {
+      var e = (c.db.emailLog || []).filter(function (x) { return x.id === c.params.id; })[0];
+      if (!e) fail(404, "Not found.");
+      return { email: e };
+    }, { readonly: true });
+
+    // Franchise request form
+    route("POST", "/api/franchise", null, function (c) {
+      var b = c.body || {}, e = {};
+      var r = { id: newId("frq"), name: str(b.name, 80), phone: str(b.phone, 20), email: str(b.email, 120), district: str(b.district, 40), area: str(b.area, 200),
+        space: str(b.space, 40), investment: str(b.investment, 60), experience: str(b.experience, 2000), meetingDate: str(b.meetingDate, 10),
+        meetingTime: str(b.meetingTime, 30), meetingType: str(b.meetingType, 40), message: str(b.message, 3000), status: "new", note: "", read: false, createdAt: now() };
+      if (!r.name) e.name = "Enter your name.";
+      if (!isPhone(r.phone)) e.phone = "Enter an 11-digit mobile number, like 01712345678.";
+      else r.phone = normPhone(r.phone);
+      if (r.email && !isEmail(r.email)) e.email = "That email doesn't look right.";
+      if (!r.district) e.district = "Choose your district.";
+      if (r.meetingDate && !/^\d{4}-\d{2}-\d{2}$/.test(r.meetingDate)) e.meetingDate = "Pick a date.";
+      if (Object.keys(e).length) fail(400, "Please check the highlighted fields.", e);
+      c.db.franchise = c.db.franchise || [];
+      c.db.franchise.push(r);
+      if (c.db.franchise.length > 2000) c.db.franchise = c.db.franchise.slice(-2000);
+      emit(c.db, "franchise.created", r);
+      return { ok: true };
+    }, { status: 201 });
+
     // --- Chat: visitor side ---------------------------------------------------------
     function visitorChat(c) {
       var ch = c.db.chats.filter(function (x) { return x.id === c.params.id; })[0];
@@ -616,7 +1129,7 @@
     }
     function visibleMessages(ch, since) {
       since = num(since, 0);
-      return ch.messages.filter(function (m) { return m.at > since && !m.internal; }).map(function (m) { return { id: m.id, from: m.from, text: m.text, at: m.at, author: m.from === "customer" ? "" : m.author || "" }; });
+      return ch.messages.filter(function (m) { return m.at > since && !m.internal; }).map(function (m) { var o = { id: m.id, from: m.from, text: m.text, at: m.at, author: m.from === "customer" ? "" : m.author || "" }; if (m.image) o.image = m.image; return o; });
     }
     route("POST", "/api/chat/start", null, function (c) {
       var db = c.db;
@@ -636,11 +1149,19 @@
     }, { readonly: true });
     route("POST", "/api/chat/:id/messages", null, function (c) {
       var ch = visitorChat(c), db = c.db;
-      var text = str(c.body.text, 2000);
-      if (!text) fail(400, "Write a message.");
+      var text = str(c.body.text, 2000), image = "";
+      // A customer can attach one photo (sent as a data URL; the widget shrinks it to 1280 px first)
+      if (c.body.image) {
+        var im = /^data:(image\/(png|jpeg|webp|gif));base64,/.exec(String(c.body.image));
+        if (!im) fail(400, "Send a PNG, JPG, WebP or GIF photo.");
+        if (String(c.body.image).length > 4e6) fail(413, "That photo is too big. Try a smaller one.");
+        image = host.saveMedia("chat-" + ch.id + "-" + now(), String(c.body.image), im[1]).url;
+      }
+      if (!text && !image) fail(400, "Write a message.");
       if (c.body.name) ch.name = str(c.body.name, 80);
       if (c.body.phone) ch.phone = str(c.body.phone, 20);
       var m = { id: newId("m"), from: "customer", text: text, at: now() };
+      if (image) m.image = image;
       ch.messages.push(m);
       ch.status = "open"; ch.updatedAt = m.at; ch.unreadAdmin = int(ch.unreadAdmin) + 1;
       var custCount = ch.messages.filter(function (x) { return x.from === "customer"; }).length;
@@ -658,12 +1179,23 @@
       var db = c.db;
       var email = str(c.body.email, 120).toLowerCase(), pw = String(c.body.password || "");
       var u = db.users.filter(function (x) { return x.email === email; })[0];
-      if (!u || host.hashPassword(pw, u.salt) !== u.passwordHash) fail(401, "Wrong email or password.");
+      // Ten wrong passwords for one account lock it for 15 minutes, whoever is guessing and from wherever
+      if (u && u.lockedUntil && u.lockedUntil > now()) fail(429, "Too many wrong passwords. This account is locked for 15 minutes, or reset the password by email.");
+      var good = host.hashPassword(pw, u ? u.salt : "no-such-user") === (u ? u.passwordHash : "-");
+      if (!good) {
+        if (u) {
+          u.failedLogins = (now() - (u.lastFailedLogin || 0) > 15 * 60e3 ? 0 : int(u.failedLogins)) + 1;
+          u.lastFailedLogin = now();
+          if (u.failedLogins >= 10) { u.lockedUntil = now() + 15 * 60e3; u.failedLogins = 0; }
+        }
+        fail(401, "Wrong email or password.");
+      }
+      delete u.failedLogins; delete u.lockedUntil; delete u.lastFailedLogin;
       var token = host.random(24);
       db.sessions = (db.sessions || []).filter(function (s) { return s.expiresAt > now(); });
       db.sessions.push({ hash: sha256(token), userId: u.id, createdAt: now(), expiresAt: now() + 7 * 864e5 });
       u.lastLogin = now();
-      return { token: token, user: publicUser(u), areas: (ROLES[u.role] || ROLES.support).areas };
+      return { token: token, user: publicUser(u), areas: userAreas(u) };
     });
     route("GET", "/api/auth/me", "*", function (c) {
       if (c.auth.kind !== "user") return { key: { name: c.auth.key.name, scope: c.auth.key.scope }, areas: c.auth.areas };
@@ -681,8 +1213,43 @@
       if (b.password) {
         if (host.hashPassword(String(b.currentPassword || ""), u.salt) !== u.passwordHash) fail(400, "Your current password is wrong.");
         setPassword(u, b.password);
+        // Sign out every other device that had this account open
+        var mine = sha256(String((c.req.headers || {}).authorization || "").replace(/^Bearer\s+/i, "").trim());
+        c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id || s.hash === mine; });
       }
       return { user: publicUser(u) };
+    });
+    // Forgotten password (admin panel users only; customers have no accounts here)
+    route("POST", "/api/auth/forgot", null, function (c) {
+      var db = c.db, email = str(c.body.email, 120).toLowerCase(), out = { ok: true, message: "If that email belongs to an admin user, a reset link is on its way. It works for 30 minutes." };
+      if (!isEmail(email)) fail(400, "Enter the email you sign in with.");
+      var u = db.users.filter(function (x) { return x.email === email; })[0];
+      if (!u) return out;
+      if (u.resetAt && now() - u.resetAt < 60e3) return out; // one email a minute
+      var token = host.random(24);
+      u.resetHash = sha256(token); u.resetExpires = now() + 30 * 60e3; u.resetAt = now();
+      var link = siteUrl(db) + "/admin?reset=" + token;
+      var e = sendEmail(db, u.email, "Reset your admin password", emailShell(db, "Reset your password",
+        '<p style="margin:0 0 6px;font-size:15px;line-height:1.6">Hi ' + h(u.name.split(" ")[0]) + ", someone (hopefully you) asked to reset the password for the " + h((db.settings.store || {}).name || "Ravelle") + " admin panel.</p>" +
+        button(link, "Choose a new password") + '<p style="margin:14px 0 0;font-size:13px;color:#5f6368;line-height:1.6">The link works for 30 minutes and only once. If you didn&#39;t ask for this, ignore this email; your password stays the same.</p>'),
+        "Reset your admin password: " + link + "\n\nThe link works for 30 minutes. If you didn't ask for this, ignore this email.", "password-reset", u.email);
+      if (!host.sendEmail) { out.demoLink = "?reset=" + token; out.message = "Demo: there's no email server, so here is the reset link."; }
+      else if (e.ok === false) out.message = "The store can't send email yet, so no link was sent. Ask the store owner to reset your password in Admin › Users.";
+      return out;
+    });
+    function resetUser(db, token) {
+      var hs = sha256(String(token || ""));
+      var u = db.users.filter(function (x) { return x.resetHash && x.resetHash === hs; })[0];
+      if (!u || u.resetExpires < now()) fail(400, "This reset link has expired or was already used. Ask for a new one.");
+      return u;
+    }
+    route("GET", "/api/auth/reset/:token", null, function (c) { var u = resetUser(c.db, c.params.token); return { email: u.email, name: u.name }; }, { readonly: true });
+    route("POST", "/api/auth/reset", null, function (c) {
+      var u = resetUser(c.db, c.body.token);
+      setPassword(u, c.body.password);
+      delete u.resetHash; delete u.resetExpires; delete u.lockedUntil; delete u.failedLogins;
+      c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; });
+      return { ok: true, email: u.email };
     });
     function setPassword(u, pw) {
       pw = String(pw || "");
@@ -693,8 +1260,19 @@
 
     // --- Dashboard ----------------------------------------------------------------------
     route("GET", "/api/dashboard", "dashboard", function (c) { return dashboard(c.db, c.query.days); }, { readonly: true });
+    route("GET", "/api/analytics", "dashboard", function (c) { return analytics(c.db, c.query.days); }, { readonly: true });
 
     // --- Products ------------------------------------------------------------------------
+    // Manual order: the listed products swap into the places they already hold, so a filtered list can be reordered on its own
+    route("PUT", "/api/products-order", "products", function (c) {
+      var ids = Array.isArray(c.body.ids) ? c.body.ids.map(String) : [];
+      var slots = [], queue = {}, picked = [];
+      c.db.products.forEach(function (p, i) { if (ids.indexOf(p.id) > -1) { slots.push(i); (queue[p.id] = queue[p.id] || []).push(p); } });
+      ids.forEach(function (id) { var q = queue[id]; if (q && q.length) picked.push(q.shift()); });
+      if (picked.length !== slots.length) fail(400, "Send every product in the list once.");
+      slots.forEach(function (slot, k) { c.db.products[slot] = picked[k]; });
+      return { ok: true, count: picked.length };
+    });
     route("GET", "/api/products", "products", function (c) {
       var q = str(c.query.q).toLowerCase(), cat = str(c.query.category), status = str(c.query.status);
       var list = c.db.products.filter(function (p) {
@@ -876,20 +1454,7 @@
       if (!o) fail(404, "Order not found.");
       var changes = [];
       if (b.status && b.status !== o.status) {
-        if (ORDER_STATUSES.indexOf(b.status) < 0) fail(400, "Unknown status.");
-        var was = o.status;
-        o.status = b.status;
-        if ((b.status === "cancelled" || b.status === "returned") && !o.restocked) restock(db, o);
-        if ((was === "cancelled" || was === "returned") && o.restocked) {
-          // Reopening takes the stock back out.
-          o.items.forEach(function (it) {
-            var p = findProduct(db, it.productId);
-            if (!p || !p.trackStock) return;
-            var v = it.variantId ? p.variants.filter(function (x) { return x.id === it.variantId; })[0] : null;
-            if (v) v.stock = Math.max(0, v.stock - it.qty); else p.stock = Math.max(0, int(p.stock) - it.qty);
-          });
-          o.restocked = false;
-        }
+        setStatus(c, o, b.status);
         changes.push("Status: " + b.status);
       }
       if (b.paymentStatus && b.paymentStatus !== o.paymentStatus) {
@@ -904,7 +1469,136 @@
       o.updatedAt = now();
       o.history.push({ at: now(), status: o.status, note: changes.concat(note ? [note] : []).join(" · "), public: b.notifyCustomer ? note : "", by: c.auth ? c.auth.name : "System", internal: !b.notifyCustomer && !changes.length });
       emit(db, "order.updated", o);
+      if (changes.length) acoreSync(c, o);
       return { order: o };
+    });
+    function setStatus(c, o, status) {
+      var db = c.db;
+      if (ORDER_STATUSES.indexOf(status) < 0) fail(400, "Unknown status.");
+      var was = o.status;
+      if (status === was) return false;
+      o.status = status;
+      if ((status === "cancelled" || status === "returned") && !o.restocked) restock(db, o);
+      if ((status === "cancelled" || status === "returned") && was !== "cancelled" && was !== "returned") gaServer(c, o, "refund");
+      if ((was === "cancelled" || was === "returned") && status !== "cancelled" && status !== "returned" && o.restocked) {
+        // Reopening takes the stock back out.
+        o.items.forEach(function (it) {
+          var p = findProduct(db, it.productId);
+          if (!p || !p.trackStock) return;
+          var v = it.variantId ? p.variants.filter(function (x) { return x.id === it.variantId; })[0] : null;
+          if (v) v.stock = Math.max(0, v.stock - it.qty); else p.stock = Math.max(0, int(p.stock) - it.qty);
+        });
+        o.restocked = false;
+      }
+      return true;
+    }
+
+    // --- Acore: orders go to Acore, and Acore sends status and courier updates back --------------------
+    function acoreSettings(db) {
+      var a = db.settings.acore || {};
+      return { enabled: !!a.enabled, url: a.url || "", apiKey: a.apiKey || "", webhookSecret: a.webhookSecret || "", since: a.since || 0 };
+    }
+    // What Acore receives for an order (docs: acore-website-integration-prompt.md). Sent when the order is placed and
+    // again on every change; Acore treats it as an upsert keyed on externalId.
+    function acorePayload(db, o) {
+      return {
+        source: "ravelle-website", externalId: o.id, number: o.number, createdAt: o.createdAt, status: o.status,
+        paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus, codAmount: o.paymentStatus === "paid" ? 0 : o.total,
+        customer: { name: o.customer.name, phone: o.customer.phone, email: o.customer.email || "", address: o.customer.address, city: o.customer.city || "" },
+        shippingZone: o.shippingZone ? { id: o.shippingZone.id, name: o.shippingZone.name } : null,
+        items: o.items.map(function (it) {
+          var p = findProduct(db, it.productId);
+          return { sku: it.sku, productSku: (p && p.sku) || it.sku, name: it.name, color: it.color || "", options: it.options || {}, qty: it.qty, price: it.price, lineTotal: it.lineTotal };
+        }),
+        subtotal: o.subtotal, discount: o.discount || 0, coupon: o.coupon || null, shipping: o.shipping || 0, total: o.total, note: o.note || ""
+      };
+    }
+    function acoreSync(c, o) {
+      var a = acoreSettings(c.db);
+      if (!host.acoreSend || !a.enabled || !a.url || !a.apiKey) return;
+      o.acore = o.acore || {};
+      o.acore.pending = true;
+      host.acoreSend({ orderId: o.id, url: a.url, apiKey: a.apiKey, payload: acorePayload(c.db, o) });
+    }
+    // The server reports how a send went
+    route("POST", "/api/internal/acore-sent", "internal", function (c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.body.orderId; })[0];
+      if (!o) fail(404, "Order not found.");
+      o.acore = o.acore || {};
+      o.acore.pending = false;
+      o.acore.tries = int(o.acore.tries) + 1;
+      o.acore.lastTry = now();
+      if (c.body.ok) { o.acore.id = str(c.body.acoreId, 80) || o.acore.id || ""; o.acore.sentAt = now(); o.acore.error = ""; o.acore.tries = 0; }
+      else o.acore.error = str(c.body.error, 300) || "Could not reach Acore.";
+      return { ok: true };
+    });
+    // Orders that still need sending (new, changed, or failed); the server retries these every few minutes
+    route("GET", "/api/internal/acore-due", "internal", function (c) {
+      var a = acoreSettings(c.db), t = now(), wait = [60e3, 5 * 60e3, 30 * 60e3, 2 * 36e5];
+      if (!a.enabled || !a.url || !a.apiKey) return { orders: [] };
+      var due = c.db.orders.filter(function (o) {
+        if (o.createdAt < a.since || t - o.createdAt > 14 * 864e5) return false;
+        var s = o.acore || {};
+        if (s.sentAt && !s.error && !s.dirty) return false;
+        if (!s.lastTry) return true;
+        return t - s.lastTry > wait[Math.min(wait.length - 1, Math.max(0, int(s.tries) - 1))];
+      }).slice(0, 20);
+      return { orders: due.map(function (o) { return { orderId: o.id, url: a.url, apiKey: a.apiKey, payload: acorePayload(c.db, o) }; }) };
+    });
+    // Admin: send one order again now
+    route("POST", "/api/orders/:id/acore", "orders", function (c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      var a = acoreSettings(c.db);
+      if (!a.enabled || !a.url || !a.apiKey) fail(400, "Turn on Acore and add its address and API key in Admin › Acore first.");
+      if (!host.acoreSend) fail(400, "Orders go to Acore from the live server. The demo can't send them.");
+      acoreSync(c, o);
+      return { order: o };
+    });
+    // A signed update from Acore (the server checks the signature first)
+    var ACORE_STATUS = { pending: "pending", confirmed: "confirmed", hold: "hold", on_hold: "hold", processing: "processing", packed: "processing",
+      sent_to_courier: "shipped", picked_up: "shipped", in_transit: "shipped", out_for_delivery: "shipped", shipped: "shipped", delivered: "delivered",
+      cancelled: "cancelled", canceled: "cancelled", returned: "returned", return: "returned" };
+    var ACORE_PUBLIC = { pending: "Order received", confirmed: "Order confirmed", hold: "Order on hold. We'll contact you.", processing: "Packing your order",
+      sent_to_courier: "Handed to the courier", picked_up: "Picked up by the courier", in_transit: "On the way", out_for_delivery: "Out for delivery", shipped: "On the way",
+      delivered: "Delivered", cancelled: "Order cancelled", canceled: "Order cancelled", returned: "Returned to us", return: "Returned to us" };
+    route("POST", "/api/internal/acore", "internal", function (c) {
+      var b = c.body || {}, db = c.db, d = b.data || {};
+      if (typeof d.courier === "object" && d.courier) d.courier = d.courier.name;
+      var o = db.orders.filter(function (x) { return (d.externalId && x.id === d.externalId) || (d.number && x.number === String(d.number).toUpperCase()); })[0];
+      if (!o) fail(404, "Order not found.");
+      o.acore = o.acore || {};
+      var seen = o.acore.seen = (o.acore.seen || []);
+      var did = str(b.id, 80);
+      if (did && seen.indexOf(did) > -1) return { ok: true, duplicate: true };
+      if (did) { seen.push(did); if (seen.length > 40) seen.splice(0, seen.length - 40); }
+      if (d.acoreId) o.acore.id = str(d.acoreId, 80);
+      var raw = str(d.status, 40).toLowerCase().replace(/[\s-]+/g, "_"), mapped = ACORE_STATUS[raw];
+      var parts = [];
+      if (d.courier || d.consignmentId || d.trackingCode || d.trackingUrl || d.riderName) {
+        o.courier = o.courier || {};
+        if (d.courier) o.courier.name = str(d.courier, 40);
+        if (d.consignmentId) o.courier.consignmentId = str(d.consignmentId, 80);
+        if (d.trackingCode) o.courier.trackingCode = str(d.trackingCode, 80);
+        if (d.trackingUrl && /^https?:\/\//.test(d.trackingUrl)) o.courier.trackingUrl = str(d.trackingUrl, 300);
+        if (d.riderName) o.courier.riderName = str(d.riderName, 60);
+        if (d.riderPhone) o.courier.riderPhone = str(d.riderPhone, 20);
+        var tr = [o.courier.name, o.courier.trackingCode || o.courier.consignmentId].filter(Boolean).join(" ");
+        if (tr && tr !== o.tracking) { o.tracking = tr; parts.push("Courier: " + tr); }
+      }
+      if (mapped) {
+        if (setStatus(c, o, mapped)) parts.unshift("Status: " + mapped);
+        if (mapped === "delivered" && o.paymentMethod === "cod" && o.paymentStatus !== "paid" && d.codCollected !== false && d.codCollected !== 0) {
+          o.paymentStatus = "paid"; parts.push("Payment: paid (cash collected" + (num(d.codCollected, 0) > 1 ? " ৳" + num(d.codCollected, 0) : "") + ")");
+        }
+      } else if (raw) parts.push("Acore status: " + raw);
+      var at = num(d.at, 0) || now();
+      var pub = str(d.note, 200) || ACORE_PUBLIC[raw] || "";
+      o.updatedAt = now();
+      o.acore.lastUpdate = now();
+      o.history.push({ at: Math.min(at, now()), status: o.status, note: (parts.length ? parts.join(" · ") : "Update from Acore") + (d.note ? " · " + str(d.note, 200) : ""), public: pub, by: "Acore", acoreStep: raw || "" });
+      emit(db, "order.updated", o);
+      return { ok: true, status: o.status, order_number: o.number };
     });
     // Payment callbacks from the server's SSLCOMMERZ handler
     route("POST", "/api/internal/payment", "internal", function (c) {
@@ -918,6 +1612,7 @@
       if (!paid && o.status === "pending") { o.status = "cancelled"; if (!o.restocked) restock(c.db, o); }
       o.history.push({ at: now(), status: o.status, note: paid ? "Paid online · " + o.paymentRef : "Online payment " + str(c.body.status, 20), public: paid ? "Payment received" : "Payment didn't go through", by: "SSLCOMMERZ" });
       emit(c.db, "order.updated", o);
+      acoreSync(c, o);
       return { order: o };
     });
 
@@ -958,15 +1653,54 @@
       if (!c.db.pages[c.params.key]) fail(404, "Page not found.");
       if (!c.body || typeof c.body.page !== "object") fail(400, "Send the page content as { page }.");
       if (JSON.stringify(c.body.page).length > 6e6) fail(413, "This page is too large. Use smaller images.");
+      if (c.params.key === "stores") cleanStores(c.body.page);
+      if (c.params.key === "franchise") cleanStories(c.body.page);
       c.db.pages[c.params.key] = c.body.page;
       return { page: c.db.pages[c.params.key] };
     });
+    // Store locations: every shop needs a name and a district; districts show in the order you set
+    function cleanStores(pg) {
+      pg.shops = (Array.isArray(pg.shops) ? pg.shops : []).map(function (s, i) {
+        s = s || {};
+        var o = { id: str(s.id, 40) || newId("shp"), name: str(s.name, 120), type: s.type === "franchise" ? "franchise" : "own", district: str(s.district, 40),
+          image: str(s.image, 4000000), address: str(s.address, 400), phone: str(s.phone, 40), email: str(s.email, 120), hours: str(s.hours, 120), map: str(s.map, 600) };
+        if (!o.name) fail(400, "Shop " + (i + 1) + " needs a name.");
+        if (!o.district) fail(400, "Choose a district for " + o.name + ".");
+        if (o.email && !isEmail(o.email)) fail(400, "The email for " + o.name + " doesn't look right.");
+        return o;
+      });
+      var order = (Array.isArray(pg.districtOrder) ? pg.districtOrder : []).map(function (d) { return str(d, 40); }).filter(Boolean);
+      pg.shops.forEach(function (s) { if (order.indexOf(s.district) < 0) order.push(s.district); });
+      pg.districtOrder = order.filter(function (d, i) { return order.indexOf(d) === i && pg.shops.some(function (s) { return s.district === d; }); });
+    }
+    function cleanStories(pg) {
+      pg.stories = (Array.isArray(pg.stories) ? pg.stories : []).map(function (s, i) {
+        s = s || {};
+        var o = { id: str(s.id, 40) || newId("fst"), storeName: str(s.storeName, 120), storeImage: str(s.storeImage, 4000000), address: str(s.address, 400),
+          ownerName: str(s.ownerName, 120), ownerImage: str(s.ownerImage, 4000000), opinion: str(s.opinion, 600), experience: str(s.experience, 2000) };
+        if (!o.ownerName) fail(400, "Franchise card " + (i + 1) + " needs the owner's name.");
+        return o;
+      });
+      pg.pdf = str(pg.pdf, 9000000);
+    }
+    // PDF files (franchise guide): saved next to uploaded images, not in the media library
+    route("POST", "/api/files", "content", function (c) {
+      var name = str(c.body.name, 120) || "file", data = String(c.body.dataUrl || "");
+      if (!/^data:application\/pdf;base64,/.test(data)) fail(400, "Upload a PDF file.");
+      if (data.length > 14e6) fail(413, "That PDF is over 10 MB.");
+      var saved = host.saveMedia(name, data, "application/pdf");
+      return { url: saved.url, size: saved.size };
+    }, { status: 201 });
+
     route("GET", "/api/menus", null, function (c) { return { menus: c.db.menus }; }, { readonly: true });
     route("PUT", "/api/menus", "content", function (c) {
       var clean = function (items, depth) {
         return (items || []).slice(0, 30).map(function (it) {
-          return { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: str(it.url, 300),
+          var out = { id: str(it.id, 40) || newId("mi"), label: str(it.label, 60), url: safeUrl(str(it.url, 300)),
             children: depth < 2 ? clean(it.children, depth + 1) : [] };
+          if (depth < 2 && safeUrl(str(it.image, 300))) out.image = safeUrl(str(it.image, 300)); // dropdown photo (header menu only)
+          if (depth === 0 && it.perColumn) out.perColumn = Math.min(12, Math.max(1, int(it.perColumn) || 6)); // dropdown links per column
+          return out;
         }).filter(function (it) { return it.label; });
       };
       var m = c.body.menus || {};
@@ -1008,9 +1742,22 @@
 
     route("GET", "/api/settings", "settings", function (c) {
       var s = clone(c.db.settings);
+      s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
+      s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
+      s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
+      if (s.email) { s.email.passwordSet = !!s.email.password; s.email.password = ""; }
+      var ac = acoreSettings(c.db);
+      s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: isOwner(c.auth) ? ac.webhookSecret : (ac.webhookSecret ? "Only the owner can see this" : ""), since: ac.since };
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
+    // "Clear cache": a new asset version, so every browser downloads fresh CSS and JS
+    route("POST", "/api/cache/clear", "settings", function (c) {
+      c.db.settings.cacheVersion = now().toString(36);
+      c.db.settings.cacheClearedAt = now();
+      if (host.clearCache) host.clearCache();
+      return { ok: true, version: c.db.settings.cacheVersion, clearedAt: c.db.settings.cacheClearedAt };
+    });
     route("PUT", "/api/settings", "settings", function (c) {
       var s = c.db.settings, b = c.body.settings || {};
       ["store", "social", "seo", "chat"].forEach(function (k) {
@@ -1028,17 +1775,84 @@
         if (!s.shipping.zones.length) fail(400, "Keep at least one delivery area.");
       }
       if (b.payments) {
+        var ssl = b.payments.sslcommerz || {}, cur = s.payments.sslcommerz || {};
+        var nextSsl = { enabled: bool(ssl.enabled), sandbox: bool(ssl.sandbox), storeId: str(ssl.storeId, 80) };
+        // Turning sandbox (test) mode on, or swapping the store ID, would let orders "pay" without real money
+        if (nextSsl.enabled !== !!cur.enabled || nextSsl.sandbox !== !!cur.sandbox || nextSsl.storeId !== (cur.storeId || "")) needOwner(c, "change the SSLCOMMERZ settings");
         s.payments.cod = bool(b.payments.cod);
-        var ssl = b.payments.sslcommerz || {};
-        s.payments.sslcommerz = { enabled: bool(ssl.enabled), sandbox: bool(ssl.sandbox), storeId: str(ssl.storeId, 80) };
+        s.payments.sslcommerz = nextSsl;
         if (!s.payments.cod && !s.payments.sslcommerz.enabled) fail(400, "Keep at least one payment method on.");
       }
       if (b.lowStock !== undefined) s.lowStock = Math.max(0, int(b.lowStock));
       if (b.announcement !== undefined) s.announcement = str(b.announcement, 200);
+      if (b.layout && typeof b.layout === "object") {
+        var cur = siteLayout(s);
+        Object.keys(LAYOUT_DEFAULTS).forEach(function (k) {
+          var src = b.layout[k] || {};
+          Object.keys(LAYOUT_DEFAULTS[k]).forEach(function (f) {
+            if (src[f] === undefined) return;
+            var def = LAYOUT_DEFAULTS[k][f];
+            if (typeof def === "boolean") cur[k][f] = bool(src[f]);
+            else if (typeof def === "number") cur[k][f] = Math.min(80, Math.max(20, int(src[f]) || def));
+            else if (/Bg$|Color$/.test(f)) cur[k][f] = /^#[0-9a-f]{6}$/i.test(src[f]) ? src[f] : def;
+            else cur[k][f] = str(src[f], 300);
+          });
+        });
+        s.layout = cur;
+      }
+      if (b.acore && typeof b.acore === "object") {
+        var ac = s.acore = s.acore || {}, ba = b.acore;
+        // The API key is sent to whatever address is saved here, so only the owner may change where it goes
+        var newUrl = ba.url !== undefined ? String(ba.url || "").trim().replace(/\/+$/, "") : ac.url || "";
+        if (newUrl !== (ac.url || "") || ba.apiKey || ba.apiKeyClear || ba.newSecret) needOwner(c, "change the Acore address, API key or webhook secret");
+        var forgetKey = newUrl !== (ac.url || "") && !ba.apiKey;
+        if (ba.enabled !== undefined) { var on = bool(ba.enabled); if (on && !ac.enabled) ac.since = now(); ac.enabled = on; }
+        if (ba.url !== undefined) {
+          var u = String(ba.url || "").trim().replace(/\/+$/, "");
+          if (u && !/^https?:\/\/[^\s]+$/.test(u)) fail(400, "The Acore address should start with https://");
+          ac.url = u.slice(0, 300);
+        }
+        if (forgetKey) ac.apiKey = "";
+        if (ba.apiKey) ac.apiKey = String(ba.apiKey).trim().slice(0, 300);
+        if (ba.apiKeyClear) ac.apiKey = "";
+        if (ba.newSecret) ac.webhookSecret = "whsec_" + host.random(16);
+        if (!ac.webhookSecret) ac.webhookSecret = "whsec_" + host.random(16);
+      }
+      if (b.code && typeof b.code === "object") {
+        var code = siteCode(s), bc = b.code;
+        // Custom code runs on every page for every visitor (and in the admin's page editor), so only the owner may change it
+        if ((bc.head !== undefined && String(bc.head || "").slice(0, 20000) !== code.head) || (bc.bodyEnd !== undefined && String(bc.bodyEnd || "").slice(0, 20000) !== code.bodyEnd) ||
+          bc.capiToken || bc.capiTokenClear || bc.gaSecret || bc.gaSecretClear) needOwner(c, "change custom code or tracking secrets");
+        if (bc.head !== undefined) code.head = String(bc.head || "").slice(0, 20000);
+        if (bc.bodyEnd !== undefined) code.bodyEnd = String(bc.bodyEnd || "").slice(0, 20000);
+        if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
+        if (bc.capiToken) code.capiToken = String(bc.capiToken).trim().slice(0, 600);
+        if (bc.capiTokenClear) code.capiToken = "";
+        if (bc.gaSecret) code.gaSecret = String(bc.gaSecret).trim().slice(0, 200);
+        if (bc.gaSecretClear) code.gaSecret = "";
+        if (bc.capiTest !== undefined) code.capiTest = str(bc.capiTest, 30);
+        if (bc.pixelId !== undefined) { code.pixelId = String(bc.pixelId || "").trim(); if (code.pixelId && !/^\d{6,20}$/.test(code.pixelId)) fail(400, "The Meta Pixel ID is a number, like 123456789012345."); }
+        s.code = code;
+      }
       return { settings: s };
     });
 
     // --- Users ---------------------------------------------------------------------------------------------------
+    function cleanAreas(list) {
+      var out = (Array.isArray(list) ? list : []).filter(function (a, i, all) { return AREAS.indexOf(a) > -1 && all.indexOf(a) === i; });
+      if (!out.length) fail(400, "Tick at least one module this person can open.");
+      return out;
+    }
+    function isOwner(auth) { return !!(auth && auth.kind === "user" && auth.user.role === "owner"); }
+    function needOwner(c, what) { if (!isOwner(c.auth)) fail(403, "Only the store owner can " + what + "."); }
+    // A staff member who can open Users may not give anyone (or themselves) access they don't have
+    function checkGrant(c, role, areas) {
+      if (isOwner(c.auth)) return;
+      if (role === "owner") fail(403, "Only the store owner can make someone an owner.");
+      var mine = c.auth.areas, want = role === "custom" ? areas || [] : (ROLES[role] || {}).areas || [];
+      var extra = want.filter(function (a) { return mine.indexOf(a) < 0; });
+      if (extra.length) fail(403, "You can't give access you don't have yourself: " + extra.join(", ") + ".");
+    }
     route("GET", "/api/users", "users", function (c) { return { users: c.db.users.map(publicUser), roles: ROLES }; }, { readonly: true });
     route("POST", "/api/users", "users", function (c) {
       var b = c.body, email = str(b.email, 120).toLowerCase();
@@ -1047,6 +1861,8 @@
       if (c.db.users.some(function (u) { return u.email === email; })) fail(400, "Someone already uses that email.");
       if (!ROLES[b.role]) fail(400, "Choose a role.");
       var u = { id: newId("usr"), name: str(b.name, 80), email: email, role: b.role, createdAt: now() };
+      if (b.role === "custom") u.areas = cleanAreas(b.areas);
+      checkGrant(c, u.role, u.areas);
       setPassword(u, b.password);
       c.db.users.push(u);
       return { user: publicUser(u) };
@@ -1055,19 +1871,30 @@
       var u = c.db.users.filter(function (x) { return x.id === c.params.id; })[0];
       if (!u) fail(404, "User not found.");
       var b = c.body;
-      if (b.role && b.role !== u.role) {
-        if (!ROLES[b.role]) fail(400, "Unknown role.");
-        if (u.role === "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
-        u.role = b.role;
-      }
+      if (u.role === "owner") needOwner(c, "change an owner's account");
+      checkGrant(c, u.role, u.areas); // can't take over (or reset the password of) someone with more access than you
+      // Work out the new access first and check it, so a refused change leaves nothing half-applied
+      var role = b.role || u.role;
+      if (!ROLES[role]) fail(400, "Unknown role.");
+      if (u.role === "owner" && role !== "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
+      var areas = role === "custom" ? (b.areas !== undefined ? cleanAreas(b.areas) : (u.areas || [])) : undefined;
+      var accessChanged = role !== u.role || (role === "custom" && JSON.stringify(areas) !== JSON.stringify(u.areas || []));
+      if (accessChanged) checkGrant(c, role, areas);
+      if (c.auth.user && u.id === c.auth.user.id && userAreas({ role: role, areas: areas }).indexOf("users") < 0) fail(400, "Keep Users ticked for yourself, or you'll lock yourself out of this page.");
+      if (b.password) setPassword(u, b.password);
+      u.role = role;
+      if (role === "custom") u.areas = areas; else delete u.areas;
+      if (accessChanged) c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id || (c.auth.user && c.auth.user.id === u.id); });
       if (b.name) u.name = str(b.name, 80);
-      if (b.password) { setPassword(u, b.password); c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
+      if (b.password) { c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
       return { user: publicUser(u) };
     });
     route("DELETE", "/api/users/:id", "users", function (c) {
       var u = c.db.users.filter(function (x) { return x.id === c.params.id; })[0];
       if (!u) fail(404, "User not found.");
       if (c.auth.user && u.id === c.auth.user.id) fail(400, "You can't remove yourself.");
+      if (u.role === "owner") needOwner(c, "remove an owner");
+      checkGrant(c, u.role, u.areas);
       if (u.role === "owner" && c.db.users.filter(function (x) { return x.role === "owner"; }).length < 2) fail(400, "Keep at least one owner.");
       c.db.users = c.db.users.filter(function (x) { return x !== u; });
       c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; });
@@ -1169,6 +1996,24 @@
     });
 
     // --- Contact messages --------------------------------------------------------------------------------------------------------
+    // --- Franchise requests (admin) ------------------------------------------------------------
+    route("GET", "/api/franchise", "franchise", function (c) {
+      return { requests: (c.db.franchise || []).slice().sort(function (a, b) { return b.createdAt - a.createdAt; }), statuses: FRANCHISE_STATUSES };
+    }, { readonly: true });
+    route("PATCH", "/api/franchise/:id", "franchise", function (c) {
+      var r = (c.db.franchise || []).filter(function (x) { return x.id === c.params.id; })[0];
+      if (!r) fail(404, "Request not found.");
+      if (c.body.status !== undefined) { if (FRANCHISE_STATUSES.indexOf(c.body.status) < 0) fail(400, "Unknown status."); r.status = c.body.status; }
+      if (c.body.note !== undefined) r.note = str(c.body.note, 3000);
+      if (c.body.read !== undefined) r.read = bool(c.body.read);
+      r.updatedAt = now();
+      return { request: r };
+    });
+    route("DELETE", "/api/franchise/:id", "franchise", function (c) {
+      c.db.franchise = (c.db.franchise || []).filter(function (x) { return x.id !== c.params.id; });
+      return { ok: true };
+    });
+
     route("GET", "/api/messages", "messages", function (c) {
       return { messages: c.db.messages.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }) };
     }, { readonly: true });
@@ -1216,6 +2061,7 @@
         return { status: matched.opts.status || 200, body: body, changed: !matched.opts.readonly || (auth && auth.kind === "key") };
       } catch (e) {
         if (e instanceof HttpError) return { status: e.status, body: { error: e.message, fields: e.details } };
+        if (e && e.status >= 400 && e.status < 500 && e.message) return { status: e.status, body: { error: e.message } };
         throw e;
       }
     }
@@ -1228,12 +2074,37 @@
   // ---------------------------------------------------------------------------
   function freshDb(seed) {
     var db = clone(seed);
-    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons"].forEach(function (k) { if (!db[k]) db[k] = []; });
+    ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
+    db.upgrades = ["stores-franchise", "popup"];
     return db;
   }
+  // Brings an older saved database up to date: new pages and lists, once
+  function upgradeDb(db, seed) {
+    var done = db.upgrades = db.upgrades || [], changed = false;
+    if (!db.franchise) db.franchise = [];
+    if (!db.carts) db.carts = [];
+    if (!db.emailLog) db.emailLog = [];
+    if (done.indexOf("stores-franchise") < 0) {
+      ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
+      var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];
+      var has = function (u) { return (db.menus.footer || []).some(function (f) { return (f.items || []).some(function (i) { return i.url === u; }); }); };
+      if (col) {
+        if (!has("#store-locations")) col.items.push({ id: "f_stores", label: "Store locations", url: "#store-locations", children: [] });
+        if (!has("#franchise")) col.items.push({ id: "f_franchise", label: "Franchise", url: "#franchise", children: [] });
+      }
+      done.push("stores-franchise");
+      changed = true;
+    }
+    if (done.indexOf("popup") < 0) {
+      if (!db.pages.popup && seed.pages.popup) { db.pages.popup = clone(seed.pages.popup); db.pages.popup.enabled = false; }
+      done.push("popup");
+      changed = true;
+    }
+    return changed;
+  }
 
-  return { create: create, freshDb: freshDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS,
+  return { create: create, freshDb: freshDb, upgradeDb: upgradeDb, sha256: sha256, slugify: slugify, ROLES: ROLES, EVENTS: EVENTS, headCode: headCode, siteCode: siteCode,
     ORDER_STATUSES: ORDER_STATUSES, PAYMENT_STATUSES: PAYMENT_STATUSES, isPhone: isPhone, normPhone: normPhone };
 });

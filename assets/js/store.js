@@ -9,6 +9,13 @@
   var taka = function (n) { return "৳" + Math.round(n || 0).toLocaleString("en-US"); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
   var br = function (s) { return esc(s).replace(/\n/g, "<br>"); };
+  // Links that came from the admin or from Acore: never "javascript:" or other code-running addresses
+  var safe = function (u) {
+    u = String(u == null ? "" : u).trim();
+    var bare = u.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
+    if (/^[a-z][a-z0-9+.-]*:/.test(bare) && !/^(https?|mailto|tel|sms|whatsapp):|^data:(image\/(png|jpeg|webp|gif|avif)|application\/pdf)[;,]/.test(bare)) return "#";
+    return u;
+  };
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var EDIT = /[?&]edit\b/.test(location.search);
   var api = window.Ravelle.call;
@@ -45,32 +52,43 @@
     return '<svg viewBox="0 0 24 24" width="' + n + '" height="' + n + '" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
   }
   var ICON = {
-    bag: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
-    user: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-    search: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
-    menu: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+    bag: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+    user: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    search: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+    menu: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
     close: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     chat: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
     ruler: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 15 15 3l6 6L9 21l-6-6Z M7 11l2 2M10 8l2 2M13 5l2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
   };
 
-  function card(p, i) {
+  function card(p, i, shop) {
     var off = offOf(p), img = p.images[0] || "";
     return (
       '<a class="card' + (soldOut(p) ? " is-out" : "") + '" data-line="' + esc(p.line) + '" href="#product/' + p.slug + '" style="--tone:' + esc(p.hex || "#7b7e83") + '">' +
         (img ? '<img class="card__img" src="' + esc(img) + '" alt="' + esc(p.name) + '" loading="' + (i < 4 ? "eager" : "lazy") + '">' : "") +
+        (shop && img && p.images[1] ? '<img class="card__img card__img--alt" src="' + esc(p.images[1]) + '" alt="" aria-hidden="true" loading="lazy">' : "") +
         '<span class="card__type" aria-hidden="true">' + esc(p.line || p.name) + "<small>" + esc(p.color) + "</small></span>" +
         '<span class="card__top">' + (soldOut(p) ? '<span class="chip chip--out">Sold out</span>' : off ? '<span class="chip">−' + off + "%</span>" : p.isNew ? '<span class="chip">New</span>' : "<span></span>") +
           '<button class="card__fav" type="button" data-save="' + p.id + '" aria-pressed="' + (saved.indexOf(p.id) > -1) + '" aria-label="Save ' + esc(p.name) + '">' + heart(12) + "</button></span>" +
-        '<span class="card__bar"><span class="card__name"><b>' + esc(shortName(p)) + "</b>" +
-          '<span class="card__price">' + (p.color ? esc(p.color) + " · " : "") + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span></span>" +
+        '<span class="card__bar"><span class="card__name"><b class="' + (shop ? "card__full" : "card__short") + '">' + esc(shop ? p.name : shortName(p)) + "</b>" +
+          '<span class="card__price">' + (!shop && p.color ? '<span class="card__col">' + esc(p.color) + " · </span>" : "") + taka(p.price) + (off ? "<s>" + taka(p.comparePrice) + "</s>" : "") + "</span>" +
+          (shop && inStockSizes(p).length ? '<span class="card__sizes">' + inStockSizes(p).map(function (s) { return "<i>" + esc(s) + "</i>"; }).join("") + "</span>" : "") + "</span>" +
           '<span class="card__go" aria-hidden="true">›</span></span>' +
       "</a>"
     );
   }
+  // Sizes that can still be bought (sold-out sizes are left out)
+  function inStockSizes(p) {
+    var out = [];
+    (p.variants || []).forEach(function (v) {
+      var o = v.options || {}, s = o.Size || o.size;
+      if (s && (v.stock == null || v.stock > 0) && out.indexOf(s) < 0) out.push(s);
+    });
+    return out;
+  }
   // "Fearless Oversized T-shirt – Black" shows as "Fearless Oversized T-shirt" with the colour beneath.
   function shortName(p) { return p.color ? p.name.replace(new RegExp("\\s*[–-]\\s*" + p.color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i"), "") : p.name; }
-  function grid(list) { return list.map(card).join(""); }
+  function grid(list) { return list.map(function (p, i) { return card(p, i, false); }).join(""); }
 
   // A photo that can't load gives way to the colour card behind it.
   function guardImages(root) {
@@ -130,7 +148,7 @@
     });
     $$("[data-ci]", root).forEach(function (el) {
       var v = pick(data, el.dataset.ci);
-      if (v && el.getAttribute("src") !== v) el.setAttribute("src", v);
+      if (v && el.getAttribute("src") !== v) { el.removeAttribute("srcset"); el.setAttribute("src", v); }
     });
     $$("[data-calt]", root).forEach(function (el) { var v = pick(data, el.dataset.calt); if (typeof v === "string") el.setAttribute("alt", v); });
     $$("[data-chref]", root).forEach(function (el) { var v = pick(data, el.dataset.chref); if (v) el.setAttribute("href", v); });
@@ -245,7 +263,9 @@
     $$(".reveal", root).forEach(function (el) { rio.observe(el); });
   }
 
-  // Scroll: sticky header and drifting marquees
+  // Scroll: sticky header, drifting marquees and the lookbook stack
+  var lookbook = document.getElementById("lookbook");
+  var current = 0;
   function onScroll() {
     var vh = window.innerHeight, y = window.scrollY;
     var top = $("#topbar");
@@ -253,11 +273,34 @@
     var limit = heroNav ? heroNav.getBoundingClientRect().bottom + y : 80;
     top.classList.toggle("is-on", y > limit + 10);
     $$("[data-drift]").forEach(function (el) {
-      var r = el.parentElement.getBoundingClientRect();
+      // inside the sticky lookbook, measure the whole section so the text keeps sliding while the photos are pinned
+      var r = (el.closest(".lookbook") || el.parentElement).getBoundingClientRect();
       if (!r.height || r.bottom < -200 || r.top > vh + 200) return;
       var p = (vh - r.top) / (vh + r.height);
       el.style.transform = "translateX(" + (p * 30 * parseFloat(el.dataset.drift)) + "%)";
     });
+    if (lookbook && lookbook.offsetParent) {
+      var imgs = $$(".look__img", lookbook);
+      var b = lookbook.getBoundingClientRect();
+      var prog = Math.min(0.999, Math.max(0, -b.top / (b.height - vh)));
+      var idx = Math.floor(prog * imgs.length);
+      if (idx !== current && imgs[idx]) {
+        // cross-fade: the new photo fades in over the old one, then the old one fades away
+        imgs.forEach(function (im) { im.classList.remove("is-prev"); });
+        imgs[current].classList.remove("is-on");
+        imgs[current].classList.add("is-prev");
+        imgs[idx].classList.add("is-on");
+        drawLook(idx);
+        current = idx;
+      }
+    }
+  }
+  function drawLook(idx) {
+    var looks = ((S.pages.home || {}).lookbook || {}).looks || [];
+    var l = looks[idx];
+    if (!l) return;
+    $("#lookName").innerHTML = br(l.name);
+    $("#lookCount").textContent = "0" + (idx + 1) + " / 0" + looks.length;
   }
   var ticking = false;
   window.addEventListener("scroll", function () {
@@ -269,43 +312,100 @@
   // ---------------------------------------------------------------------------
   // Header, menus and footer
   // ---------------------------------------------------------------------------
+  // Dropdown: links in columns of six (or the count set in Admin > Menus, 1-12), extra links start a new
+  // column to the right, and the photo sits on the right.
+  // A sub-link with its own photo swaps the panel photo on hover.
   function menuItem(it) {
     var kids = it.children && it.children.length;
-    return '<li' + (kids ? ' class="has-sub"' : "") + '><a href="' + esc(it.url || "#") + '">' + esc(it.label) + "</a>" +
-      (kids ? '<ul class="nav__sub">' + it.children.map(function (c) { return '<li><a href="' + esc(c.url) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul>" : "") + "</li>";
+    if (!kids) return '<li><a href="' + esc(safe(it.url || "#")) + '">' + esc(it.label) + "</a></li>";
+    var img = it.image || "";
+    var per = Math.min(12, Math.max(1, parseInt(it.perColumn, 10) || 6));
+    return '<li class="has-sub"><a href="' + esc(safe(it.url || "#")) + '">' + esc(it.label) + "</a>" +
+      '<div class="nav__sub' + (img ? " has-img" : "") + '">' +
+        '<ul class="nav__sub-list" style="--rows:' + Math.min(per, it.children.length) + '">' + it.children.map(function (c) {
+          return '<li><a href="' + esc(safe(c.url)) + '"' + (c.image ? ' data-img="' + esc(c.image) + '"' : "") + ">" + esc(c.label) + "</a></li>";
+        }).join("") + "</ul>" +
+        (img ? '<figure class="nav__sub-img"><img src="' + esc(img) + '" data-base="' + esc(img) + '" alt="" loading="lazy" decoding="async"></figure>' : "") +
+      "</div></li>";
+  }
+  document.addEventListener("mouseover", function (e) {
+    var a = e.target.closest && e.target.closest(".nav__sub-list a");
+    var sub = e.target.closest && e.target.closest(".nav__sub");
+    if (!sub) return;
+    var im = $(".nav__sub-img img", sub);
+    if (!im) return;
+    var want = (a && a.dataset.img) || im.dataset.base;
+    if (im.getAttribute("src") !== want) im.setAttribute("src", want);
+  });
+  // Header & footer options from Admin (defaults filled in by the engine)
+  function LAY() {
+    var l = S.settings.layout || {};
+    return { header: l.header || { showSearch: true, showAccount: true, sticky: true, announce: true }, footer: l.footer || {} };
   }
   function navHTML() {
     var items = S.menus.header || [];
-    var half = Math.min(4, Math.ceil(items.length / 2));
     return '<nav class="nav" aria-label="Main">' +
       '<div class="nav__group nav__start">' +
         '<button class="icon-btn icon-btn--line nav__burger" type="button" data-open-menu aria-label="Open menu">' + ICON.menu + "</button>" +
-        '<ul class="nav__group nav__menu">' + items.slice(0, half).map(menuItem).join("") + "</ul>" +
+        '<ul class="nav__group nav__menu">' + items.map(menuItem).join("") + "</ul>" +
       "</div>" +
-      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="assets/img/logo.png" alt="Ravelle" width="100" height="54"></a>' +
+      '<a class="nav__brand" href="#home" aria-label="' + esc(S.settings.store ? S.settings.store.name : "Ravelle") + ' home"><img src="' + esc(LAY().header.logo || "assets/img/logo.webp") + '" alt="Ravelle" width="100" height="54"></a>' +
       '<div class="nav__group nav__group--end">' +
-        '<ul class="nav__group nav__menu nav__links-end">' + items.slice(half).map(menuItem).join("") + "</ul>" +
-        '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" +
-        '<a class="icon-btn icon-btn--line nav__track" href="#track" aria-label="Track your order">' + ICON.user + "</a>" +
+        (LAY().header.showSearch ? '<button class="icon-btn icon-btn--line" type="button" data-open-search aria-label="Search">' + ICON.search + "</button>" : "") +
+        (LAY().header.showAccount ? '<a class="icon-btn icon-btn--line nav__track" href="#track" aria-label="Track your order">' + ICON.user + "</a>" : "") +
         '<button class="icon-btn bag-btn" type="button" data-open-bag aria-label="Open bag">' + ICON.bag + '<span class="bag-count" data-bag-count hidden>0</span></button>' +
       "</div></nav>";
+  }
+  var codeDone = false;
+  function injectCode() {
+    if (codeDone || EDIT || document.querySelector('meta[name="rv-code"]')) return;
+    codeDone = true;
+    var code = S.settings.code || {};
+    [[code.head, document.head], [code.bodyEnd, document.body]].forEach(function (pair) {
+      if (!pair[0]) return;
+      var box = document.createElement("div");
+      box.innerHTML = pair[0];
+      Array.prototype.slice.call(box.childNodes).forEach(function (n) {
+        if (n.nodeName === "SCRIPT") {
+          var sc = document.createElement("script");
+          Array.prototype.forEach.call(n.attributes, function (a) { sc.setAttribute(a.name, a.value); });
+          sc.text = n.text;
+          pair[1].appendChild(sc);
+        } else pair[1].appendChild(n);
+      });
+    });
   }
   function drawChrome() {
     var nav = navHTML();
     $(".hero .nav").outerHTML = nav;
     $("#topbar").innerHTML = '<div class="topbar__inner">' + nav + "</div>";
     var st = S.settings.store || {};
-    var ann = $("#announce");
-    ann.hidden = !S.settings.announcement;
+    var lay = LAY(), ann = $("#announce");
+    ann.hidden = !S.settings.announcement || lay.header.announce === false;
     ann.textContent = S.settings.announcement || "";
+    if (lay.header.announceBg) ann.style.background = lay.header.announceBg;
+    if (lay.header.announceColor) ann.style.color = lay.header.announceColor;
+    document.documentElement.style.setProperty("--logo-h", (lay.header.logoHeight || 40) + "px");
+    document.body.classList.toggle("no-sticky", lay.header.sticky === false);
+    if (lay.header.logo) $$(".menu__logo img, .poster__logo").forEach(function (im) { im.src = lay.header.logo; });
+    // Footer parts
+    var ft = lay.footer, home = S.pages.home || {};
+    $("#news").hidden = ft.newsletter === false;
+    if ((home.footer || {}).newsletter) $("#email").placeholder = home.footer.newsletter;
+    if (ft.newsletterButton) $("#news button").textContent = ft.newsletterButton;
+    $(".footer__pay").hidden = ft.showPayments === false;
+    $(".footer__word").hidden = ft.showWordmark === false;
+    if (ft.wordmark) $(".footer__word").textContent = ft.wordmark;
+    $("#footerLegal").hidden = ft.showLegal === false;
+    injectCode();
 
     // Mobile menu
     $("#menuList").innerHTML = (S.menus.header || []).map(function (it, i) {
       var kids = it.children && it.children.length;
-      if (!kids) return '<li><a class="menu__link" href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>";
+      if (!kids) return '<li><a class="menu__link" href="' + esc(safe(it.url)) + '">' + esc(it.label) + "</a></li>";
       return '<li><details' + (i === 0 ? "" : "") + '><summary class="menu__link">' + esc(it.label) + "</summary>" +
-        '<ul class="menu__sub"><li><a href="' + esc(it.url) + '">All ' + esc(it.label.toLowerCase()) + "</a></li>" +
-        it.children.map(function (c) { return '<li><a href="' + esc(c.url) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul></details></li>";
+        '<ul class="menu__sub"><li><a href="' + esc(safe(it.url)) + '">All ' + esc(it.label.toLowerCase()) + "</a></li>" +
+        it.children.map(function (c) { return '<li><a href="' + esc(safe(c.url)) + '">' + esc(c.label) + "</a></li>"; }).join("") + "</ul></details></li>";
     }).join("");
     $("#menuFoot").innerHTML = '<a href="#track">Track order</a><a href="#saved">Saved items</a><a href="#contact">Contact us</a>' +
       (st.phone ? '<a href="tel:' + esc(st.phone.replace(/[^\d+]/g, "")) + '">' + esc(st.phone) + "</a>" : "");
@@ -314,21 +414,29 @@
     var soc = S.settings.social || {};
     var socials = [["facebook", "Facebook"], ["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]].filter(function (s) { return soc[s[0]]; });
     if (st.whatsapp) socials.push(["whatsapp", "WhatsApp"]);
+    // Hero corner: Facebook, Instagram and WhatsApp as round icons
+    var ICON = { facebook: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.6-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.9v3h2.6V21z"/></svg>', instagram: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6" fill="currentColor" stroke="none"/></svg>', whatsapp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2a8.7 8.7 0 0 0-7.5 13.2L3.3 20.8l4.5-1.2A8.7 8.7 0 1 0 12 3.2zm0 15.9c-1.3 0-2.6-.4-3.7-1l-.3-.2-2.6.7.7-2.6-.2-.3A7.2 7.2 0 1 1 12 19.1zm4-5.4c-.2-.1-1.3-.7-1.5-.7s-.4-.1-.5.1-.6.7-.7.9-.3.2-.5.1a5.9 5.9 0 0 1-2.9-2.6c-.2-.4.2-.4.6-1.2.1-.1 0-.3 0-.4l-.7-1.6c-.2-.4-.4-.4-.5-.4h-.4c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.3c.1.2 1.6 2.5 4 3.5 1.5.6 2 .7 2.8.6.4-.1 1.3-.5 1.5-1.1.2-.5.2-1 .1-1.1l-.4-.2z"/></svg>' };
+    var heroSoc = $("#heroSocial");
+    if (heroSoc) heroSoc.innerHTML = [["facebook", "Facebook", soc.facebook], ["instagram", "Instagram", soc.instagram],
+      ["whatsapp", "WhatsApp", st.whatsapp ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : ""]].filter(function (s) { return s[2]; }).map(function (s) {
+      return '<a href="' + esc(safe(s[2])) + '" target="_blank" rel="noopener" aria-label="' + s[1] + '">' + ICON[s[0]] + "</a>";
+    }).join("");
     $("#footerCols").innerHTML = (S.menus.footer || []).map(function (col) {
-      return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(it.url) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
+      return '<ul><li class="mono">' + esc(col.title) + "</li>" + col.items.map(function (it) { return '<li><a href="' + esc(safe(it.url)) + '">' + esc(it.label) + "</a></li>"; }).join("") + "</ul>";
     }).join("") +
       '<ul class="footer__contact"><li class="mono">Get in touch</li>' +
-        (st.address ? "<li>" + esc(st.address) + "</li>" : "") +
+        (LAY().footer.showContact === false ? "" : (st.address ? "<li>" + esc(st.address) + "</li>" : "") +
         (st.phone ? '<li><a href="tel:' + esc(st.phone.replace(/[^\d+]/g, "")) + '">' + esc(st.phone) + "</a></li>" : "") +
-        (st.email ? '<li><a href="mailto:' + esc(st.email) + '">' + esc(st.email) + "</a></li>" : "") +
-        (socials.length ? '<li class="footer__social">' + socials.map(function (s) {
+        (st.email ? '<li><a href="mailto:' + esc(st.email) + '">' + esc(st.email) + "</a></li>" : "")) +
+        (socials.length && LAY().footer.showSocial !== false ? '<li class="footer__social">' + socials.map(function (s) {
           var url = s[0] === "whatsapp" ? "https://wa.me/" + st.whatsapp.replace(/[^\d]/g, "") : soc[s[0]];
-          return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + s[1] + "</a>";
+          return '<a href="' + esc(safe(url)) + '" target="_blank" rel="noopener">' + s[1] + "</a>";
         }).join("") + "</li>" : "") +
       "</ul>";
     var legal = [["Trade license", st.tradeLicense], ["TIN", st.tin], ["DBID", st.dbid], ["BIN", st.bin]].filter(function (x) { return x[1]; });
     $("#footerLegal").innerHTML = legal.map(function (x) { return "<span>" + x[0] + ": " + esc(x[1]) + "</span>"; }).join("");
-    $("#footerCopy").innerHTML = "© " + new Date().getFullYear() + " " + esc(st.legalName || "Ravelle") + " · Prices in BDT (৳)";
+    $("#footerCopy").innerHTML = LAY().footer.copyright ? esc(LAY().footer.copyright).replace(/\{year\}/g, new Date().getFullYear())
+      : "© " + new Date().getFullYear() + " " + esc(st.legalName || "Ravelle") + " · Prices in BDT (৳)";
     var payments = S.settings.payments || {};
     $("#payBadges").innerHTML = (payments.sslcommerz ? ["VISA", "Mastercard", "AMEX", "bKash", "Nagad", "Rocket", "Upay", "DBBL Nexus", "Internet banking"] : []).concat(payments.cod ? ["Cash on delivery"] : [])
       .map(function (b) { return '<span class="pay-badge">' + esc(b) + "</span>"; }).join("");
@@ -348,20 +456,325 @@
   function drawHome() {
     var home = S.pages.home;
     bind(homeView, home);
-    var list = S.products.filter(function (p) { return p.featured || p.isNew; }).concat(S.products.filter(function (p) { return !p.featured && !p.isNew; })).slice(0, 8);
-    $("#grid").innerHTML = grid(list);
+    drawTry();
+    current = 0;
+    $$(".look__img", homeView).forEach(function (im, i) { im.classList.toggle("is-on", i === 0); });
+    drawLook(0);
+    // Category tabs (Admin > Pages > Home > Arrivals), eight products each
+    HOME_TABS = ((home.arrivals || {}).tabs || DEFAULT_TABS).filter(function (t) { return t && String(t.label || "").trim(); });
+    $("#homeFilters").innerHTML = HOME_TABS.map(function (t, i) {
+      return '<button class="filter' + (i ? "" : " is-on") + '" data-tab="' + i + '" role="tab" aria-selected="' + !i + '">' + esc(t.label) + "</button>";
+    }).join("");
+    drawArrivals(0);
+    // Categories with products or children, top level first
+    var cats = S.categories.filter(function (c) { return c.parentId && CAT_BY_ID[c.parentId] && CAT_BY_ID[c.parentId].slug === "men"; });
+    $("#catList").innerHTML = cats.map(function (c) {
+      var n = productsIn(c).length;
+      return '<li><a href="#category/' + c.slug + '"><span>' + esc(c.name) + '</span><span class="mono">' + (n ? n + (n === 1 ? " style" : " styles") : "Soon") + "</span></a></li>";
+    }).join("");
   }
+  var HOME_TABS = [];
+  var DEFAULT_TABS = [{ label: "T-shirt", category: "t-shirt" }, { label: "Shirt", category: "half-shirt, full-shirt" },
+    { label: "Trouser", category: "trouser" }, { label: "Polo", category: "polo" }, { label: "Top Selling", category: "top-selling" }];
+  function tabProducts(t) {
+    var slugs = String((t && t.category) || "").toLowerCase().split(",").map(function (s) { return s.trim().replace(/^#?category\//, ""); }).filter(Boolean);
+    if (!slugs.length || slugs.indexOf("top-selling") > -1 || slugs.indexOf("all") > -1) {
+      // Top selling: featured pieces first, then new arrivals, then the rest
+      var rank = function (p) { return (p.featured ? 0 : 2) + (p.isNew ? 0 : 1); };
+      return S.products.slice().sort(function (a, b) { return rank(a) - rank(b); });
+    }
+    var out = [];
+    slugs.forEach(function (sl) {
+      var c = CAT_BY_SLUG[sl];
+      if (c) productsIn(c).forEach(function (p) { if (out.indexOf(p) < 0) out.push(p); });
+    });
+    // featured and new pieces lead within a category too
+    return out.sort(function (a, b) { return (b.featured ? 2 : 0) + (b.isNew ? 1 : 0) - (a.featured ? 2 : 0) - (a.isNew ? 1 : 0); });
+  }
+  function drawArrivals(i) {
+    var t = HOME_TABS[i], list = t ? tabProducts(t).slice(0, 8) : [];
+    $("#grid").innerHTML = list.length ? grid(list) : '<p class="grid__empty">New ' + esc(t ? t.label : "styles") + " pieces are dropping soon.</p>";
+    guardImages($("#grid"));
+  }
+  $("#homeFilters").addEventListener("click", function (e) {
+    var btn = e.target.closest(".filter");
+    if (!btn) return;
+    $$("#homeFilters .filter").forEach(function (b) { b.classList.toggle("is-on", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
+    drawArrivals(+btn.dataset.tab);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Try the look: a layered carousel. The look in the middle stands in
+  // front, its neighbours step back behind it, and the next ones further
+  // back again. Everything is placed from one number (pos) that eases
+  // toward its target every frame, so dragging, the arrows and autoplay all
+  // glide. Pieces keep their own sale price.
+  // ---------------------------------------------------------------------------
+  var TL = { n: 0, pos: 0, target: 0, i: -1, playing: !reduce, seen: false, hover: false, drag: null, sizes: {}, looks: [], timer: null, unit: 200 };
+  var tlTrack = $("#tlTrack"), tlStage = $("#tlStage"), tlCursor = $("#tlCursor");
+  var TL_MS = 2200; // time on each look while autoplaying
+  var TL_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+  function tlLooks() {
+    return (((S.pages.home || {}).tryLook || {}).looks || []).map(function (l, i) {
+      var items = String(l.products || "").split(",").map(function (x) { return BY_SLUG[x.trim()]; }).filter(Boolean);
+      return { name: l.name || "Look " + (i + 1), image: l.image, alt: l.imageAlt || "", items: items };
+    }).filter(function (l) { return l.image && l.items.length; });
+  }
+  function tlSize(p) {
+    if (!TL.sizes[p.id]) {
+      var vs = p.variants || [];
+      var v = vs.filter(function (x) { return x.options.Size === "L" && (!p.trackStock || x.stock > 0); })[0] || vs.filter(function (x) { return !p.trackStock || x.stock > 0; })[0];
+      TL.sizes[p.id] = v ? v.id : null;
+    }
+    return TL.sizes[p.id];
+  }
+  var tlModels = [];
+  function drawTry() {
+    var looks = tlLooks();
+    $("#try").hidden = !looks.length;
+    if (!looks.length) return;
+    TL.looks = looks; TL.n = looks.length;
+    tlTrack.innerHTML = looks.map(function (l, i) {
+      return '<div class="tl__model" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc(l.name) + '">' +
+        '<img class="tl__img" src="' + esc(l.image) + '" alt="' + esc(l.alt) + '" draggable="false" decoding="async"' + (i > 4 ? ' loading="lazy"' : "") + ">" +
+        '<span class="tl__tag mono" aria-hidden="true">' + String(i + 1).padStart(2, "0") + " · " + esc(l.name) + "</span></div>";
+    }).join("");
+    tlModels = $$(".tl__model", tlTrack);
+    $("#tlSteps").innerHTML = looks.map(function (l, i) {
+      return '<li><button type="button" data-i="' + i + '" aria-label="' + esc(l.name) + '"><i></i><span class="mono">' + String(i + 1).padStart(2, "0") + " <b>" + esc(l.name) + "</b></span></button></li>";
+    }).join("");
+    var keep = TL.i >= 0 && TL.i < TL.n ? TL.i : 0;
+    TL.pos = TL.target = keep;
+    TL.i = -1;
+    tlMeasure();
+    tlLayout();
+    tlSelect(keep);
+  }
+  function tlMeasure() {
+    var w = tlStage.clientWidth;
+    // Phones show three looks (one either side), wider screens show five
+    TL.edge = w < 700 ? 1.15 : 2.2;
+    TL.unit = w < 700 ? w * 0.34 : Math.max(96, Math.min(300, w * 0.245));
+  }
+  function tlWrapD(d) { var n = TL.n; d = ((d % n) + n) % n; return d > n / 2 ? d - n : d; }
+  // Place every model from the current position
+  function tlLayout() {
+    var u = TL.unit;
+    tlModels.forEach(function (m, k) {
+      var d = tlWrapD(k - TL.pos), a = Math.abs(d), sg = d < 0 ? -1 : 1;
+      // Each step back adds less sideways distance, so the rows tuck in behind
+      var x = sg * (Math.min(a, 1) * u + Math.max(0, Math.min(a, 2) - 1) * u * (TL.edge > 2 ? 0.74 : 0.86) + Math.max(0, Math.min(a, 4) - 2) * u * 0.6);
+      var sc = 1 - Math.min(a, 4) * 0.13;
+      var y = -Math.min(a, 4) * 16;
+      // Five on stage: the middle one and two either side; the rest fade out behind
+      var op = a > TL.edge ? Math.max(0, 1 - (a - TL.edge) / 0.6) : 1;
+      m.style.transform = "translate3d(calc(-50% + " + x.toFixed(1) + "px)," + y.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
+      m.style.zIndex = String(100 - Math.round(a * 10));
+      m.style.opacity = op.toFixed(3);
+      m.style.visibility = op <= 0.01 ? "hidden" : "visible";
+      // No CSS filters on the photos: some browsers paint a filtered photo's
+      // transparent box as a faint tinted rectangle. Models further back just fade.
+      var img = m._img || (m._img = m.querySelector(".tl__img"));
+      img.style.opacity = (1 - Math.min(a, 3) * 0.12).toFixed(3);
+    });
+  }
+  function tlSelect(i) {
+    if (i === TL.i) return;
+    TL.i = i;
+    tlModels.forEach(function (m, k) { m.classList.toggle("is-on", k === i); });
+    $$("#tlSteps button").forEach(function (b, j) {
+      b.classList.toggle("is-on", j === i); b.classList.toggle("is-done", j < i);
+      b.setAttribute("aria-current", j === i ? "true" : "false");
+      var bar = b.querySelector("i"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
+    });
+    tlPanel();
+    tlTimer();
+  }
+  // Go to look i the short way round
+  function tlGoTo(i) { TL.target = TL.target + tlWrapD(i - TL.target); }
+  var tlLast = 0;
+  function tlFrame(t) {
+    var dt = tlLast ? Math.min(0.05, (t - tlLast) / 1000) : 0;
+    tlLast = t;
+    if (TL.n && TL.seen && !document.hidden && !TL.drag) {
+      var diff = TL.target - TL.pos;
+      if (Math.abs(diff) > 0.0005) {
+        // Smooth, frame-rate independent ease
+        TL.pos += diff * (1 - Math.exp(-dt * 9));
+        tlLayout();
+      } else if (diff) { TL.pos = TL.target; tlLayout(); }
+    }
+    requestAnimationFrame(tlFrame);
+  }
+  requestAnimationFrame(tlFrame);
+  function tlPanel() {
+    var look = TL.looks[TL.i];
+    $("#tlAll").disabled = !look;
+    if (!look) return;
+    var items = look.items, sum = 0, was = 0;
+    $("#tlPieces").textContent = items.length + (items.length === 1 ? " piece" : " pieces");
+    $("#tlItems").innerHTML = items.map(function (p, k) {
+      var cur = tlSize(p);
+      sum += p.price; was += Math.max(p.comparePrice || 0, p.price);
+      return '<li class="tl__item" data-p="' + p.id + '">' +
+        '<a class="tl__thumb" href="#product/' + p.slug + '" aria-label="' + esc(p.name) + '">' + (p.images[0] ? '<img src="' + esc(p.images[0]) + '" alt="" loading="lazy">' : "") + '<span class="mono">' + (k + 1) + "</span></a>" +
+        '<div class="tl__info"><span class="tl__brand mono">' + esc(p.line) + '</span><a href="#product/' + p.slug + '">' + esc(shortName(p)) + "</a>" +
+          '<p class="tl__price">' + taka(p.price) + (p.comparePrice > p.price ? " <s>" + taka(p.comparePrice) + "</s>" : "") + "</p>" +
+          '<label class="tl__size mono"><span>Size</span><select data-size aria-label="Size for ' + esc(shortName(p)) + '">' + (p.variants || []).map(function (v) {
+            var out = p.trackStock && v.stock <= 0;
+            return '<option value="' + v.id + '"' + (v.id === cur ? " selected" : "") + (out ? " disabled" : "") + ">" + esc(v.options.Size || optText(v.options)) + (out ? " (sold out)" : "") + "</option>";
+          }).join("") + "</select></label></div>" +
+        '<button class="tl__add" type="button" data-add aria-label="Add ' + esc(shortName(p)) + ' to bag">+</button>' +
+      "</li>";
+    }).join("");
+    $("#tlSum").innerHTML = (was > sum ? "<s>" + taka(was) + "</s>" : "") + taka(sum);
+    $("#tlSave").textContent = (items.length > 1 ? "All " + items.length + " pieces" : "This piece") + (was > sum ? " · you save " + taka(was - sum) : "");
+  }
+  function tlTimer() {
+    clearTimeout(TL.timer);
+    var on = TL.playing && TL.seen && TL.n > 1 && TL.i >= 0 && !TL.hover && !TL.drag;
+    $("#try").classList.toggle("is-playing", on);
+    var btn = $("#tlPlay");
+    btn.classList.toggle("is-paused", !TL.playing);
+    btn.setAttribute("aria-label", TL.playing ? "Pause" : "Play");
+    if (on) TL.timer = setTimeout(function () { TL.target = Math.round(TL.target) + 1; tlSelect(((Math.round(TL.target) % TL.n) + TL.n) % TL.n); }, TL_MS);
+  }
+  function tlStep(dir) { TL.target = Math.round(TL.target) + dir; tlSelect(((Math.round(TL.target) % TL.n) + TL.n) % TL.n); }
+  function tlStop() { TL.playing = false; }
+  $("#tlPrev").addEventListener("click", function () { tlStop(); tlStep(-1); });
+  $("#tlNext").addEventListener("click", function () { tlStop(); tlStep(1); });
+  $("#tlPlay").addEventListener("click", function () { TL.playing = !TL.playing; tlTimer(); });
+  $("#tlSteps").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (b) { tlStop(); tlGoTo(+b.dataset.i); tlSelect(+b.dataset.i); }
+  });
+  // Drag: the row follows the pointer, then settles on the nearest look,
+  // carrying a little of the flick speed
+  function tlDown(x, t) {
+    if (t.closest(".tl__foot, .tl__head")) return false;
+    TL.drag = { px: x, p0: TL.pos, moved: 0, lx: x, lt: performance.now(), v: 0 };
+    tlStage.classList.add("is-grabbing");
+    tlTimer();
+    return true;
+  }
+  function tlMove(x) {
+    var g = TL.drag, now = performance.now(), dx = x - g.px;
+    g.moved = Math.max(g.moved, Math.abs(dx));
+    if (now > g.lt) { g.v = 0.8 * g.v + 0.2 * ((x - g.lx) / (now - g.lt)); g.lx = x; g.lt = now; }
+    TL.pos = TL.target = g.p0 - dx / TL.unit;
+    tlLayout();
+  }
+  function tlUp(t) {
+    var g = TL.drag;
+    TL.drag = null;
+    tlStage.classList.remove("is-grabbing");
+    var m = t && t.closest && t.closest(".tl__model");
+    if (g.moved < 6) {
+      if (m && tlTrack.contains(m)) { tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
+      else tlTimer();
+      return;
+    }
+    tlStop();
+    TL.target = Math.round(TL.pos - g.v * 260 / TL.unit);
+    tlSelect(((TL.target % TL.n) + TL.n) % TL.n);
+  }
+  // Mouse and pen use pointer events
+  tlStage.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "touch" || e.button) return;
+    tlDown(e.clientX, e.target);
+  });
+  window.addEventListener("pointermove", function (e) { if (TL.drag && !TL.drag.touch) tlMove(e.clientX); });
+  window.addEventListener("pointerup", function (e) { if (TL.drag && !TL.drag.touch) tlUp(e.target); });
+  // Touch uses touch events, so a sideways swipe is always ours (the page
+  // never steals it as a scroll) while an up/down swipe still scrolls the page
+  tlStage.addEventListener("touchstart", function (e) {
+    if (e.touches.length > 1) return;
+    var p = e.touches[0];
+    if (!tlDown(p.clientX, e.target)) return;
+    TL.drag.touch = true; TL.drag.py = p.clientY; TL.drag.axis = "";
+  }, { passive: true });
+  tlStage.addEventListener("touchmove", function (e) {
+    var g = TL.drag;
+    if (!g || !g.touch) return;
+    var p = e.touches[0], dx = p.clientX - g.px, dy = p.clientY - g.py;
+    if (!g.axis) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if (g.axis === "y") { tlUp(null); TL.target = Math.round(TL.pos); return; }
+      g.px = p.clientX; // start the row from here so it doesn't jump
+    }
+    e.preventDefault();
+    tlMove(p.clientX);
+  }, { passive: false });
+  function tlTouchEnd(e) {
+    var g = TL.drag;
+    if (!g || !g.touch) return;
+    // A tap: work out which model is under the finger (photos ignore taps)
+    var t = e.changedTouches && e.changedTouches[0], el = t ? document.elementFromPoint(t.clientX, t.clientY) : null;
+    if (g.moved < 6 && e.cancelable) e.preventDefault();
+    tlUp(el);
+  }
+  tlStage.addEventListener("touchend", tlTouchEnd);
+  tlStage.addEventListener("touchcancel", function () { if (TL.drag && TL.drag.touch) { TL.drag.moved = 99; TL.drag.v = 0; tlUp(null); } });
+  tlTrack.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var m = e.target.closest(".tl__model");
+    if (m) { e.preventDefault(); tlStop(); tlGoTo(+m.dataset.i); tlSelect(+m.dataset.i); }
+  });
+  tlStage.addEventListener("pointermove", function (e) {
+    if (e.pointerType !== "mouse") return;
+    var r = tlStage.getBoundingClientRect(), over = e.target.closest(".tl__model"), ui = e.target.closest(".tl__foot, .tl__head");
+    tlCursor.style.transform = "translate(" + (e.clientX - r.left) + "px," + (e.clientY - r.top) + "px)";
+    tlCursor.textContent = over ? "View" : "Drag";
+    tlCursor.classList.toggle("is-on", !ui);
+    var h = !!over;
+    if (h !== TL.hover) { TL.hover = h; tlTimer(); }
+  });
+  tlStage.addEventListener("pointerleave", function () { tlCursor.classList.remove("is-on"); if (TL.hover) { TL.hover = false; tlTimer(); } });
+  tlStage.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") { tlStop(); tlStep(1); }
+    if (e.key === "ArrowLeft") { tlStop(); tlStep(-1); }
+  });
+  $("#tlItems").addEventListener("change", function (e) {
+    var sel = e.target.closest("[data-size]"), li = sel && sel.closest(".tl__item");
+    if (li) TL.sizes[li.dataset.p] = sel.value;
+  });
+  $("#tlItems").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-add]");
+    if (!btn) return;
+    var p = BY_ID[btn.closest(".tl__item").dataset.p], v = variantOf(p, tlSize(p));
+    if (!v && p.variants.length) { toast("That piece is sold out.", "warn"); return; }
+    if (addToBag(p, v, 1)) { btn.classList.add("is-done"); setTimeout(function () { btn.classList.remove("is-done"); }, 1400); }
+  });
+  $("#tlAll").addEventListener("click", function () {
+    var look = TL.looks[TL.i];
+    if (!look) return;
+    var added = 0, out = [];
+    look.items.forEach(function (p) {
+      var v = variantOf(p, tlSize(p));
+      if (!v && p.variants.length) { out.push(shortName(p)); return; }
+      if (addToBag(p, v, 1, true)) added++;
+    });
+    if (out.length) toast("Sold out: " + esc(out.join(", ")), "warn");
+    if (added) { toast("Look added to bag"); openBag(); }
+  });
+  window.addEventListener("resize", function () { if (TL.n) { tlMeasure(); tlLayout(); } });
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(function (es) { TL.seen = es[0].isIntersecting; tlTimer(); }, { threshold: 0.2 }).observe($("#try"));
+  } else TL.seen = true;
 
   // ---------------------------------------------------------------------------
   // Page header
   // ---------------------------------------------------------------------------
   function head(crumb, title, sub, key) {
+    pagehead.classList.remove("has-tools");
     pagehead.innerHTML = '<div class="hero__panel pagehead__panel"' + (key ? ' data-page="' + key + '"' : "") + ">" + navHTML() +
       '<div class="pagehead__copy"><p class="eyebrow">' + crumb + '</p><h1 class="display display--page">' + title + "</h1>" +
       (sub ? '<p class="pagehead__sub">' + sub + "</p>" : "") + "</div></div>";
     syncCount();
   }
   function miniHead() {
+    pagehead.classList.remove("has-tools");
     pagehead.innerHTML = '<div class="hero__panel pagehead__panel pagehead__panel--mini">' + navHTML() + "</div>";
     syncCount();
   }
@@ -385,6 +798,21 @@
   }
   function accent(name) { return esc(name).replace(/(\S+)$/, '<em class="alt" data-scramble>$1</em>'); }
 
+  // Colour groups for the shop filter. Admin can set a product's group; otherwise it is guessed from the colour name.
+  var COLOR_GROUPS = [
+    ["Black", "#1f2022", /black|jet|onyx/], ["White", "#f2f1ec", /white|ivory|mono bloom/], ["Grey", "#8a8d91", /grey|gray|charcoal|ash|silver/],
+    ["Blue", "#3b6279", /blue|navy|denim|teal/], ["Green", "#3f8a68", /green|olive|sage|mint/], ["Yellow", "#c3ae62", /yellow|mustard|gold/],
+    ["Cream", "#d8ccb0", /cream|beige|sand|khaki|line art/], ["Brown", "#5f4535", /brown|coffee|chocolate|tan|mosaic|camel/],
+    ["Red", "#a8342b", /red|brick|maroon|wine|burgundy/], ["Pink", "#d0607a", /pink|rose|blush/], ["Orange", "#d27c3c", /orange|coral|rust|peach/],
+    ["Purple", "#6c4f8c", /purple|violet|lilac|lavender/]
+  ];
+  function colorGroup(p) {
+    var g = COLOR_GROUPS.filter(function (x) { return x[0] === p.colorGroup; })[0];
+    if (!g) { var n = String(p.color || "").toLowerCase(); g = COLOR_GROUPS.filter(function (x) { return x[2].test(n); })[0]; }
+    return g ? { name: g[0], hex: g[1] } : (p.color ? { name: p.color, hex: p.hex || "#888888" } : null);
+  }
+  var CHEVRON = '<svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+
   function viewListing(opts) {
     var base = opts.list;
     head(opts.crumb, opts.title, opts.sub || base.length + (base.length === 1 ? " piece" : " pieces") + ". Prices in BDT.");
@@ -393,25 +821,32 @@
     base.forEach(function (p) { if (p.line && lines.indexOf(p.line) < 0) lines.push(p.line); });
     var chips = subcats.length > 1 ? subcats.map(function (c) { return { key: "cat:" + c.id, label: c.name }; }) : lines.length > 1 ? lines.map(function (l) { return { key: "line:" + l, label: l }; }) : [];
     var colors = [];
-    base.forEach(function (p) { if (p.color && !colors.some(function (c) { return c.name === p.color; })) colors.push({ name: p.color, hex: p.hex }); });
+    base.forEach(function (p) { var g = colorGroup(p); if (g && !colors.some(function (c) { return c.name === g.name; })) colors.push(g); });
+    colors.sort(function (a, b) { return COLOR_GROUPS.map(function (x) { return x[0]; }).indexOf(a.name) - COLOR_GROUPS.map(function (x) { return x[0]; }).indexOf(b.name); });
     var sizes = [];
     base.forEach(function (p) { p.variants.forEach(function (v) { var s = v.options.Size; if (s && sizes.indexOf(s) < 0) sizes.push(s); }); });
+    // Four dropdowns sit on the page header: design and colour on the left, size and sort on the right
+    var tools = '<div class="pagehead__tools" id="shopTools">' +
+      '<div class="tools__side">' +
+        (chips.length ? '<label class="sort"><span class="sr">Design</span><select id="chipFilter"><option value="">' + (subcats.length > 1 ? "All types" : "All designs") + "</option>" +
+          chips.map(function (c) { return '<option value="' + esc(c.key) + '">' + esc(c.label) + "</option>"; }).join("") + "</select></label>" : "") +
+        (colors.length > 1 ? '<div class="cdrop" id="colorDrop"><button class="cdrop__btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Colour">' +
+          '<span class="cdrop__txt">Colour</span>' + CHEVRON + "</button>" +
+          '<div class="cdrop__pop" role="group" aria-label="Colour" hidden>' +
+            '<button class="swatch swatch--any" type="button" data-color="" aria-pressed="true"><span class="sr">Any colour</span></button>' +
+            colors.map(function (c) { return '<button class="swatch" type="button" data-color="' + esc(c.name) + '" style="--sw:' + esc(c.hex) + '" aria-pressed="false"><span class="sr">' + esc(c.name) + "</span></button>"; }).join("") +
+          "</div></div>" : "") +
+      "</div>" +
+      '<div class="tools__side">' +
+        (sizes.length > 1 ? '<label class="sort"><span class="sr">Size</span><select id="sizeFilter"><option value="">Any size</option>' + sizes.map(function (s) { return "<option>" + esc(s) + "</option>"; }).join("") + "</select></label>" : "") +
+        '<label class="sort"><span class="sr">Sort</span><select id="sort">' +
+          '<option value="featured">Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="new">Newest</option>' +
+        "</select></label>" +
+      "</div></div>";
+    pagehead.insertAdjacentHTML("beforeend", tools);
+    pagehead.classList.add("has-tools");
     page.innerHTML =
       '<section class="shop">' +
-        '<div class="toolbar">' +
-          (chips.length ? '<div class="filters filters--left" role="group" aria-label="Filter">' + [{ key: "", label: "All" }].concat(chips).map(function (c, i) {
-            return '<button class="filter' + (i ? "" : " is-on") + '" type="button" data-chip="' + esc(c.key) + '">' + esc(c.label) + "</button>";
-          }).join("") + "</div>" : "<span></span>") +
-          '<div class="toolbar__right">' +
-            (colors.length > 1 ? '<div class="swatches" role="group" aria-label="Colour">' + colors.map(function (c) {
-              return '<button class="swatch" type="button" data-color="' + esc(c.name) + '" style="--sw:' + esc(c.hex) + '" aria-pressed="false" title="' + esc(c.name) + '"><span class="sr">' + esc(c.name) + "</span></button>";
-            }).join("") + "</div>" : "") +
-            (sizes.length > 1 ? '<label class="sort"><span class="sr">Size</span><select id="sizeFilter"><option value="">Any size</option>' + sizes.map(function (s) { return "<option>" + esc(s) + "</option>"; }).join("") + "</select></label>" : "") +
-            '<label class="sort"><span class="sr">Sort</span><select id="sort">' +
-              '<option value="featured">Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="new">Newest</option>' +
-            "</select></label>" +
-          "</div>" +
-        "</div>" +
         '<p class="shop__count mono" id="count"></p>' +
         '<div class="grid" id="shopGrid"></div>' +
         '<div class="empty" id="shopEmpty" hidden><p>Nothing matches those filters.</p><button class="pill pill--dark pill--sm" type="button" id="clearFilters">Clear filters</button></div>' +
@@ -421,39 +856,47 @@
       var list = base.filter(function (p) {
         if (state.chip.indexOf("cat:") === 0 && !productsIn(CAT_BY_ID[state.chip.slice(4)]).some(function (x) { return x === p; })) return false;
         if (state.chip.indexOf("line:") === 0 && p.line !== state.chip.slice(5)) return false;
-        if (state.color && p.color !== state.color) return false;
+        if (state.color && (colorGroup(p) || {}).name !== state.color) return false;
         if (state.size && !p.variants.some(function (v) { return v.options.Size === state.size && (!p.trackStock || v.stock > 0); })) return false;
         return true;
       }).slice();
       if (state.sort === "low") list.sort(function (a, b) { return a.price - b.price || a.order - b.order; });
       if (state.sort === "high") list.sort(function (a, b) { return b.price - a.price || a.order - b.order; });
       if (state.sort === "new") list.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      if (state.sort === "featured") list.sort(function (a, b) { return (soldOut(a) ? 1 : 0) - (soldOut(b) ? 1 : 0) || a.order - b.order; });
-      $("#shopGrid").innerHTML = grid(list);
+      if (state.sort === "featured") list.sort(function (a, b) { return a.order - b.order; });
+      // Sold-out products always go to the end, whatever the sort
+      list = list.filter(function (p) { return !soldOut(p); }).concat(list.filter(soldOut));
+      $("#shopGrid").innerHTML = list.map(function (p, i) { return card(p, i, true); }).join("");
       $("#count").textContent = list.length + (list.length === 1 ? " product" : " products");
       $("#shopEmpty").hidden = list.length > 0;
       guardImages($("#shopGrid"));
     }
-    $$(".toolbar .filter", page).forEach(function (b) {
-      b.addEventListener("click", function () {
-        state.chip = b.dataset.chip;
-        $$(".toolbar .filter", page).forEach(function (x) { x.classList.toggle("is-on", x === b); });
-        draw();
+    var drop = $("#colorDrop");
+    function setColor(name) {
+      state.color = name || null;
+      $$(".swatch", drop).forEach(function (x) { x.setAttribute("aria-pressed", (x.dataset.color || null) === state.color ? "true" : "false"); });
+      var on = colors.filter(function (c) { return c.name === state.color; })[0];
+      drop.classList.toggle("is-set", !!on);
+    }
+    function openDrop(open) {
+      $(".cdrop__pop", drop).hidden = !open;
+      $(".cdrop__btn", drop).setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (drop) {
+      $(".cdrop__btn", drop).addEventListener("click", function (e) { e.stopPropagation(); openDrop($(".cdrop__pop", drop).hidden); });
+      $$(".swatch", drop).forEach(function (b) {
+        b.addEventListener("click", function () { setColor(b.dataset.color); openDrop(false); draw(); });
       });
-    });
-    $$(".swatch", page).forEach(function (b) {
-      b.addEventListener("click", function () {
-        state.color = state.color === b.dataset.color ? null : b.dataset.color;
-        $$(".swatch", page).forEach(function (x) { x.setAttribute("aria-pressed", x.dataset.color === state.color ? "true" : "false"); });
-        draw();
-      });
-    });
+      document.addEventListener("click", function (e) { if (drop.isConnected && !drop.contains(e.target)) openDrop(false); });
+      drop.addEventListener("keydown", function (e) { if (e.key === "Escape") { openDrop(false); $(".cdrop__btn", drop).focus(); } });
+    }
+    if ($("#chipFilter")) $("#chipFilter").addEventListener("change", function (e) { state.chip = e.target.value; draw(); });
     if ($("#sizeFilter")) $("#sizeFilter").addEventListener("change", function (e) { state.size = e.target.value; draw(); });
     $("#sort").addEventListener("change", function (e) { state.sort = e.target.value; draw(); });
     $("#clearFilters").addEventListener("click", function () {
       state = { chip: "", color: null, size: "", sort: state.sort };
-      $$(".toolbar .filter", page).forEach(function (x, i) { x.classList.toggle("is-on", i === 0); });
-      $$(".swatch", page).forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+      if ($("#chipFilter")) $("#chipFilter").value = "";
+      if (drop) setColor("");
       if ($("#sizeFilter")) $("#sizeFilter").value = "";
       draw();
     });
@@ -464,6 +907,7 @@
     var cat = CAT_BY_SLUG[slug];
     if (!cat) return viewMissing();
     var list = productsIn(cat);
+    track("category", "", { name: cat.name, ids: list.slice(0, 20).map(function (p) { return p.sku; }) });
     var kids = S.categories.filter(function (c) { return c.parentId === cat.id; }).sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
     // A category of collections (like The House) shows its collections first.
     var collections = kids.filter(function (c) { return c.image; });
@@ -526,6 +970,7 @@
         p.categoryIds.map(function (id) { return (CAT_BY_ID[id] || {}).name; }).join(" ")).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) > -1; });
     });
+    if (q) track("search", "", { q: q, n: list.length, ids: list.slice(0, 10).map(function (p) { return p.sku; }) });
     viewListing({ list: list, crumb: "Search", title: '“' + esc(q) + '”', sub: list.length ? list.length + " results" : "Nothing found. Try another word, like tee, black or fearless." });
   }
 
@@ -695,6 +1140,18 @@
         buildSlats(main);
       });
     });
+    // 3x zoom that follows the pointer (mouse and trackpad only)
+    if (window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      main.classList.add("is-zoom");
+      var zoomAt = function (e) {
+        var img = $("#pdMain"), r = main.getBoundingClientRect();
+        if (!img) return;
+        img.style.transformOrigin = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100)) + "% " + Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100)) + "%";
+      };
+      main.addEventListener("mouseenter", function (e) { if ($("#pdMain")) { zoomAt(e); main.classList.add("is-zooming"); } });
+      main.addEventListener("mousemove", zoomAt);
+      main.addEventListener("mouseleave", function () { main.classList.remove("is-zooming"); });
+    }
     refresh();
     setTimeout(function () { buildSlats(main); }, 120);
   }
@@ -727,7 +1184,7 @@
     page.innerHTML =
       '<section class="about" data-page="about">' +
         '<div class="about__story">' +
-          '<figure class="collage__img reveal slat dark about__cut"><img data-ci="image" data-calt="imageAlt" alt="" loading="lazy"></figure>' +
+          '<figure class="collage__img reveal slat dark"><img data-ci="image" data-calt="imageAlt" alt="" loading="lazy"></figure>' +
           '<div class="about__text"><p class="eyebrow" data-c="storyTitle"></p><div class="prose prose--lead" data-md="story"></div></div>' +
         "</div>" +
         '<div class="about__pillars about__pillars--row">' + (d.values || []).map(function (v, i) {
@@ -755,7 +1212,7 @@
           (st.whatsapp ? '<a class="contact__card" href="https://wa.me/' + esc(st.whatsapp.replace(/[^\d]/g, "")) + '" target="_blank" rel="noopener"><span class="mono">WhatsApp</span><b>' + esc(st.whatsapp) + "</b><small>Message us any time</small></a>" : "") +
           (st.address ? '<div class="contact__card"><span class="mono">Visit</span><b>' + esc(st.address) + "</b><small>" + esc(st.legalName || "") + "</small></div>" : "") +
           '<div class="contact__card contact__social"><span class="mono">Follow</span>' + [["facebook", "Facebook"], ["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]].filter(function (s) { return soc[s[0]]; })
-            .map(function (s) { return '<a class="u" href="' + esc(soc[s[0]]) + '" target="_blank" rel="noopener">' + s[1] + "</a>"; }).join(" ") + "</div>" +
+            .map(function (s) { return '<a class="u" href="' + esc(safe(soc[s[0]])) + '" target="_blank" rel="noopener">' + s[1] + "</a>"; }).join(" ") + "</div>" +
         "</div>" +
         '<form class="panel contact__form" id="contactForm" novalidate>' +
           '<h2 class="panel__title" data-c="formTitle"></h2><p class="contact__note" data-c="formNote"></p>' +
@@ -776,10 +1233,148 @@
       btn.disabled = true;
       api("POST", "/api/contact", { name: f.name.value, email: f.email.value, phone: f.phone.value, subject: f.subject.value, message: f.message.value })
         .then(function () {
+          track("contact", "", { method: "Contact form" });
           f.innerHTML = '<h2 class="panel__title">Message sent</h2><p class="contact__note">Thanks, ' + esc(f.name.value.split(" ")[0]) + ". We'll get back to you within one working day.</p>";
         }, function (err) { showErrors(f, err); btn.disabled = false; });
     });
   }
+  // ---------------------------------------------------------------------------
+  // Store locations: shops grouped by district, in the order set in admin
+  // ---------------------------------------------------------------------------
+  var DISTRICTS = ["Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria", "Chandpur", "Chapai Nawabganj", "Chattogram", "Chuadanga",
+    "Cox's Bazar", "Cumilla", "Dhaka", "Dinajpur", "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj", "Habiganj", "Jamalpur", "Jashore", "Jhalokati", "Jhenaidah",
+    "Joypurhat", "Khagrachhari", "Khulna", "Kishoreganj", "Kurigram", "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur", "Magura", "Manikganj", "Meherpur",
+    "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon", "Narail", "Narayanganj", "Narsingdi", "Natore", "Netrokona", "Nilphamari", "Noakhali", "Pabna", "Panchagarh",
+    "Patuakhali", "Pirojpur", "Rajbari", "Rajshahi", "Rangamati", "Rangpur", "Satkhira", "Shariatpur", "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon"];
+  var LIVE = {}; // re-draws a page's cards while it is edited in the admin preview
+  function districtGroups(d) {
+    var shops = (d.shops || []).filter(function (s) { return s && s.name; });
+    var order = (d.districtOrder || []).slice();
+    shops.forEach(function (s) { if (order.indexOf(s.district) < 0) order.push(s.district); });
+    return order.map(function (name) { return { name: name, shops: shops.filter(function (s) { return s.district === name; }) }; })
+      .filter(function (g) { return g.shops.length; });
+  }
+  function shopCard(s) {
+    var tel = (s.phone || "").replace(/[^\d+]/g, "");
+    var map = s.map || "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(s.name + ", " + (s.address || s.district));
+    return '<article class="shopcard reveal">' +
+      '<div class="shopcard__img">' + (s.image ? '<img src="' + esc(s.image) + '" alt="' + esc(s.name) + '" loading="lazy">' : "") +
+        '<span class="shopcard__type' + (s.type === "franchise" ? " is-fr" : "") + '">' + (s.type === "franchise" ? "Franchise store" : "Ravelle store") + "</span></div>" +
+      '<div class="shopcard__body"><p class="mono shopcard__district">' + esc(s.district) + "</p><h3>" + esc(s.name) + "</h3>" +
+        (s.address ? '<p class="shopcard__addr">' + esc(s.address) + "</p>" : "") +
+        (s.hours ? '<p class="shopcard__hours mono">' + esc(s.hours) + "</p>" : "") +
+        '<div class="shopcard__links">' +
+          (s.phone ? '<a href="tel:' + esc(tel) + '"><span class="mono">Call</span>' + esc(s.phone) + "</a>" : "") +
+          (s.email ? '<a href="mailto:' + esc(s.email) + '"><span class="mono">Email</span>' + esc(s.email) + "</a>" : "") +
+        "</div>" +
+        '<a class="pill pill--sm pill--arrow shopcard__map" href="' + esc(safe(map)) + '" target="_blank" rel="noopener">Get directions <span class="pill__arrow" aria-hidden="true">↗</span></a>' +
+      "</div></article>";
+  }
+  function viewStores() {
+    var d = S.pages.stores || {};
+    head('<span data-c="eyebrow"></span>', '<span data-c="title"></span> <em class="alt" data-scramble data-c="accent"></em> <span data-c="titleEnd"></span>', '<span data-c="intro"></span>', "stores");
+    var only = "";
+    function draw() {
+      d = S.pages.stores || {};
+      var groups = districtGroups(d);
+      if (only && !groups.some(function (g) { return g.name === only; })) only = "";
+      page.innerHTML = '<section class="stores" data-page="stores">' + (groups.length ?
+        (groups.length > 1 ? '<div class="stores__filter" role="group" aria-label="District">' +
+          '<button class="stores__chip' + (only ? "" : " is-on") + '" type="button" data-district="">All<small>' + groups.reduce(function (n, g) { return n + g.shops.length; }, 0) + "</small></button>" +
+          groups.map(function (g) { return '<button class="stores__chip' + (only === g.name ? " is-on" : "") + '" type="button" data-district="' + esc(g.name) + '">' + esc(g.name) + "<small>" + g.shops.length + "</small></button>"; }).join("") + "</div>" : "") +
+        groups.filter(function (g) { return !only || g.name === only; }).map(function (g) {
+          return '<div class="stores__group"><div class="stores__head"><h2>' + esc(g.name) + '</h2><span class="mono">' + g.shops.length + (g.shops.length > 1 ? " stores" : " store") + "</span></div>" +
+            '<div class="stores__grid">' + g.shops.map(shopCard).join("") + "</div></div>";
+        }).join("")
+        : '<div class="empty stores__empty"><p data-c="emptyText"></p><a class="pill pill--dark pill--arrow" href="#shop">Shop online <span class="pill__arrow" aria-hidden="true">↗</span></a></div>') +
+        "</section>";
+      bind(page, d);
+      activate(page);
+      $$("[data-district]", page).forEach(function (b) { b.onclick = function () { only = b.dataset.district; draw(); }; });
+    }
+    LIVE.stores = draw;
+    bind(pagehead, d);
+    draw();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Franchise: why join, partner stories, the guide PDF and the request form
+  // ---------------------------------------------------------------------------
+  function viewFranchise() {
+    var d = S.pages.franchise || {};
+    head('<span data-c="eyebrow"></span>', '<span data-c="title"></span> <em class="alt" data-scramble data-c="accent"></em> <span data-c="titleEnd"></span>', '<span data-c="intro"></span>', "franchise");
+    var opt = function (list, ph) { return (ph ? '<option value="">' + ph + "</option>" : "") + list.map(function (x) { return '<option>' + esc(x) + "</option>"; }).join(""); };
+    var tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    page.innerHTML =
+      '<section class="fr" data-page="franchise">' +
+        '<div class="about__pillars about__pillars--row fr__points">' + (d.points || []).map(function (v, i) {
+          return '<div><p class="mono">0' + (i + 1) + '</p><h3 data-c="points.' + i + '.title"></h3><p data-c="points.' + i + '.text"></p></div>';
+        }).join("") + "</div>" +
+        '<div id="frStories"></div>' +
+        '<div class="fr__join" id="join">' +
+          '<aside class="fr__side">' +
+            '<div class="panel fr__guide"><span class="fr__pdf" aria-hidden="true">PDF</span><h2 class="panel__title" data-c="pdfTitle"></h2><p class="contact__note" data-c="pdfText"></p><div id="frPdf"></div></div>' +
+            '<div class="panel fr__steps"><h2 class="panel__title">How it works</h2><ol><li><b>Send a request</b><span>Fill in the form with your location and budget.</span></li>' +
+              "<li><b>Meet the team</b><span>We call you to confirm the meeting time you picked.</span></li><li><b>Site visit</b><span>We check the location and share the numbers.</span></li>" +
+              "<li><b>Open your store</b><span>Fit-out, stock, training and launch.</span></li></ol></div>" +
+          "</aside>" +
+          '<form class="panel fr__form" id="frForm" novalidate>' +
+            '<h2 class="panel__title" data-c="formTitle"></h2><p class="contact__note" data-c="formNote"></p>' +
+            '<p class="fr__label mono">About you</p>' +
+            field("fr-name", "Full name", '<input id="fr-name" name="name" required autocomplete="name">') +
+            '<div class="field-row">' + field("fr-phone", "Mobile number", '<input id="fr-phone" name="phone" type="tel" required autocomplete="tel" placeholder="01XXXXXXXXX">') +
+            field("fr-email", "Email (optional)", '<input id="fr-email" name="email" type="email" autocomplete="email">') + "</div>" +
+            '<p class="fr__label mono">Your store</p>' +
+            '<div class="field-row">' + field("fr-district", "District", '<select id="fr-district" name="district" required>' + opt(DISTRICTS, "Choose a district") + "</select>") +
+            field("fr-area", "Area or market", '<input id="fr-area" name="area" placeholder="e.g. Zindabazar, near the main road">') + "</div>" +
+            '<div class="field-row">' + field("fr-space", "Shop space", '<select id="fr-space" name="space">' + opt(["I have a shop space", "I will rent a space", "Still looking for a space"], "Choose one") + "</select>") +
+            field("fr-investment", "Planned investment", '<select id="fr-investment" name="investment">' + opt(["Under ৳10 lakh", "৳10 – 20 lakh", "৳20 – 40 lakh", "Over ৳40 lakh"], "Choose a range") + "</select>") + "</div>" +
+            field("fr-experience", "Business or retail experience", '<textarea id="fr-experience" name="experience" rows="3" placeholder="Tell us about any shop or business you have run."></textarea>') +
+            '<p class="fr__label mono">Meeting</p>' +
+            field("fr-mtype", "How would you like to meet?", '<select id="fr-mtype" name="meetingType">' + opt(["At the Ravelle office", "Video call", "Phone call"]) + "</select>") +
+            '<div class="field-row">' + field("fr-date", "Preferred date", '<input id="fr-date" name="meetingDate" type="date" min="' + tomorrow + '">') +
+            field("fr-time", "Preferred time", '<select id="fr-time" name="meetingTime">' + opt(["11am – 1pm", "2pm – 4pm", "4pm – 6pm", "6pm – 8pm"], "Any time") + "</select>") + "</div>" +
+            field("fr-message", "Anything else? (optional)", '<textarea id="fr-message" name="message" rows="3"></textarea>') +
+            '<button class="pill pill--dark" type="submit">Send request</button>' +
+          "</form>" +
+        "</div>" +
+      "</section>";
+    function draw() {
+      d = S.pages.franchise || {};
+      var list = (d.stories || []).filter(function (s) { return s && s.ownerName; });
+      $("#frStories").innerHTML = list.length ? '<div class="fr__stories"><div class="stores__head"><h2 data-c="storiesTitle"></h2><span class="mono">' + list.length + (list.length > 1 ? " partners" : " partner") + "</span></div>" +
+        '<div class="fr__grid">' + list.map(function (s) {
+          return '<article class="story reveal"><div class="story__img">' + (s.storeImage ? '<img src="' + esc(s.storeImage) + '" alt="' + esc(s.storeName || s.ownerName) + '" loading="lazy">' : "") +
+              '<span class="shopcard__type is-fr">Franchise store</span></div>' +
+            '<div class="story__body">' + (s.storeName ? "<h3>" + esc(s.storeName) + "</h3>" : "") + (s.address ? '<p class="shopcard__addr">' + esc(s.address) + "</p>" : "") +
+              (s.opinion ? '<blockquote class="story__quote">“' + esc(s.opinion) + "”</blockquote>" : "") +
+              (s.experience ? '<p class="story__exp">' + esc(s.experience) + "</p>" : "") +
+              '<div class="story__owner">' + (s.ownerImage ? '<img src="' + esc(s.ownerImage) + '" alt="" loading="lazy">' : '<span class="story__initial">' + esc(s.ownerName.charAt(0)) + "</span>") +
+                "<div><b>" + esc(s.ownerName) + '</b><span class="mono">Owner' + (s.storeName ? ", " + esc(s.storeName) : "") + "</span></div></div>" +
+            "</div></article>";
+        }).join("") + "</div></div>" : "";
+      $("#frPdf").innerHTML = d.pdf ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(d.pdf)) + '" download="Ravelle-franchise-guide.pdf" target="_blank" rel="noopener">Download PDF <span class="pill__arrow" aria-hidden="true">↓</span></a>'
+        : '<span class="pill fr__soon" aria-disabled="true">PDF coming soon</span>';
+      bind(page, d);
+      activate($("#frStories"));
+    }
+    LIVE.franchise = draw;
+    bind(pagehead, d);
+    draw();
+    $("#frForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var f = e.target, btn = $("button[type=submit]", f), body = {};
+      ["name", "phone", "email", "district", "area", "space", "investment", "experience", "meetingType", "meetingDate", "meetingTime", "message"].forEach(function (k) { body[k] = f[k].value; });
+      clearErrors(f);
+      btn.disabled = true;
+      api("POST", "/api/franchise", body).then(function () {
+        track("lead", "", { topic: "franchise" });
+        f.innerHTML = '<h2 class="panel__title">Request sent</h2><p class="contact__note">Thanks, ' + esc(body.name.split(" ")[0]) + ". We'll call you on " + esc(body.phone) +
+          " to confirm the meeting" + (body.meetingDate ? " on " + esc(new Date(body.meetingDate + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long" })) : "") + ".</p>";
+      }, function (err) { showErrors(f, err); btn.disabled = false; });
+    });
+  }
+
   function field(id, label, input) { return '<label class="field" for="' + id + '"><span>' + label + "</span>" + input + '<em class="field__err" data-err-for="' + id + '" hidden></em></label>'; }
   function clearErrors(f) { $$(".field__err", f).forEach(function (e) { e.hidden = true; }); $$(".is-invalid", f).forEach(function (e) { e.classList.remove("is-invalid"); }); }
   function showErrors(f, err) {
@@ -805,7 +1400,7 @@
       '<div class="empty"><p>Nothing saved yet.</p><a class="pill pill--dark pill--sm" href="#shop">Browse the shop</a></div>') + "</section>";
   }
 
-  var STATUS = { pending: "Order placed", confirmed: "Confirmed", processing: "Packing", shipped: "On the way", delivered: "Delivered", cancelled: "Cancelled", returned: "Returned" };
+  var STATUS = { pending: "Order placed", confirmed: "Confirmed", hold: "On hold", processing: "Packing", shipped: "On the way", delivered: "Delivered", cancelled: "Cancelled", returned: "Returned" };
   var STEPS = ["pending", "confirmed", "processing", "shipped", "delivered"];
   function orderHTML(o) {
     var at = STEPS.indexOf(o.status);
@@ -814,7 +1409,12 @@
         '<h2 class="h2 order__status">' + esc(STATUS[o.status] || o.status) + "</h2></div>" +
         '<span class="chip ' + (o.paymentStatus === "paid" ? "chip--paid" : "chip--muted") + '">' + (o.paymentStatus === "paid" ? "Paid" : o.paymentMethod === "cod" ? "Cash on delivery" : "Payment " + esc(o.paymentStatus)) + "</span></div>" +
       (at > -1 ? '<ol class="steps">' + STEPS.map(function (s, i) { return '<li class="' + (i <= at ? "is-done" : "") + '">' + STATUS[s] + "</li>"; }).join("") + "</ol>" : "") +
-      (o.tracking ? '<p class="order__track">Courier tracking: <b>' + esc(o.tracking) + "</b></p>" : "") +
+      (o.courier && (o.courier.name || o.courier.code) ? '<p class="order__track">' + esc(o.courier.name ? o.courier.name.charAt(0).toUpperCase() + o.courier.name.slice(1) : "Courier") +
+          (o.courier.code ? " · <b>" + esc(o.courier.code) + "</b>" : "") + (o.courier.url ? ' · <a href="' + esc(safe(o.courier.url)) + '" target="_blank" rel="noopener">Track with the courier</a>' : "") +
+          (o.courier.rider ? "<br>Rider: " + esc(o.courier.rider) + (o.courier.riderPhone ? ' · <a href="tel:' + esc(o.courier.riderPhone) + '">' + esc(o.courier.riderPhone) + "</a>" : "") : "") + "</p>"
+        : o.tracking ? '<p class="order__track">Courier tracking: <b>' + esc(o.tracking) + "</b></p>" : "") +
+      (o.history && o.history.some(function (h) { return h.note; }) ? '<ol class="order__log">' + o.history.filter(function (h) { return h.note; }).slice().reverse().map(function (h) {
+          return "<li><b>" + esc(h.note) + "</b><span class=\"mono\">" + new Date(h.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + "</span></li>"; }).join("") + "</ol>" : "") +
       '<div class="order__items">' + o.items.map(function (it) {
         return '<div class="line-item"><span class="line-item__img" data-fallback style="--tone:#7b7e83">' + (it.image ? '<img data-guard src="' + esc(it.image) + '" alt="">' : "") + '<span class="card__type" aria-hidden="true"><small>' + it.qty + "×</small></span></span>" +
           '<div class="line-item__info"><span class="line-item__name">' + esc(it.name) + '</span><p class="mono">' + esc(optText(it.options)) + " · Qty " + it.qty + " · SKU " + esc(it.sku) + '</p></div><div class="line-item__end"><b>' + taka(it.lineTotal) + "</b></div></div>";
@@ -897,12 +1497,58 @@
     if (fee !== null && (free || (ship.freeOver && sub - discount >= ship.freeOver))) fee = 0;
     return { lines: lines, subtotal: sub, saving: saving, discount: discount, shipping: fee, total: sub - discount + (fee || 0), zone: z };
   }
+  // Abandoned-cart follow-up: the checkout details are saved (once a phone or email is typed) so the store can remind the customer
+  function cartId() {
+    var id = store.get("cid", "");
+    if (!id) { id = "c" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store.set("cid", id); }
+    return id;
+  }
+  var captureTimer = null, lastCapture = "";
+  function captureCart(form) {
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(function () {
+      if (!form.isConnected || !cart.length) return;
+      var cu = { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value };
+      var okPhone = /^(?:\+?88)?01[3-9]\d{8}$/.test(cu.phone.replace(/[\s-]/g, "")), okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cu.email.trim());
+      if (!okPhone && !okEmail) return;
+      var body = { cid: cartId(), customer: cu, items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }), zone: checkoutState.zone, source: trafficSource() };
+      var key = JSON.stringify(body);
+      if (key === lastCapture) return;
+      lastCapture = key;
+      api("POST", "/api/carts/capture", body).catch(function () {});
+    }, 1200);
+  }
+  // "Complete your order" link from a reminder email: puts the bag back and opens checkout
+  function restoreCart(token) {
+    homeView.hidden = true; pageView.hidden = false;
+    head("Your bag", '<em class="alt">Welcome back</em>', "Getting your bag ready…");
+    page.innerHTML = "";
+    api("GET", "/api/carts/restore/" + encodeURIComponent(token)).then(function (r) {
+      var added = 0;
+      r.items.forEach(function (it) {
+        var p = BY_ID[it.productId];
+        if (!p) return;
+        var v = it.variantId ? variantOf(p, it.variantId) : null;
+        if (it.variantId && !v) return;
+        var max = maxQty(p, v), have = cart.filter(function (l) { return l.productId === p.id && l.variantId === (v ? v.id : null); })[0];
+        if (have || max < 1) return;
+        cart.push({ productId: p.id, variantId: v ? v.id : null, qty: Math.min(it.qty, max) }); added++;
+      });
+      saveCart();
+      var cu = store.get("customer", {});
+      if (!cu.phone && r.customer) store.set("customer", r.customer);
+      if (r.zone) checkoutState.zone = r.zone;
+      if (!added && !cart.length) toast("Those pieces have sold out. Have a look at what's new.", "warn");
+      location.replace("#" + (cart.length ? "checkout" : "shop"));
+    }, function () { toast("That link has expired. Your bag is empty.", "warn"); location.replace("#shop"); });
+  }
   function viewCheckout() {
     head('<a href="#home">Home</a> / Checkout', '<em class="alt" data-scramble>Checkout</em>', "Cash on delivery or pay online. We'll call to confirm your order.");
     if (!cart.length) {
       page.innerHTML = '<section class="shop"><div class="empty"><p>Your bag is empty.</p><a class="pill pill--dark pill--sm" href="#shop">Shop the collection</a></div></section>';
       return;
     }
+    track("checkout");
     var ship = S.settings.shipping || { zones: [] }, pay = S.settings.payments || {};
     if (!checkoutState.zone && ship.zones[0]) checkoutState.zone = ship.zones[0].id;
     var saved = store.get("customer", {});
@@ -912,7 +1558,8 @@
           '<fieldset class="panel"><legend class="panel__title">Contact</legend>' +
             field("co-name", "Full name", '<input id="co-name" name="name" required autocomplete="name" value="' + esc(saved.name || "") + '">') +
             '<div class="field-row">' + field("co-phone", "Mobile number", '<input id="co-phone" name="phone" type="tel" required autocomplete="tel" inputmode="numeric" placeholder="01XXXXXXXXX" value="' + esc(saved.phone || "") + '">') +
-            field("co-email", "Email (optional)", '<input id="co-email" name="email" type="email" autocomplete="email" value="' + esc(saved.email || "") + '">') + "</div></fieldset>" +
+            field("co-email", "Email (optional)", '<input id="co-email" name="email" type="email" autocomplete="email" value="' + esc(saved.email || "") + '">') + "</div>" +
+            '<p class="checkout__hint">Add your email to get the invoice. We keep these details so we can help if your order doesn\'t go through.</p></fieldset>' +
           '<fieldset class="panel"><legend class="panel__title">Delivery</legend>' +
             field("co-address", "Full address", '<textarea id="co-address" name="address" required rows="2" autocomplete="street-address" placeholder="House, road, area">' + esc(saved.address || "") + "</textarea>") +
             field("co-city", "District / city", '<input id="co-city" name="city" autocomplete="address-level2" placeholder="Dhaka" value="' + esc(saved.city || "") + '">') +
@@ -926,7 +1573,7 @@
             (pay.sslcommerz ? '<label class="radio"><input type="radio" name="pay" value="sslcommerz"' + (pay.cod ? "" : " checked") + '><span><b>Pay online</b>Card, bKash, Nagad, Rocket or internet banking, secured by SSLCOMMERZ.</span></label>' +
               '<div class="ssl-row"><img src="https://securepay.sslcommerz.com/public/image/SSLCommerz-Pay-With-logo-All-Size-03.png" alt="Pay with SSLCOMMERZ: cards, mobile banking and internet banking" loading="lazy" onerror="this.parentNode.classList.add(\'no-img\');this.remove()"><span class="ssl-row__fallback mono">Secured by SSLCOMMERZ</span></div>' : "") +
             '<em class="field__err" data-err="payment" hidden></em></fieldset>' +
-          '<label class="agree"><input type="checkbox" name="agree" id="co-agree" required><span>I have read and agree to the website\'s <a href="#terms" data-policy="terms">Terms &amp; conditions</a>, <a href="#privacy" data-policy="privacy">Privacy policy</a> and <a href="#refund" data-policy="refund">Return &amp; refund policy</a>.</span></label>' +
+          '<label class="agree"><input type="checkbox" name="agree" id="co-agree" required checked><span>I have read and agree to the website\'s <a href="#terms" data-policy="terms">Terms &amp; conditions</a>, <a href="#privacy" data-policy="privacy">Privacy policy</a> and <a href="#refund" data-policy="refund">Return &amp; refund policy</a>.</span></label>' +
           '<em class="field__err" data-err="agree" hidden></em>' +
           '<button class="pill pill--dark checkout__submit" type="submit" id="placeOrder">Place order · <span data-total></span></button>' +
           '<p class="checkout__note mono">' + (window.Ravelle.mode === "demo" ? "Demo store: orders are saved in this browser and shown in the admin panel." : "We'll confirm by phone before we ship.") + "</p>" +
@@ -959,15 +1606,18 @@
         msg.className = "coupon__msg mono is-bad";
       }).then(function () { btn.disabled = false; });
     });
+    form.addEventListener("input", function () { captureCart(form); });
+    captureCart(form);
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       clearErrors(form);
+      clearTimeout(captureTimer);
       var payInput = $('input[name="pay"]:checked', form);
       var body = {
         customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value },
         items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }),
         zone: checkoutState.zone, couponCode: checkoutState.coupon ? checkoutState.coupon.code : "",
-        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value
+        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo(), cartId: cartId()
       };
       var errs = {};
       if (!body.customer.name.trim()) errs.name = "Enter your name.";
@@ -979,8 +1629,11 @@
       btn.disabled = true;
       btn.firstChild.textContent = "Placing order… ";
       store.set("customer", body.customer);
+      track("payment", "", { method: body.paymentMethod === "cod" ? "Cash on delivery" : "Online payment" });
       api("POST", "/api/orders", body).then(function (r) {
         var o = r.order;
+        pixelMatch(body.customer);
+        adEvent("purchase", "", { order: o });
         o.phone = body.customer.phone;
         rememberOrder(o);
         cart = []; store.set("cart", cart); checkoutState.coupon = null; syncCount(); drawBag();
@@ -1019,8 +1672,49 @@
   // ---------------------------------------------------------------------------
   // Router
   // ---------------------------------------------------------------------------
-  var HOME_ANCHORS = { arrivals: 1, top: 1 };
+  var HOME_ANCHORS = { house: 1, arrivals: 1, lookbook: 1, top: 1 };
   var LEGACY = { "men": "category/men", "women": "category/women", "t-shirt": "category/t-shirt", "the-house": "category/the-house", "account": "track" };
+  // ---------------------------------------------------------------------------
+  // Home page popup banner: 2 seconds after the home page opens, once per visit (browser tab session)
+  // ---------------------------------------------------------------------------
+  var popupTimer = null;
+  function popupSeen() { try { return sessionStorage.getItem("ravelle:popup") === popupKey(); } catch (e) { return false; } }
+  function popupKey() { var p = S.pages.popup || {}; return String(p.version || "") + "|" + (p.title || "") + "|" + (p.image || "").slice(-40); }
+  function schedulePopup(isHome) {
+    clearTimeout(popupTimer);
+    var p = S.pages.popup || {};
+    var force = /[?&]popup\b/.test(location.search); // admin "Preview" link
+    if (!isHome || EDIT || !(p.enabled || force) || (popupSeen() && !force) || $("#popup")) return;
+    popupTimer = setTimeout(function () {
+      var h = location.hash.replace(/^#/, "");
+      if ((h && h !== "home" && !HOME_ANCHORS[h]) || (popupSeen() && !force)) return;
+      showPopup(p);
+    }, Math.max(0, (+p.delay || 2)) * 1000);
+  }
+  function showPopup(p) {
+    try { sessionStorage.setItem("ravelle:popup", popupKey()); } catch (e) {}
+    var img = p.image ? '<picture class="popup__img">' + (p.mobileImage ? '<source media="(max-width: 640px)" srcset="' + esc(p.mobileImage) + '">' : "") + '<img src="' + esc(p.image) + '" alt="' + esc(p.imageAlt || p.title || "") + '"></picture>' : "";
+    var link = p.buttonLink || "", ext = /^https?:/i.test(link);
+    var wrap = document.createElement("div");
+    wrap.id = "popup";
+    wrap.className = "popup" + (p.image ? "" : " popup--text") + (p.image && !p.title && !p.text && !p.buttonText ? " popup--image" : "");
+    wrap.innerHTML = '<div class="popup__scrim" data-popup-close></div>' +
+      '<div class="popup__box" role="dialog" aria-modal="true" aria-label="' + esc(p.title || "Offer") + '">' +
+        '<button class="popup__x" type="button" data-popup-close aria-label="Close">✕</button>' +
+        (p.image && link && !p.title && !p.text && !p.buttonText ? '<a href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + img + "</a>" : img) +
+        (p.title || p.text || p.buttonText ? '<div class="popup__copy">' + (p.eyebrow ? '<p class="eyebrow">' + esc(p.eyebrow) + "</p>" : "") +
+          (p.title ? '<h2 class="popup__title">' + br(p.title) + "</h2>" : "") + (p.text ? '<p class="popup__text">' + br(p.text) + "</p>" : "") +
+          (p.buttonText && link ? '<a class="pill pill--dark pill--arrow" href="' + esc(safe(link)) + '" data-popup-go' + (ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(p.buttonText) + ' <span class="pill__arrow" aria-hidden="true">↗</span></a>' : "") + "</div>" : "") +
+      "</div>";
+    document.body.appendChild(wrap);
+    requestAnimationFrame(function () { wrap.classList.add("is-on"); });
+    var close = function () { wrap.classList.remove("is-on"); document.removeEventListener("keydown", onKey); setTimeout(function () { wrap.remove(); }, 300); };
+    var onKey = function (e) { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    wrap.addEventListener("click", function (e) { if (e.target.closest("[data-popup-close], [data-popup-go]")) close(); });
+    setTimeout(function () { var x = $(".popup__x", wrap); if (x) x.focus({ preventScroll: true }); }, 50);
+  }
+
   function route() {
     var raw = location.hash.replace(/^#/, ""), h = decodeURIComponent(raw.split("?")[0]), query = raw.split("?")[1] || "";
     if (LEGACY[h]) h = LEGACY[h];
@@ -1028,6 +1722,7 @@
     if (h.indexOf("c-") === 0) h = "category/" + h.slice(2);
     if (h.indexOf("soon-") === 0) h = "category/" + h.slice(5);
     closeBag(); closeMenu(); closeModal();
+    track("page", "", { path: pagePath() });
     if (!h || h === "home" || HOME_ANCHORS[h]) {
       pageView.hidden = true;
       homeView.hidden = false;
@@ -1035,10 +1730,13 @@
       var target = HOME_ANCHORS[h] && h !== "top" ? document.getElementById(h) : null;
       if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
       onScroll();
+      schedulePopup(true);
       return;
     }
     homeView.hidden = true;
     pageView.hidden = false;
+    LIVE = {};
+    clearTimeout(popupTimer);
     var parts = h.split("/");
     if (SHOPS[h]) viewListing(SHOPS[h]());
     else if (parts[0] === "product") viewProduct(parts[1]);
@@ -1046,10 +1744,13 @@
     else if (parts[0] === "search") viewSearch(parts.slice(1).join("/"));
     else if (parts[0] === "order") viewOrder(parts[1], query);
     else if (h === "checkout") viewCheckout();
+    else if (parts[0] === "restore") return restoreCart(parts[1]);
     else if (h === "track") viewTrack();
     else if (h === "saved") viewSaved();
     else if (h === "about") viewAbout();
     else if (h === "contact") viewContact();
+    else if (h === "store-locations" || h === "stores") viewStores();
+    else if (h === "franchise") viewFranchise();
     else if (S.pages[h] && POLICIES.some(function (x) { return x[0] === h; })) viewPolicy(h);
     else viewMissing();
     var t = $("h1", pagehead) || $("h1", page);
@@ -1083,7 +1784,7 @@
     }
     if (line) line.qty += qty; else cart.push({ productId: p.id, variantId: v ? v.id : null, qty: qty });
     saveCart();
-    track("cart", p.id);
+    track("cart", p.id, { qty: qty });
     if (!quiet) toast("Added to bag · " + esc(shortName(p)) + (v ? " · " + esc(optText(v.options)) : ""));
     return true;
   }
@@ -1188,7 +1889,8 @@
     var greet = (S.settings.chat || {}).greeting;
     var list = chat.messages.length ? chat.messages : greet ? [{ from: "bot", text: greet, at: Date.now() }] : [];
     box.innerHTML = list.map(function (m) {
-      return '<div class="msg msg--' + (m.from === "customer" ? "me" : "them") + '"><p>' + br(m.text) + '</p><span class="mono">' +
+      var pic = m.image ? '<a class="msg__img" href="' + esc(safe(m.image)) + '" target="_blank" rel="noopener"><img src="' + esc(m.image) + '" alt="Photo"></a>' : "";
+      return '<div class="msg msg--' + (m.from === "customer" ? "me" : "them") + (m.image ? " msg--img" : "") + '">' + pic + (m.text ? "<p>" + br(m.text) + "</p>" : "") + '<span class="mono">' +
         (m.from === "customer" ? "You" : esc(m.author || (S.settings.chat || {}).title || "Ravelle")) + " · " + new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span></div>";
     }).join("");
     box.scrollTop = box.scrollHeight;
@@ -1214,11 +1916,11 @@
       chat.timer = setTimeout(pollChat, chat.open ? 3500 : 20000);
     });
   }
-  function sendChat(text) {
+  function sendChat(text, image) {
     var go = function () {
-      var msg = { id: "tmp" + Date.now(), from: "customer", text: text, at: Date.now() };
+      var msg = { id: "tmp" + Date.now(), from: "customer", text: text, image: image, at: Date.now() };
       chat.messages.push(msg); drawChat();
-      return api("POST", "/api/chat/" + chat.session.id + "/messages", { token: chat.session.token, text: text, since: chat.last, name: $("#chatName").value }).then(function (r) {
+      return api("POST", "/api/chat/" + chat.session.id + "/messages", { token: chat.session.token, text: text, image: image || undefined, since: chat.last, name: $("#chatName").value }).then(function (r) {
         chat.messages = chat.messages.filter(function (m) { return m !== msg; });
         r.messages.forEach(function (m) { if (!chat.messages.some(function (x) { return x.id === m.id; })) chat.messages.push(m); });
         chat.messages.sort(function (a, b) { return a.at - b.at; });
@@ -1227,13 +1929,17 @@
         pollChat();
       });
     };
+    if (!chat.session) track("contact", "", { method: "Live chat" });
     var start = chat.session ? Promise.resolve() : api("POST", "/api/chat/start", { name: $("#chatName").value, page: location.hash }).then(function (r) {
       chat.session = { id: r.id, token: r.token };
       store.set("chat", chat.session);
       chat.messages = r.messages;
       chat.last = r.messages.length ? r.messages[r.messages.length - 1].at : 0;
     });
-    return start.then(go).catch(function (err) { toast(esc(err.message || "Chat isn't available right now."), "warn"); });
+    return start.then(go).catch(function (err) {
+      chat.messages = chat.messages.filter(function (m) { return String(m.id).indexOf("tmp") !== 0; }); drawChat();
+      toast(esc(err.message || "Chat isn't available right now."), "warn");
+    });
   }
   function toggleChat(force) {
     chat.open = force === undefined ? !chat.open : force;
@@ -1249,6 +1955,35 @@
     t.value = "";
     sendChat(text);
   });
+  // "+" button: pick a photo, shrink it to 1280 px and send it
+  function shrinkPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+        var cv = document.createElement("canvas");
+        cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        var out = cv.toDataURL("image/webp", 0.82);
+        resolve(out.indexOf("data:image/webp") === 0 ? out : cv.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("That file isn't a photo we can open.")); };
+      img.src = url;
+    });
+  }
+  $("#chatAttach").addEventListener("click", function () { $("#chatFile").click(); });
+  $("#chatFile").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!/^image\//.test(f.type)) { toast("Choose a photo (JPG, PNG or WebP).", "warn"); return; }
+    shrinkPhoto(f).then(function (data) {
+      var t = $("#chatText"), text = t.value.trim();
+      t.value = "";
+      sendChat(text, data);
+    }, function (err) { toast(esc(err.message), "warn"); });
+  });
   $("#chatText").addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chatForm").requestSubmit(); }
   });
@@ -1256,11 +1991,158 @@
   // ---------------------------------------------------------------------------
   // Analytics: one visit per browser per day, product views and add-to-bags
   // ---------------------------------------------------------------------------
-  var sid = store.get("sid", null);
+  var sid = store.get("sid", null), sidNew = !sid;
   if (!sid) { sid = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set("sid", sid); }
-  function track(type, productId) {
+  // Where this visit came from: a utm_source tag, an ad click id, or the site that linked here
+  function trafficSource() {
+    var saved = null;
+    try { saved = sessionStorage.getItem("ravelle:src"); } catch (e) {}
+    if (saved) return saved;
+    var q = location.search, utm = (q.match(/[?&]utm_source=([^&#]+)/) || [])[1], src = "Direct";
+    var ref = "";
+    try { ref = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, "") : ""; } catch (e) {}
+    if (ref === location.hostname.replace(/^www\./, "")) ref = "";
+    var named = [[/facebook|fb\.|fbclid/i, "Facebook"], [/instagram/i, "Instagram"], [/google|gclid/i, "Google"], [/bing/i, "Bing"], [/youtube|youtu\.be/i, "YouTube"],
+      [/tiktok/i, "TikTok"], [/whatsapp|wa\.me/i, "WhatsApp"], [/messenger|m\.me/i, "Messenger"], [/t\.co$|twitter|x\.com/i, "X (Twitter)"], [/linkedin/i, "LinkedIn"], [/pinterest/i, "Pinterest"]];
+    var name = function (s) { for (var i = 0; i < named.length; i++) if (named[i][0].test(s)) return named[i][1]; return null; };
+    if (utm) { utm = decodeURIComponent(utm).replace(/\+/g, " "); src = name(utm) || utm.charAt(0).toUpperCase() + utm.slice(1); }
+    else if (/[?&]fbclid=/.test(q)) src = ref && /instagram/i.test(ref) ? "Instagram" : "Facebook";
+    else if (/[?&]gclid=/.test(q)) src = "Google Ads";
+    else if (ref) src = name(ref) || ref;
+    src = src.slice(0, 40);
+    try { sessionStorage.setItem("ravelle:src", src); } catch (e) {}
+    return src;
+  }
+  function deviceInfo() {
+    var ua = navigator.userAgent, w = Math.min(screen.width || innerWidth, innerWidth || 9999);
+    var dev = /iPad|Tablet/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua)) ? "Tablet" : /Mobi|iPhone|Android/i.test(ua) || w < 600 ? "Mobile" : "Desktop";
+    var br = /FBAN|FBAV|FB_IAB/.test(ua) ? "Facebook app" : /Instagram/.test(ua) ? "Instagram app" : /SamsungBrowser/.test(ua) ? "Samsung Internet" :
+      /OPR\/|Opera/.test(ua) ? "Opera" : /Edg\//.test(ua) ? "Edge" : /UCBrowser/.test(ua) ? "UC Browser" : /Firefox|FxiOS/.test(ua) ? "Firefox" :
+      /Chrome|CriOS/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "Other";
+    var os = /Android/.test(ua) ? "Android" : /iPhone|iPad|iPod/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /CrOS/.test(ua) ? "ChromeOS" : /Linux/.test(ua) ? "Linux" : "Other";
+    return { dev: dev, br: br, os: os };
+  }
+  // Shopping events for Meta Pixel (fbq) and Google Analytics 4 (gtag), when their IDs are set in Admin > Header & footer
+  var adPages = 0;
+  // Meta cookies and page address, sent along so the server copy of each event matches the browser one
+  function metaInfo() {
+    var ck = function (n) { var m = document.cookie.match(new RegExp("(?:^|; )" + n + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : ""; };
+    var fbc = ck("_fbc"), click = (location.search.match(/[?&]fbclid=([^&#]+)/) || [])[1];
+    if (!fbc && click) fbc = "fb.1." + Date.now() + "." + click;
+    // Google Analytics ids, so the server's purchase joins the visitor's session in GA
+    var gaCid = (ck("_ga").match(/^GA\d\.\d\.(.+)$/) || [])[1] || "";
+    var gid = ((S.settings.code || {}).gaId || "").replace(/^G-/, ""), gs = gid ? ck("_ga_" + gid) : "";
+    var gaSid = (gs.match(/^GS1\.\d\.(\d+)/) || gs.match(/^GS2\.\d\.s(\d+)/) || [])[1] || "";
+    return { fbp: ck("_fbp"), fbc: fbc, url: location.href.slice(0, 500), sid: sid, gaCid: gaCid, gaSid: gaSid };
+  }
+  function eventId() { return "ev." + Date.now().toString(36) + "." + Math.random().toString(36).slice(2, 10); }
+  function adEvent(type, productId, info, eid) {
     if (EDIT) return;
-    api("POST", "/api/track", { type: type, productId: productId || "", sid: sid }).catch(function () {});
+    var fb = typeof window.fbq === "function" ? window.fbq : null, ga = typeof window.gtag === "function" ? window.gtag : null;
+    if (!fb && !ga) return;
+    info = info || {};
+    var opt = eid ? { eventID: eid } : undefined;
+    var p = productId ? BY_ID[productId] : null, qty = info.qty || 1;
+    var catOf = function (x) { var c = CAT_BY_ID[x.categoryIds[x.categoryIds.length - 1]] || CAT_BY_ID[x.categoryIds[0]]; return c ? c.name : ""; };
+    var gaItem = function (x, q) { return { item_id: x.sku, item_name: x.name, item_variant: x.color, item_category: catOf(x), price: x.price, quantity: q || 1 }; };
+    var bag = function () {
+      var lines = cart.map(function (l) { var x = BY_ID[l.productId]; return x ? { p: x, qty: l.qty } : null; }).filter(Boolean);
+      return { lines: lines, value: lines.reduce(function (s, l) { return s + l.p.price * l.qty; }, 0), units: lines.reduce(function (s, l) { return s + l.qty; }, 0) };
+    };
+    // One product, in the shape Meta's catalog and Advantage+ ads expect
+    var one = function (x, q) {
+      return { content_ids: [x.sku], content_name: x.name, content_category: catOf(x), content_type: "product",
+        contents: [{ id: x.sku, quantity: q, item_price: x.price }], value: x.price * q, currency: "BDT" };
+    };
+    var many = function (b) {
+      return { content_ids: b.lines.map(function (l) { return l.p.sku; }), content_type: "product", contents: b.lines.map(function (l) { return { id: l.p.sku, quantity: l.qty, item_price: l.p.price }; }),
+        num_items: b.units, value: b.value, currency: "BDT" };
+    };
+    var send = function (name, params, custom) { if (fb) fb(custom ? "trackCustom" : "track", name, params || {}, opt); };
+    try {
+      if (type === "page") {
+        // Every Pixel page view is sent from here (with an event ID). GA sends the first one itself.
+        send("PageView");
+        if (adPages++ && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
+      } else if (type === "view" && p) {
+        send("ViewContent", one(p, 1));
+        if (ga) ga("event", "view_item", { currency: "BDT", value: p.price, items: [gaItem(p)] });
+      } else if (type === "cart" && p) {
+        send("AddToCart", one(p, qty));
+        if (ga) ga("event", "add_to_cart", { currency: "BDT", value: p.price * qty, items: [gaItem(p, qty)] });
+      } else if (type === "wishlist" && p) {
+        send("AddToWishlist", one(p, 1));
+        if (ga) ga("event", "add_to_wishlist", { currency: "BDT", value: p.price, items: [gaItem(p)] });
+      } else if (type === "category") {
+        var ids = (info.ids || []).slice(0, 20);
+        send("ViewCategory", { content_category: info.name || "", content_ids: ids, content_type: "product" }, true);
+        if (ga) ga("event", "view_item_list", { item_list_name: info.name || "" });
+      } else if (type === "checkout" || type === "payment") {
+        var b = bag(), d = many(b);
+        if (type === "payment") d.payment_method = info.method || "";
+        send(type === "checkout" ? "InitiateCheckout" : "AddPaymentInfo", d);
+        if (ga) ga("event", type === "checkout" ? "begin_checkout" : "add_payment_info", Object.assign({ currency: "BDT", value: b.value, items: b.lines.map(function (l) { return gaItem(l.p, l.qty); }) },
+          type === "payment" ? { payment_type: info.method || "" } : {}));
+      } else if (type === "search" && info.q) {
+        send("Search", { search_string: info.q, content_type: "product", content_ids: (info.ids || []).slice(0, 10) });
+        if (ga) ga("event", "search", { search_term: info.q });
+      } else if (type === "lead") {
+        send("Lead", { content_name: info.topic || "Newsletter", content_category: "email signup" });
+        if (ga) ga("event", "generate_lead", { lead_source: info.topic || "newsletter" });
+      } else if (type === "contact") {
+        send("Contact", { content_name: info.method || "" });
+        if (ga) ga("event", "contact", { method: info.method || "" });
+      } else if (type === "purchase" && info.order) {
+        var o = info.order, skuOf = function (l) { return (BY_ID[l.productId] || {}).sku || l.sku; };
+        // The order number is the event ID, the same one the server sends to the Conversions API
+        if (fb) fb("track", "Purchase", { content_ids: o.items.map(skuOf), content_type: "product",
+          contents: o.items.map(function (l) { return { id: skuOf(l), quantity: l.qty, item_price: l.price }; }),
+          num_items: o.items.reduce(function (s, l) { return s + l.qty; }, 0), value: o.total, currency: "BDT", order_id: o.number }, { eventID: o.number });
+        if (ga) ga("event", "purchase", { transaction_id: o.number, currency: "BDT", value: o.total, shipping: o.shipping || 0, coupon: o.coupon || undefined,
+          items: o.items.map(function (l) { return { item_id: skuOf(l), item_name: l.name, item_variant: l.color, price: l.price, quantity: l.qty }; }) });
+      }
+    } catch (e) {}
+  }
+  // Advanced matching: tell the Pixel who the shopper is when they have checked out before on this browser
+  var matched = false;
+  function pixelMatch(cu) {
+    var id = (S.settings.code || {}).pixelId;
+    if (!id || typeof window.fbq !== "function" || EDIT) return;
+    cu = cu || store.get("customer", null);
+    if (matched && !cu) return;
+    var ud = { external_id: sid, country: "bd" };
+    if (cu) {
+      var names = String(cu.name || "").trim().toLowerCase().split(/\s+/), ph = String(cu.phone || "").replace(/[^\d]/g, "");
+      if (ph) ud.ph = ph.length === 11 ? "88" + ph : ph;
+      if (cu.email) ud.em = String(cu.email).trim().toLowerCase();
+      if (names[0]) ud.fn = names[0];
+      if (names.length > 1) ud.ln = names[names.length - 1];
+      if (cu.city) ud.ct = String(cu.city).toLowerCase().replace(/[^a-z]/g, "");
+    }
+    try { window.fbq("init", id, ud); matched = true; } catch (e) {}
+  }
+  function track(type, productId, info) {
+    if (EDIT) return;
+    var eid = eventId();
+    if (!matched) pixelMatch();
+    adEvent(type, productId, info, eid);
+    var body = { type: type, productId: productId || "", sid: sid, eid: eid };
+    if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
+    var mi = metaInfo();
+    body.fbp = mi.fbp; body.fbc = mi.fbc; body.url = mi.url;
+    if (type === "checkout" || type === "payment") body.items = cart.map(function (l) { return { productId: l.productId, qty: l.qty }; });
+    // Details the shopper gave at an earlier checkout; the server hashes them before they go to Meta
+    var cu = store.get("customer", null);
+    if (cu) body.cu = { name: cu.name || "", phone: cu.phone || "", email: cu.email || "", city: cu.city || "" };
+    api("POST", "/api/track", body).catch(function () {});
+  }
+  function pagePath() {
+    var h = decodeURIComponent(location.hash.replace(/^#\/?/, "").split("?")[0]);
+    if (!h || h === "home" || HOME_ANCHORS[h]) return "home";
+    if (/^order\//.test(h)) return "order";
+    if (/^search\//.test(h)) return "search";
+    if (h.indexOf("p-") === 0) return "product/" + h.slice(2);
+    return h.slice(0, 80);
   }
 
   // ---------------------------------------------------------------------------
@@ -1269,11 +2151,13 @@
   document.addEventListener("click", function (e) {
     var t = e.target;
     if (EDIT && t.closest("a") && !t.closest("[data-allow]")) { e.preventDefault(); }
+    var reach = t.closest('a[href*="wa.me/"], a[href^="tel:"], a[href*="m.me/"]');
+    if (reach && !EDIT) track("contact", "", { method: /wa\.me/.test(reach.href) ? "WhatsApp" : /m\.me/.test(reach.href) ? "Messenger" : "Phone call" });
     var save = t.closest("[data-save]");
     if (save) {
       e.preventDefault();
       var id = save.dataset.save, at = saved.indexOf(id);
-      if (at > -1) saved.splice(at, 1); else saved.push(id);
+      if (at > -1) saved.splice(at, 1); else { saved.push(id); track("wishlist", id); }
       store.set("saved", saved);
       $$('[data-save="' + id + '"]').forEach(function (b) { b.setAttribute("aria-pressed", at > -1 ? "false" : "true"); });
       toast(at > -1 ? "Removed from saved" : 'Saved · <a href="#saved">View saved</a>');
@@ -1318,6 +2202,7 @@
       e.preventDefault();
       var email = $("input[type=email]", f).value;
       var topic = f.dataset.notify || "new drops";
+      track("lead", "", { topic: topic, em: email });
       api("POST", "/api/contact", { name: "Drop alert", email: email, subject: "Drop alert: " + topic, message: "Please email me when " + topic + " is available." }).catch(function () {});
       f.hidden = true;
       var ok = f.id === "news" ? $("#newsOk") : f.nextElementSibling;
@@ -1372,8 +2257,9 @@
       var m = e.data || {};
       if (m.type === "ravelle:page" && m.key && m.page) {
         S.pages[m.key] = m.page;
-        if (m.key === "home") { bind(homeView, m.page); bind($("#footer"), m.page); editable(homeView); }
+        if (m.key === "home") { bind(homeView, m.page); bind($("#footer"), m.page); drawLook(current); editable(homeView); }
         else {
+          if (LIVE[m.key]) LIVE[m.key]();
           var root = document.querySelectorAll('[data-page="' + m.key + '"]');
           if (root.length) Array.prototype.forEach.call(root, function (r) { bind(r, m.page); editable(r); });
         }
@@ -1408,10 +2294,8 @@
   window.Ravelle.ready.then(reloadStore).then(function () {
     document.documentElement.classList.add("is-ready");
     var heroWord = $(".hero [data-scramble]");
-    var intro = document.documentElement.classList.contains("js-intro");
-    if (heroWord && intro && io) setTimeout(function () { scramble(heroWord); }, 2350);
     setTimeout(function () { document.documentElement.classList.remove("js-intro"); }, 3600);
-    activate(homeView, intro ? heroWord : null);
+    activate(homeView, heroWord); // the hero word eases in with CSS, never scrambles
     activate($("#footer"));
     route();
     if (chatEnabled()) {
@@ -1422,7 +2306,8 @@
     }
     if (!store.get("cookies", 0) && !EDIT) $("#cookies").hidden = false;
     if (window.Ravelle.mode === "demo" && !EDIT) $("#demoBar").hidden = false;
-    track("visit");
+    var di = deviceInfo();
+    track("visit", "", { src: trafficSource(), dev: di.dev, br: di.br, os: di.os, nv: sidNew, path: pagePath() });
   }, function (err) {
     console.error(err);
     toast("The store couldn't load. Refresh to try again.", "warn");

@@ -36,6 +36,13 @@ The online store for [Ravelle – A Life Style Brand](https://ravellebd.com/): s
 3. Add your **SSLCOMMERZ** Store ID in Settings and the store password in `.env`, test in sandbox mode, then switch to live.
 4. Replace the sample size guide on each product with your real chart.
 5. Change the admin password (**Your account**).
+6. **Turn SSLCOMMERZ sandbox mode off** before taking real orders. In sandbox, test cards mark orders as paid.
+7. Serve the site over **HTTPS** only, and keep `data/` and `.env` out of the web folder and out of git.
+8. If the store runs behind nginx, Caddy, cPanel's Node app or Cloudflare, set `TRUST_PROXY=1` in `.env` so rate limits see real visitor addresses.
+
+### Who can change what
+
+Only an **owner** can change custom head/body code, the Gmail server and app password, Meta and GA secrets, the Acore address and key, and SSLCOMMERZ settings. Staff who can open **Users** can't give anyone more access than they have, and can't edit or remove an owner. An account locks for 15 minutes after 10 wrong passwords. `npm run test:security` checks all of this.
 
 ## Run it
 
@@ -48,6 +55,8 @@ npm test                # end-to-end API check
 ```
 
 On first start the store is filled with the 41 products from the October 2026 shoot and the categories from ravellebd.com, and the first admin account is made from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (a random password is printed if you leave it empty).
+
+Forgot an admin password? Use **Forgot password?** on the admin sign-in page: it emails a one-time link (valid 30 minutes) once email is set up in **Email & reminders**. The owner can also set a staff member's password in **Users**. If nobody can sign in, stop the store and run `node server/reset-password.js you@example.com "new password"`, then start it again.
 
 ### `.env`
 
