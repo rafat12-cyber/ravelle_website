@@ -36,6 +36,13 @@ The online store for [Ravelle – A Life Style Brand](https://ravellebd.com/): s
 3. Add your **SSLCOMMERZ** Store ID in Settings and the store password in `.env`, test in sandbox mode, then switch to live.
 4. Replace the sample size guide on each product with your real chart.
 5. Change the admin password (**Your account**).
+6. **Turn SSLCOMMERZ sandbox mode off** before taking real orders. In sandbox, test cards mark orders as paid.
+7. Serve the site over **HTTPS** only, and keep `data/` and `.env` out of the web folder and out of git.
+8. If the store runs behind nginx, Caddy, cPanel's Node app or Cloudflare, set `TRUST_PROXY=1` in `.env` so rate limits see real visitor addresses.
+
+### Who can change what
+
+Only an **owner** can change custom head/body code, the Gmail server and app password, Meta and GA secrets, the Acore address and key, and SSLCOMMERZ settings. Staff who can open **Users** can't give anyone more access than they have, and can't edit or remove an owner. An account locks for 15 minutes after 10 wrong passwords. `npm run test:security` checks all of this.
 
 ## Run it
 
