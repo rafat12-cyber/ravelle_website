@@ -156,7 +156,8 @@
   }
   function siteCode(s) {
     var c = (s && s.code) || {};
-    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "", gaSecret: c.gaSecret || "" };
+    return { head: c.head || "", bodyEnd: c.bodyEnd || "", gaId: c.gaId || "", pixelId: c.pixelId || "", capiToken: c.capiToken || "", capiTest: c.capiTest || "", gaSecret: c.gaSecret || "",
+      catalogId: c.catalogId || "", catalogToken: c.catalogToken || "" };
   }
   // The tracking snippets that go in <head>: Google Analytics 4, Meta Pixel, then any custom code
   function headCode(s) {
@@ -511,6 +512,14 @@
       } });
     }
     // Admin "test" buttons on the Pixel & Analytics page
+    // Sends every product to the Meta catalog now (it's also kept in step on every change)
+    route("POST", "/api/catalog/sync", "settings", function (c) {
+      var code = siteCode(c.db.settings);
+      if (!code.catalogId) fail(400, "Add the catalog ID first.");
+      if (!code.catalogToken && !code.capiToken) fail(400, "Add an access token first.");
+      if (!host.catalogSync) fail(400, "The catalog is updated from the live store. The demo has no server.");
+      return host.catalogSync(null);
+    });
     route("POST", "/api/tracking/test", "settings", function (c) {
       var code = siteCode(c.db.settings), kind = str(c.body.kind, 10);
       if (kind === "meta") {
@@ -1939,6 +1948,7 @@
       s.layout = siteLayout(c.db.settings); s.code = siteCode(c.db.settings);
       s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
       s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
+      s.code.catalogTokenSet = !!s.code.catalogToken; s.code.catalogToken = "";
       if (s.email) { s.email.passwordSet = !!s.email.password; s.email.password = ""; }
       var ac = acoreSettings(c.db);
       s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: isOwner(c.auth) ? ac.webhookSecret : (ac.webhookSecret ? "Only the owner can see this" : ""), since: ac.since };
@@ -2016,7 +2026,8 @@
         var code = siteCode(s), bc = b.code;
         // Custom code runs on every page for every visitor (and in the admin's page editor), so only the owner may change it
         if ((bc.head !== undefined && String(bc.head || "").slice(0, 20000) !== code.head) || (bc.bodyEnd !== undefined && String(bc.bodyEnd || "").slice(0, 20000) !== code.bodyEnd) ||
-          bc.capiToken || bc.capiTokenClear || bc.gaSecret || bc.gaSecretClear) needOwner(c, "change custom code or tracking secrets");
+          bc.capiToken || bc.capiTokenClear || bc.gaSecret || bc.gaSecretClear || bc.catalogToken || bc.catalogTokenClear ||
+          (bc.catalogId !== undefined && String(bc.catalogId || "").trim() !== code.catalogId)) needOwner(c, "change custom code or tracking secrets");
         if (bc.head !== undefined) code.head = String(bc.head || "").slice(0, 20000);
         if (bc.bodyEnd !== undefined) code.bodyEnd = String(bc.bodyEnd || "").slice(0, 20000);
         if (bc.gaId !== undefined) { code.gaId = String(bc.gaId || "").trim().toUpperCase(); if (code.gaId && !/^G-[A-Z0-9]{4,20}$/.test(code.gaId)) fail(400, "The Google Analytics ID looks like G-XXXXXXXXXX."); }
@@ -2025,6 +2036,10 @@
         if (bc.gaSecret) code.gaSecret = String(bc.gaSecret).trim().slice(0, 200);
         if (bc.gaSecretClear) code.gaSecret = "";
         if (bc.capiTest !== undefined) code.capiTest = str(bc.capiTest, 30);
+        // Meta catalog: product changes are pushed to it the moment they're saved
+        if (bc.catalogId !== undefined) { code.catalogId = String(bc.catalogId || "").trim(); if (code.catalogId && !/^\d{6,25}$/.test(code.catalogId)) fail(400, "The catalog ID is a number. Commerce Manager › Settings › Catalog details."); }
+        if (bc.catalogToken) code.catalogToken = String(bc.catalogToken).trim().slice(0, 600);
+        if (bc.catalogTokenClear) code.catalogToken = "";
         if (bc.pixelId !== undefined) { code.pixelId = String(bc.pixelId || "").trim(); if (code.pixelId && !/^\d{6,20}$/.test(code.pixelId)) fail(400, "The Meta Pixel ID is a number, like 123456789012345."); }
         s.code = code;
       }

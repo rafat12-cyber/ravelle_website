@@ -92,6 +92,7 @@ function hashPassword(pw, salt) { return "scrypt$" + crypto.scryptSync(String(pw
 // ---------------------------------------------------------------------------
 var outbox = [];
 function emit(event, data, database, onlyHook) {
+  if (!onlyHook) catalogWatch(event, data);
   (database.webhooks || []).forEach(function (w) {
     if (onlyHook ? w.id !== onlyHook : !w.active || !(w.events.indexOf("*") > -1 || w.events.indexOf(event) > -1)) return;
     outbox.push({ hook: w, event: event, data: data, id: "evt_" + random(8), at: Date.now() });
@@ -114,6 +115,65 @@ function deliver(job, attempt) {
     if (live) live.lastStatus = { ok: ok, status: err ? "error" : status, at: Date.now() };
     save();
     if (!ok && attempt < 3) setTimeout(function () { deliver(job, attempt + 1); }, attempt === 1 ? 5000 : 30000);
+  });
+}
+// Meta catalog: every product change is pushed to the catalog in Commerce Manager a few seconds after it's saved,
+// so catalog ads and the Shop show the new price, photos and stock without waiting for the feed to be re-read.
+var catalogPending = {}, catalogTimer = null, catalogStatus = null;
+function catalogConf() {
+  var c = Core.siteCode(db.settings);
+  return c.catalogId && (c.catalogToken || c.capiToken) ? { id: c.catalogId, token: c.catalogToken || c.capiToken } : null;
+}
+function catalogWatch(event, data) {
+  if (!catalogConf() || !data) return;
+  var mark = function (pid, sku) { if (pid) catalogPending[pid] = catalogPending[pid] || sku || true; };
+  if (event === "product.created" || event === "product.updated") mark(data.id, data.sku);
+  else if (event === "product.deleted") catalogPending["deleted:" + data.sku] = data.sku;
+  else if (event === "stock.updated") mark(data.productId, data.sku);
+  // Orders take stock out (and cancelled or returned ones put it back)
+  else if (event === "order.created" || event === "order.updated") (data.items || []).forEach(function (i) { mark(i.productId); });
+  else return;
+  clearTimeout(catalogTimer);
+  catalogTimer = setTimeout(catalogFlush, 3000);
+}
+function catalogFlush() {
+  var conf = catalogConf(), keys = Object.keys(catalogPending), base = PUBLIC_URL;
+  catalogPending = {};
+  if (!conf || !keys.length) return;
+  var requests = [];
+  keys.forEach(function (k) {
+    if (k.indexOf("deleted:") === 0) return requests.push({ method: "DELETE", data: { id: k.slice(8) } });
+    var p = db.products.filter(function (x) { return x.id === k; })[0];
+    var item = p && p.status !== "draft" ? Seo.metaItem(db, base, p) : null;
+    if (item) requests.push({ method: "UPDATE", data: item });
+    else if (p && p.sku) requests.push({ method: "DELETE", data: { id: p.sku } });
+  });
+  catalogSend(conf, requests, "update");
+}
+function catalogSyncAll() {
+  var conf = catalogConf();
+  var requests = Seo.catalogProducts(db).map(function (p) { return { method: "UPDATE", data: Seo.metaItem(db, PUBLIC_URL, p) }; }).filter(function (r) { return r.data; });
+  catalogSend(conf, requests, "sync");
+  return { ok: true, sent: requests.length, message: "Sending " + requests.length + " products to the Meta catalog. The result shows here in a few seconds." };
+}
+function catalogSend(conf, requests, kind) {
+  if (!requests.length) return;
+  var chunks = [];
+  for (var i = 0; i < requests.length; i += 1000) chunks.push(requests.slice(i, i + 1000));
+  chunks.forEach(function (chunk) {
+    var body = JSON.stringify({ access_token: conf.token, item_type: "PRODUCT_ITEM", allow_upsert: true, requests: chunk });
+    var url = (process.env.META_GRAPH_URL || "https://graph.facebook.com/v21.0") + "/" + encodeURIComponent(conf.id) + "/items_batch";
+    var req = (url.indexOf("https:") === 0 ? https : http).request(url, { method: "POST", timeout: 15000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, function (res) {
+      readAll(res, function (txt) {
+        var msg;
+        try { var j = JSON.parse(txt); msg = j.error ? j.error.message : (kind === "sync" ? "Sent all " : "Updated ") + chunk.length + " product" + (chunk.length === 1 ? "" : "s"); } catch (e) { msg = "HTTP " + res.statusCode; }
+        catalogStatus = { at: Date.now(), ok: res.statusCode === 200, count: chunk.length, message: String(msg).slice(0, 300) };
+        if (res.statusCode !== 200) console.warn("Meta catalog:", msg);
+      });
+    });
+    req.on("timeout", function () { req.destroy(new Error("Timed out")); });
+    req.on("error", function (e) { catalogStatus = { at: Date.now(), ok: false, count: chunk.length, message: e.message }; });
+    req.end(body);
   });
 }
 // Meta Conversions API: send one event straight to Meta from this server (no Google Tag Manager or other app)
@@ -376,8 +436,8 @@ setInterval(function () { run({ method: "POST", path: "/api/internal/cart-remind
 
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
-  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
-  metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
+  describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; s.code.catalogStatus = catalogStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
+  metaEvent: metaEvent, gaEvent: gaEvent, catalogSync: catalogSyncAll, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });
 
 // ---------------------------------------------------------------------------

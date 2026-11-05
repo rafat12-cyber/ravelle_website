@@ -11,8 +11,19 @@ var assert = require("assert");
 
 var dir = fs.mkdtempSync(path.join(os.tmpdir(), "ravelle-mkt-"));
 var PORT = 4100 + Math.floor(Math.random() * 90);
+// A stand-in for Meta's Graph API, to see what the store sends to the catalog
+var GRAPH_PORT = PORT + 200, graphCalls = [];
+var graph = http.createServer(function (req, res) {
+  var b = [];
+  req.on("data", function (c) { b.push(c); });
+  req.on("end", function () {
+    graphCalls.push({ url: req.url, body: JSON.parse(Buffer.concat(b).toString() || "{}") });
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"handles":["h1"]}');
+  });
+}).listen(GRAPH_PORT);
 var child = spawn(process.execPath, [path.join(__dirname, "server.js")], {
-  env: Object.assign({}, process.env, { PORT: PORT, DATA_DIR: dir, ADMIN_EMAIL: "owner@test.com", ADMIN_PASSWORD: "test-password-1", PUBLIC_URL: "https://shop.example" }),
+  env: Object.assign({}, process.env, { PORT: PORT, DATA_DIR: dir, ADMIN_EMAIL: "owner@test.com", ADMIN_PASSWORD: "test-password-1", PUBLIC_URL: "https://shop.example",
+    META_GRAPH_URL: "http://127.0.0.1:" + GRAPH_PORT }),
   stdio: ["ignore", "pipe", "inherit"]
 });
 
@@ -173,11 +184,36 @@ async function main() {
   assert.ok(r.body.rows.some(function (x) { return x.phone === "+8801712345678" && x.kind === "buyer"; }), "buyers in the audience, phone in +880 format");
   assert.ok(r.body.rows.some(function (x) { return x.email === "fan@example.com"; }), "subscribers in the audience");
   console.log("✓ subscribers, popup welcome code, ad audience export");
+
+  // --- Instant Meta catalog updates ---------------------------------------------------------------
+  r = await call("PUT", "/api/settings", { settings: { code: { catalogId: "998877665544", catalogToken: "EAAtest" } } }, token);
+  assert.equal(r.status, 200);
+  r = await call("GET", "/api/settings", null, token);
+  assert.ok(r.body.settings.code.catalogTokenSet && !r.body.settings.code.catalogToken, "the token isn't sent back");
+  graphCalls = [];
+  await call("PUT", "/api/products/" + tee2.id, { price: 777 }, token);
+  await wait(3600);
+  var up = graphCalls.filter(function (c) { return /\/998877665544\/items_batch$/.test(c.url); })[0];
+  assert.ok(up, "product change sent to the catalog");
+  assert.equal(up.body.access_token, "EAAtest");
+  var item = up.body.requests.filter(function (x) { return x.data.id === tee2.sku; })[0];
+  assert.ok(item && item.method === "UPDATE" && item.data.sale_price === "777.00 BDT" && item.data.link === "https://shop.example/product/" + tee2.slug, "the item has the new price and link");
+  graphCalls = [];
+  await call("DELETE", "/api/products/" + tee2.id, null, token);
+  await wait(3600);
+  assert.ok(graphCalls.some(function (c) { return c.body.requests.some(function (x) { return x.method === "DELETE" && x.data.id === tee2.sku; }); }), "deleted product removed from the catalog");
+  graphCalls = [];
+  r = await call("POST", "/api/catalog/sync", {}, token);
+  assert.ok(r.body.sent > 30, "send all");
+  await wait(500);
+  assert.equal(graphCalls[0].body.requests.length, r.body.sent);
+  console.log("✓ Meta catalog: edits and deletes pushed within seconds, send-all works");
   console.log("\nAll marketing checks passed.");
 }
 
 main().then(function () { done(0); }, function (e) { console.error("✗", e.message); done(1); });
 function done(code) {
+  graph.close();
   child.on("exit", function () {
     fs.rmSync(dir, { recursive: true, force: true });
     process.exit(code);

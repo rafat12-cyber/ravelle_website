@@ -2014,6 +2014,18 @@
           <p class="muted small" style="margin:0 0 10px">These links update by themselves whenever you change a product, price or stock. Give them to Meta and Google once; they re-read them on a schedule.${demo ? " <b>They work on the live store, not in this demo.</b>" : ""}</p>
           ${[["Meta catalog feed", "/feeds/meta.csv", "For Commerce Manager: catalog ads, Instagram and Facebook Shop."], ["Google Merchant Center feed", "/feeds/google.xml", "For Google Shopping, Performance Max and free listings."], ["Sitemap", "/sitemap.xml", "For Google Search Console and Bing Webmaster Tools."]]
             .map(([l, p, n]) => `<div class="field"><span>${l}</span><div class="flex"><input class="input mono" readonly value="${esc(location.origin + p)}" style="flex:1"><button class="btn btn--ghost btn--sm" type="button" data-copy="${esc(location.origin + p)}">Copy</button><a class="btn btn--ghost btn--sm" href="${p}" target="_blank" rel="noopener">Open ↗</a></div><small>${n}</small></div>`).join("")}
+          <h3 class="h2" style="margin-top:18px">Instant updates to the Meta catalog</h3>
+          <p class="muted small" style="margin:0 0 10px">With these filled in, every product you create, edit, delete or sell is sent to your catalog within seconds, so catalog ads and the Shop update right away. The feed link above still works as a backup.</p>
+          <div class="row row--2">
+            <label class="field"><span>Catalog ID</span><input class="input" name="catalogId" value="${esc(c.catalogId || "")}" placeholder="123456789012345" inputmode="numeric"><small>Commerce Manager › your catalog › Settings › Catalog ID.</small></label>
+            <label class="field"><span>Catalog access token</span><input class="input" type="password" autocomplete="off" name="catalogToken" value="" placeholder="${c.catalogTokenSet ? "Saved. Paste a new one to replace it." : "System user token with catalog_management"}">
+              <small>Kept on your server only.${c.catalogTokenSet ? ` <a href="#" id="catClear">Remove token</a>` : " Leave empty to use the Conversions API token, if it has catalog access."}</small></label></div>
+          <div class="field"><span>Check it</span><div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="catSync">Send all products to Meta now</button></div><div id="catStatus">${c.catalogStatus ? `<p class="small" style="margin:0;color:${c.catalogStatus.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last update: ${esc(c.catalogStatus.message)} · ${dateTime(c.catalogStatus.at)}</p>` : `<p class="muted small" style="margin:0">${c.catalogId ? "Nothing sent yet." : "Not connected."}</p>`}</div></div>
+          <details class="trk__guide"><summary>Step-by-step: get the catalog ID and token</summary>${steps([
+              `In <a href="https://business.facebook.com/commerce" target="_blank" rel="noopener">Commerce Manager</a>, open your catalog › <b>Settings</b> and copy the <b>Catalog ID</b>.`,
+              `Open <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener">Business Settings › Users › System users</a>, add one (role Admin) or pick your existing one.`,
+              `Press <b>Assign assets</b> › <b>Catalogs</b> › your catalog › <b>Manage catalog</b>. Then press <b>Generate new token</b>, choose your app, tick <b>catalog_management</b> and <b>business_management</b>, and set it to never expire.`,
+              `Paste the ID and token above, Save, then press <b>Send all products to Meta now</b>. The products appear in Commerce Manager › Items within a minute.`])}</details>
           <details class="trk__guide"><summary>Step-by-step: connect the feeds and sitemap</summary>
             <h3>Meta catalog (catalog ads and Shop)</h3>${steps([
               `Open <a href="https://business.facebook.com/commerce" target="_blank" rel="noopener">Commerce Manager</a> › <b>Add catalog</b> › <b>E-commerce</b> › <b>Upload product info</b>.`,
@@ -2041,6 +2053,20 @@
     leaveGuard = () => !dirty || confirm("You have unsaved changes on this page. Leave without saving?");
     if ($("#capiClear")) $("#capiClear").onclick = (e) => { e.preventDefault(); form.dataset.capiClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
     if ($("#gaClear")) $("#gaClear").onclick = (e) => { e.preventDefault(); form.dataset.gaClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    if ($("#catClear")) $("#catClear").onclick = (e) => { e.preventDefault(); form.dataset.catClear = "1"; dirty = true; e.target.textContent = "Will be removed when you save"; };
+    $("#catSync").onclick = async () => {
+      if (dirty) return toast("Save first, then send.", "warn");
+      const out = $("#catStatus"), btn = $("#catSync");
+      btn.disabled = true;
+      try {
+        const r = await api("POST", "/api/catalog/sync", {});
+        out.innerHTML = `<p class="muted small" style="margin:0">${esc(r.message)}</p>`;
+        setTimeout(async () => {
+          try { const s2 = (await api("GET", "/api/settings")).settings.code.catalogStatus; if (s2) out.innerHTML = `<p class="small" style="margin:0;color:${s2.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">Last update: ${esc(s2.message)} · ${dateTime(s2.at)}</p>`; } catch (er) {}
+        }, 5000);
+      } catch (err) { out.innerHTML = `<p class="small" style="margin:0;color:var(--danger)">${esc(err.message)}</p>`; }
+      btn.disabled = false;
+    };
     $$("[data-copy]", form).forEach((b) => { b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy).then(() => toast("Copied"), () => toast("Couldn't copy. Select the link and copy it.", "warn")); }; });
     $$("[data-test]", form).forEach((b) => {
       b.onclick = async () => {
@@ -2061,6 +2087,9 @@
       if (f.gaSecret.value.trim()) code.gaSecret = f.gaSecret.value.trim();
       if (form.dataset.capiClear) code.capiTokenClear = true;
       if (form.dataset.gaClear) code.gaSecretClear = true;
+      code.catalogId = f.catalogId.value.trim();
+      if (f.catalogToken.value.trim()) code.catalogToken = f.catalogToken.value.trim();
+      if (form.dataset.catClear) code.catalogTokenClear = true;
       try { await api("PUT", "/api/settings", { settings: { code } }); dirty = false; toast("Saved"); viewTracking(); } catch (err) { fail(err); }
     };
   }

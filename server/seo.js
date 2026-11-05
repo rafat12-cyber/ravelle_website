@@ -361,4 +361,22 @@ function metaFeed(db, base) {
   return [head.join(",")].concat(rows).join("\n") + "\n";
 }
 
-module.exports = { resolve: resolve, render: render, sitemap: sitemap, robots: robots, googleFeed: googleFeed, metaFeed: metaFeed };
+// One product as a Meta catalog item (the same fields as the feed), for the instant catalog updates
+function metaItem(db, base, p) {
+  var r = feedRows(db, base).filter(function (x) { return x.id === p.sku; })[0];
+  if (!r) return null;
+  var d = { id: r.id, title: r.title, description: r.description, availability: r.available ? "in stock" : "out of stock", condition: "new",
+    price: r.price.toFixed(2) + " BDT", link: r.link, image_link: r.image, brand: r.brand, google_product_category: r.googleCategory,
+    gender: r.gender, age_group: "adult" };
+  if (r.salePrice) d.sale_price = r.salePrice.toFixed(2) + " BDT";
+  if (r.images.length) d.additional_image_link = r.images.join(",");
+  if (r.productType) d.product_type = r.productType;
+  if (r.group) d.item_group_id = r.group;
+  if (r.color) d.color = r.color;
+  if (r.sizes.length) d.size = r.sizes.join("/");
+  if (r.stock !== null) d.quantity_to_sell_on_facebook = r.stock;
+  return d;
+}
+function catalogProducts(db) { return published(db).filter(function (p) { return p.sku && p.price > 0 && (p.images || []).length; }); }
+
+module.exports = { metaItem: metaItem, catalogProducts: catalogProducts, resolve: resolve, render: render, sitemap: sitemap, robots: robots, googleFeed: googleFeed, metaFeed: metaFeed };
