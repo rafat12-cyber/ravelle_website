@@ -2737,7 +2737,7 @@
     $("#app").hidden = true;
     $("#login").hidden = false;
     if (window.Ravelle.mode === "demo") {
-      $("#loginNote").innerHTML = `<span class="demo-hint" style="display:block">Demo mode: this admin runs on sample data saved in your browser.<br>Email <b>${esc(window.Ravelle.demoLogin.email)}</b> · Password <b>${esc(window.Ravelle.demoLogin.password)}</b></span>`;
+      $("#loginNote").innerHTML = `<span class="demo-hint" style="display:block">Demo mode: this admin runs on a copy of the store saved in your browser.<br>Email <b>${esc(window.Ravelle.demoLogin.email)}</b> · Password <b>${esc(window.Ravelle.demoLogin.password)}</b></span>`;
       $("#loginForm").email.value = window.Ravelle.demoLogin.email;
       $("#loginForm").password.value = window.Ravelle.demoLogin.password;
     }

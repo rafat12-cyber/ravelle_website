@@ -117,7 +117,7 @@ The checkout sends the customer to SSLCOMMERZ and back to `/api/payments/sslcomm
 
 ## Demo mode
 
-Open `index.html` straight from the folder, add `?demo` to the address, or host the files without the Node server, and the store runs entirely in your browser with sample orders, customers and chats so you can try the admin. Demo sign-in: `admin@ravellebd.com` / `ravelle-demo`. Nothing leaves the browser; **Reset** in the admin puts the sample data back.
+Open `index.html` straight from the folder, add `?demo` to the address (ignored on the live Node server), or host the files without the Node server, and the store runs entirely in your browser with the real products and pages and no orders or customers, so you can try the admin. Demo sign-in: `admin@ravellebd.com` / `ravelle-demo`. Nothing leaves the browser; **Reset** in the admin starts the demo over.
 
 ## Structure
 
