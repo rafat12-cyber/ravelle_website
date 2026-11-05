@@ -387,3 +387,5 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cart-rem { display: inline-flex; gap: 4px; align-items: center; margin-right: 8px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .cart-rem.is-ok { color: var(--ok); font-weight: 600; }
 .cart-rem.is-bad { color: var(--danger); font-weight: 600; }
+.tr-thumb { display: inline-grid; place-items: center; background: var(--panel); color: var(--ink-2); font-weight: 700; }
+a.tab { text-decoration: none; }

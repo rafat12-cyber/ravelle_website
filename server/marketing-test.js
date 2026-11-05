@@ -22,7 +22,7 @@ var graph = http.createServer(function (req, res) {
   });
 }).listen(GRAPH_PORT);
 var child = spawn(process.execPath, [path.join(__dirname, "server.js")], {
-  env: Object.assign({}, process.env, { PORT: PORT, DATA_DIR: dir, ADMIN_EMAIL: "owner@test.com", ADMIN_PASSWORD: "test-password-1", PUBLIC_URL: "https://shop.example",
+  env: Object.assign({}, process.env, { PORT: PORT, DATA_DIR: dir, ADMIN_EMAIL: "owner@test.com", ADMIN_PASSWORD: "test-password-1", PUBLIC_URL: "https://shop.example", ADMIN_LOCK: "0",
     META_GRAPH_URL: "http://127.0.0.1:" + GRAPH_PORT }),
   stdio: ["ignore", "pipe", "inherit"]
 });

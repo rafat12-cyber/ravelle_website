@@ -38,7 +38,8 @@
       throw err;
     });
   }
-  const can = (area) => areas.indexOf(area) > -1;
+  // "trash" isn't a module of its own: anyone who can delete products or images (and the owner, for orders) sees it
+  const can = (area) => area === "trash" ? (areas.indexOf("products") > -1 || areas.indexOf("content") > -1 || !!(me && me.role === "owner")) : areas.indexOf(area) > -1;
 
   // ---------------------------------------------------------------------------
   // Toast, modal, confirm
@@ -75,7 +76,7 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#modal").hidden) closeModal(); });
   function confirmBox(title, text, okLabel, danger) {
     return new Promise((resolve) => {
-      const body = modal(title, `<p class="muted">${esc(text)}</p><div class="modal__foot"><button class="btn btn--ghost" data-no>Cancel</button><button class="btn ${danger ? "btn--danger" : "btn--dark"}" data-yes>${esc(okLabel || "OK")}</button></div>`, { onClose: () => resolve(false), noFocus: true });
+      const body = modal(title, `${text && text.html ? `<div class="muted">${text.html}</div>` : `<p class="muted">${esc(text)}</p>`}<div class="modal__foot"><button class="btn btn--ghost" data-no>Cancel</button><button class="btn ${danger ? "btn--danger" : "btn--dark"}" data-yes>${esc(okLabel || "OK")}</button></div>`, { onClose: () => resolve(false), noFocus: true });
       $("[data-yes]", body).focus();
       $("[data-yes]", body).onclick = () => { modalClose = null; closeModal(); resolve(true); };
       $("[data-no]", body).onclick = () => closeModal();
@@ -500,7 +501,7 @@
     const tel = o.customer.phone;
     view.innerHTML = `<div class="head"><div><a class="btn btn--link" href="#/orders">← Orders</a><h1 class="h1" style="margin-top:8px">Order ${esc(o.number)}</h1>
       <p class="muted">${dateTime(o.createdAt)} · ${pill(o.status)} ${pill(o.paymentStatus)}</p></div>
-      <div class="flex"><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/invoice">Invoice</a><a class="btn btn--ghost" href="tel:${esc(tel)}">Call customer</a></div></div>
+      <div class="flex"><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/invoice">Invoice</a><a class="btn btn--ghost" href="tel:${esc(tel)}">Call customer</a>${me.role === "owner" ? `<button class="btn btn--danger" type="button" id="oDel">Delete order</button>` : ""}</div></div>
       <div class="cols">
         <div class="stack">
           <div class="card"><h2 class="h2">Items</h2><div class="items">${o.items.map((it) => `<div class="item">${it.image ? `<img src="${esc(it.image)}" alt="">` : `<span class="ph"></span>`}
@@ -547,6 +548,10 @@
       busy(btn, true);
       try { await api("PATCH", "/api/orders/" + o.number, b); toast("Order updated"); viewOrder(o.number); refreshCounts(); }
       catch (err) { fail(err); busy(btn, false); }
+    };    if ($("#oDel")) $("#oDel").onclick = async () => {
+      const live = !o.restocked && o.status !== "delivered";
+      if (!(await confirmBox("Delete order " + o.number + "?", "It disappears from Orders and your sales numbers" + (live ? ", and its items go back into stock" : "") + ". It stays in Trash for 30 days, so you can restore it.", "Delete order", true))) return;
+      try { await api("DELETE", "/api/orders/" + o.id); toast("Order moved to Trash"); refreshCounts(); location.hash = "#/orders"; } catch (err) { fail(err); }
     };
   }
 
@@ -899,13 +904,52 @@
     };
     if (!isNew) {
       $("#pDel").onclick = async () => {
-        if (!(await confirmBox("Delete " + p.name + "?", "This removes the product from the store. Past orders keep their details.", "Delete product", true))) return;
-        try { await api("DELETE", "/api/products/" + p.id); store = null; toast("Product deleted"); location.hash = "#/products"; } catch (err) { fail(err); }
+        if (!(await confirmBox("Delete " + p.name + "?", "It's removed from the store and kept in Trash for 30 days, so you can restore it. Past orders keep their details.", "Move to Trash", true))) return;
+        try { await api("DELETE", "/api/products/" + p.id); store = null; toast("Moved to Trash"); location.hash = "#/products"; } catch (err) { fail(err); }
       };
       $("#pDup").onclick = async () => {
         try { const r = await api("POST", "/api/products/" + p.id + "/duplicate"); store = null; toast("Duplicated as a draft"); location.hash = "#/products/" + r.product.id; } catch (err) { fail(err); }
       };
     }
+  }
+
+  // Trash: deleted products, orders and images, kept for 30 days
+  async function viewTrash(_, query) {
+    setTitle("Trash");
+    const kind = new URLSearchParams(query || "").get("kind") || "";
+    let r;
+    try { r = await api("GET", "/api/trash"); } catch (err) { return fail(err); }
+    const KIND = { product: "Product", order: "Order", media: "Image" };
+    const kinds = ["product", "order", "media"].filter((k) => r.items.some((x) => x.kind === k));
+    const list = r.items.filter((x) => !kind || x.kind === kind);
+    const left = (t) => { const d = Math.max(0, Math.ceil((t - Date.now()) / 864e5)); return d <= 1 ? "Deleted for good within a day" : `Deleted for good in ${d} days`; };
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Trash</h1><p class="muted">Deleted products, orders and images stay here for ${r.days} days. Restore puts them back exactly as they were.</p></div>${r.items.length ? `<button class="btn btn--danger" id="trEmpty">Empty trash</button>` : ""}</div>
+      ${kinds.length > 1 ? `<div class="tabs" style="margin-bottom:14px"><a class="tab${kind ? "" : " is-on"}" href="#/trash">All ${r.items.length}</a>${kinds.map((k) => `<a class="tab${k === kind ? " is-on" : ""}" href="#/trash?kind=${k}">${KIND[k]}s ${r.items.filter((x) => x.kind === k).length}</a>`).join("")}</div>` : ""}
+      ${list.length ? `<div class="card"><div class="table-wrap"><table class="t"><thead><tr><th>Item</th><th>Type</th><th>Deleted</th><th></th></tr></thead><tbody>${list.map((x) => `
+        <tr><td><div class="flex" style="flex-wrap:nowrap">${x.image ? `<img class="thumb" src="${esc(x.image)}" alt="" loading="lazy">` : `<span class="thumb tr-thumb">${x.kind === "order" ? "#" : "?"}</span>`}<span><b>${esc(x.label)}</b>${x.detail ? `<br><small class="muted">${esc(x.detail)}</small>` : ""}</span></div></td>
+        <td><span class="pill">${KIND[x.kind]}</span></td>
+        <td class="nowrap">${dateTime(x.deletedAt)}${x.deletedBy ? `<br><small class="muted">by ${esc(x.deletedBy)}</small>` : ""}<br><small class="muted">${left(x.expiresAt)}</small></td>
+        <td class="right nowrap"><button class="btn btn--dark btn--sm" data-restore="${esc(x.id)}">Restore</button> <button class="btn btn--ghost btn--sm" data-forever="${esc(x.id)}">Delete for good</button></td></tr>`).join("")}</tbody></table></div></div>`
+        : `<div class="card"><p class="empty">Trash is empty. Deleted products, orders and images show up here.</p></div>`}`;
+    view.onclick = async (e) => {
+      const rs = e.target.closest("[data-restore]"), fg = e.target.closest("[data-forever]");
+      if (rs) {
+        busy(rs, true);
+        try {
+          const out = await api("POST", "/api/trash/" + rs.dataset.restore + "/restore");
+          store = null; toast(KIND[out.kind] + " restored"); refreshCounts(); viewTrash(_, query);
+        } catch (err) { busy(rs, false); fail(err); }
+      }
+      if (fg) {
+        const x = list.find((i) => i.id === fg.dataset.forever);
+        if (!(await confirmBox("Delete " + x.label + " for good?", "This can't be undone.", "Delete for good", true))) return;
+        try { await api("DELETE", "/api/trash/" + x.id); toast("Deleted for good"); viewTrash(_, query); } catch (err) { fail(err); }
+      }
+    };
+    if ($("#trEmpty")) $("#trEmpty").onclick = async () => {
+      if (!(await confirmBox("Empty the trash?", `All ${r.items.length} item${r.items.length > 1 ? "s" : ""} will be deleted for good. This can't be undone.`, "Empty trash", true))) return;
+      try { await api("DELETE", "/api/trash"); toast("Trash emptied"); viewTrash(); } catch (err) { fail(err); }
+    };
   }
 
   // Stock: every SKU on one page
@@ -1434,8 +1478,12 @@
       $("#mdCopy", body).onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(abs) : Promise.reject()).then(() => toast("Address copied"), () => toast("Couldn't copy", true)); };
       $("#mdForm", body).onsubmit = async (ev) => { ev.preventDefault(); try { await api("PATCH", "/api/media/" + m.id, formData(ev.target)); closeModal(); toast("Saved"); load(); } catch (err) { fail(err); } };
       $("#mdDel", body).onclick = async () => {
-        if (!(await confirmBox("Delete this image?", "Products or pages that use it will show an empty space.", "Delete", true))) return;
-        try { await api("DELETE", "/api/media/" + m.id); toast("Deleted"); load(); } catch (err) { fail(err); }
+        const used = ((await api("GET", "/api/media/" + m.id + "/usage").catch(() => null)) || {}).usedIn || [];
+        const msg = used.length
+          ? `<b style="color:var(--danger)">This image is still in use</b> in ${used.length} place${used.length > 1 ? "s" : ""}:<ul style="margin:8px 0;padding-left:18px">${used.slice(0, 8).map((u) => `<li>${esc(u)}</li>`).join("")}${used.length > 8 ? `<li>…and ${used.length - 8} more</li>` : ""}</ul>Those spots will show an empty space until you pick another image. It stays in Trash for 30 days if you change your mind.`
+          : "It isn't used on any product or page. It stays in Trash for 30 days if you change your mind.";
+        if (!(await confirmBox(used.length ? "Delete an image that's in use?" : "Delete this image?", { html: msg }, used.length ? "Delete anyway" : "Move to Trash", true))) return;
+        try { await api("DELETE", "/api/media/" + m.id); toast("Moved to Trash"); load(); } catch (err) { fail(err); }
       };
     };
     load();
@@ -2390,7 +2438,7 @@
     ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
-    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"]]]
+    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"], ["trash", "Trash", "trash"]]]
   ];
   const counts = { orders: 0, chat: 0, messages: 0, franchise: 0, carts: 0 };
   function drawSide() {
@@ -2428,7 +2476,7 @@
     [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"],
     [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
-    [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"],
+    [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"], [/^trash$/, viewTrash, "trash"],
     [/^chat$/, viewChat, "chat"], [/^chat\/([^/]+)$/, viewChat, "chat"], [/^messages$/, viewMessages, "messages"],
     [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"], [/^acore$/, viewAcore, "settings"],
     [/^account$/, viewAccount, null]
