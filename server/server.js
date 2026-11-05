@@ -265,10 +265,25 @@ function saveMedia(name, dataUrl, type) {
   fs.writeFileSync(path.join(dir, file), buf);
   return { url: "/uploads/" + path.relative(UPLOADS, path.join(dir, file)).split(path.sep).join("/"), size: buf.length };
 }
-function deleteMedia(url) {
-  if (!/^\/uploads\//.test(url)) return;
-  var file = path.join(UPLOADS, url.replace(/^\/uploads\//, ""));
-  if (file.indexOf(UPLOADS) === 0 && fs.existsSync(file)) fs.unlinkSync(file);
+var TRASH_DIR = path.join(DATA_DIR, "trash");
+function mediaPaths(url) {
+  if (!/^\/uploads\/(\d{4}\/\d{2}\/)?[\w-]+\.\w+$/.test(url)) return null;
+  var name = url.replace(/^\/uploads\//, "");
+  return { live: path.join(UPLOADS, name), trash: path.join(TRASH_DIR, name) };
+}
+// Deleting an image moves the file to data/trash for 30 days; restoring moves it back
+function trashMedia(url) {
+  var p = mediaPaths(url); if (!p || !fs.existsSync(p.live)) return;
+  fs.mkdirSync(path.dirname(p.trash), { recursive: true }); fs.renameSync(p.live, p.trash);
+}
+function restoreMedia(url) {
+  var p = mediaPaths(url); if (!p || !fs.existsSync(p.trash)) return;
+  fs.mkdirSync(path.dirname(p.live), { recursive: true }); fs.renameSync(p.trash, p.live);
+}
+function deleteMedia(url, fromTrash) {
+  var p = mediaPaths(url); if (!p) return;
+  var file = fromTrash ? p.trash : p.live;
+  if (fs.existsSync(file)) fs.unlinkSync(file);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +393,7 @@ function nextEmail() {
 setInterval(function () { run({ method: "POST", path: "/api/internal/cart-reminders", internal: true, headers: {}, body: {}, query: {} }); }, +process.env.CART_SWEEP_MS || 60e3).unref();
 
 var core = Core.create({
-  now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia,
+  now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, deleteMedia: deleteMedia, trashMedia: trashMedia, restoreMedia: restoreMedia,
   describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!(SSLC_PASS && (SSLC_ID || s.payments.sslcommerz.storeId)); if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
   metaEvent: metaEvent, gaEvent: gaEvent, acoreSend: acoreSend, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });

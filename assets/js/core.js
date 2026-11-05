@@ -989,6 +989,7 @@
     // Runs every minute on the server: sends the 20-minute and 24-hour reminders
     route("POST", "/api/internal/cart-reminders", "internal", function (c) {
       var db = c.db, cs = cartSettings(db), t = now(), sent = 0;
+      purgeTrash(db);
       if (!cs.enabled) return { sent: 0 };
       (db.carts || []).forEach(function (x) {
         var n = cartDue(db, x, t);
@@ -1314,8 +1315,9 @@
       var db = c.db, p = findProduct(db, c.params.id);
       if (!p) fail(404, "Product not found.");
       db.products = db.products.filter(function (x) { return x !== p; });
+      toTrash(c, "product", p, p.name);
       emit(db, "product.deleted", { id: p.id, sku: p.sku, name: p.name });
-      return { ok: true };
+      return { ok: true, trash: true };
     });
     route("POST", "/api/products/:id/duplicate", "products", function (c) {
       var db = c.db, p = findProduct(db, c.params.id);
@@ -1448,6 +1450,17 @@
       if (!o) fail(404, "Order not found.");
       return { order: o };
     }, { readonly: true });
+    route("DELETE", "/api/orders/:id", "orders", function (c) {
+      needOwner(c, "delete orders");
+      var db = c.db, o = db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      var put = !o.restocked && o.status !== "delivered";
+      if (put) restock(db, o); // stock held by a live order goes back on the shelf
+      db.orders = db.orders.filter(function (x) { return x !== o; });
+      toTrash(c, "order", o, "Order " + o.number);
+      db.trash[0].restockedOnDelete = put;
+      return { ok: true, trash: true, restocked: put };
+    });
     route("PATCH", "/api/orders/:id", "orders", function (c) {
       var db = c.db, b = c.body;
       var o = db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
@@ -1735,9 +1748,90 @@
     route("DELETE", "/api/media/:id", "content", function (c) {
       var m = c.db.media.filter(function (x) { return x.id === c.params.id; })[0];
       if (!m) fail(404, "Not found.");
-      if (host.deleteMedia) host.deleteMedia(m.url);
       c.db.media = c.db.media.filter(function (x) { return x !== m; });
+      if (host.trashMedia) host.trashMedia(m.url);
+      toTrash(c, "media", m, m.name || "Image");
+      return { ok: true, trash: true };
+    });
+    // Where an image is used, so the admin can warn before deleting it
+    function mediaUsage(db, url) {
+      var out = [], has = function (x) { return x && JSON.stringify(x).indexOf(url) > -1; };
+      if (!url) return out;
+      db.products.forEach(function (p) { if (has(p)) out.push("Product: " + p.name); });
+      (db.categories || []).forEach(function (x) { if (has(x)) out.push("Category: " + x.name); });
+      Object.keys(db.pages || {}).forEach(function (k) { var pg = db.pages[k]; if (has(pg)) out.push(k === "popup" ? "Popup banner" : "Page: " + ((pg && pg.title) || k)); });
+      if (has(db.menus)) out.push("Menus");
+      if (has(db.settings)) out.push("Settings");
+      return out;
+    }
+    route("GET", "/api/media/:id/usage", "content", function (c) {
+      var m = c.db.media.filter(function (x) { return x.id === c.params.id; })[0];
+      if (!m) fail(404, "Not found.");
+      return { usedIn: mediaUsage(c.db, m.url) };
+    }, { readonly: true });
+
+    // --- Trash: deleted products, orders and images are kept for 30 days ----------------------------
+    var TRASH_DAYS = 30, TRASH_AREA = { product: "products", order: "orders", media: "content" };
+    function toTrash(c, kind, item, label) {
+      var db = c.db; db.trash = db.trash || [];
+      db.trash.unshift({ id: newId("trs"), kind: kind, label: str(label, 160), item: item, deletedAt: now(), deletedBy: (c.auth && c.auth.name) || "", expiresAt: now() + TRASH_DAYS * 864e5 });
+    }
+    function purgeTrash(db) {
+      var t = now(), keep = [];
+      (db.trash || []).forEach(function (x) { if (x.expiresAt > t) keep.push(x); else if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); });
+      var changed = keep.length !== (db.trash || []).length;
+      db.trash = keep;
+      return changed;
+    }
+    function trashAllowed(c, x) { return x.kind === "order" ? isOwner(c.auth) : canSee(c.auth, TRASH_AREA[x.kind]); }
+    function trashItem(c) {
+      var x = (c.db.trash || []).filter(function (t) { return t.id === c.params.id; })[0];
+      if (!x || !trashAllowed(c, x)) fail(404, "That item isn't in the trash any more.");
+      return x;
+    }
+    route("GET", "/api/trash", "*", function (c) {
+      purgeTrash(c.db);
+      return { days: TRASH_DAYS, items: (c.db.trash || []).filter(function (x) { return trashAllowed(c, x); }).map(function (x) {
+        return { id: x.id, kind: x.kind, label: x.label, deletedAt: x.deletedAt, deletedBy: x.deletedBy, expiresAt: x.expiresAt,
+          image: x.kind === "media" ? x.item.url : x.kind === "product" ? (x.item.images || [])[0] || "" : "",
+          detail: x.kind === "order" ? (x.item.customer.name + " · ৳" + x.item.total + " · " + x.item.status) : x.kind === "product" ? (x.item.sku || "") : "" };
+      }) };
+    });
+    route("POST", "/api/trash/:id/restore", "*", function (c) {
+      var db = c.db, x = trashItem(c), it = x.item;
+      if (x.kind === "product") {
+        if (db.products.some(function (p) { return p.slug === it.slug; })) it.slug = it.slug + "-" + host.random(2);
+        if (it.sku && db.products.some(function (p) { return p.sku === it.sku; })) it.sku = "";
+        db.products.unshift(it);
+      } else if (x.kind === "order") {
+        if (x.restockedOnDelete) {
+          it.items.forEach(function (li) {
+            var p = findProduct(db, li.productId);
+            if (!p || !p.trackStock) return;
+            var v = li.variantId ? (p.variants || []).filter(function (y) { return y.id === li.variantId; })[0] : null;
+            if (v) v.stock = Math.max(0, v.stock - li.qty); else p.stock = Math.max(0, int(p.stock) - li.qty);
+          });
+          it.restocked = false;
+        }
+        db.orders.push(it);
+      } else if (x.kind === "media") {
+        if (host.restoreMedia) host.restoreMedia(it.url);
+        db.media.push(it);
+      }
+      db.trash = db.trash.filter(function (t) { return t !== x; });
+      return { ok: true, kind: x.kind, id: it.id, number: it.number };
+    });
+    route("DELETE", "/api/trash/:id", "*", function (c) {
+      var x = trashItem(c);
+      if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true);
+      c.db.trash = c.db.trash.filter(function (t) { return t !== x; });
       return { ok: true };
+    });
+    route("DELETE", "/api/trash", "*", function (c) {
+      var mine = (c.db.trash || []).filter(function (x) { return trashAllowed(c, x); });
+      mine.forEach(function (x) { if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); });
+      c.db.trash = (c.db.trash || []).filter(function (x) { return mine.indexOf(x) < 0; });
+      return { ok: true, removed: mine.length };
     });
 
     route("GET", "/api/settings", "settings", function (c) {
@@ -2086,6 +2180,7 @@
     if (!db.franchise) db.franchise = [];
     if (!db.carts) db.carts = [];
     if (!db.emailLog) db.emailLog = [];
+    if (!db.trash) db.trash = [];
     if (done.indexOf("stores-franchise") < 0) {
       ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
       var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];
