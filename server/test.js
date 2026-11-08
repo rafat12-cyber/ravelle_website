@@ -142,6 +142,25 @@ async function main() {
   assert.equal(r.body.messages[r.body.messages.length - 1].text, "Yes, XL is in stock.");
   console.log("✓ chat: visitor → API → visitor");
 
+  // A waiting chat window gets the reply the moment it is sent, not on its next check
+  r = await call("GET", "/api/chat/" + chat.id + "?token=" + chat.token);
+  var lastAt = r.body.messages[r.body.messages.length - 1].at;
+  var t0 = Date.now();
+  var held = call("GET", "/api/chat/" + chat.id + "?token=" + chat.token + "&since=" + lastAt + "&wait=1");
+  var adminHeld = call("GET", "/api/chats?since=" + lastAt + "&wait=1", null, token);
+  await wait(400);
+  await call("POST", "/api/chats/" + chat.id + "/messages", { text: "Want me to hold one?" }, token);
+  r = await held;
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.messages.map(function (m) { return m.text; }), ["Want me to hold one?"]);
+  assert.ok(Date.now() - t0 < 3000, "held check answered at once");
+  r = await adminHeld;
+  assert.equal(r.body.chats.length, 1, "admin inbox woken too");
+  // wrong token still refused straight away, even with wait
+  r = await call("GET", "/api/chat/" + chat.id + "?token=wrong&wait=1");
+  assert.equal(r.status, 404);
+  console.log("✓ chat: waiting checks answer the moment a reply arrives");
+
   // Dashboard
   r = await call("GET", "/api/dashboard?days=30", null, token);
   assert.equal(r.status, 200);
