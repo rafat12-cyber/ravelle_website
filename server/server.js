@@ -563,9 +563,39 @@ function fromAdminPage(req) {
 }
 function run(req) {
   var out = core.handle(req, db);
-  if (out.changed && out.status < 400) save();
+  if (out.changed && out.status < 400) { save(); chatChanged(req, out); }
   setImmediate(flushOutbox);
   return out;
+}
+
+// Live chat without constant polling: when a chat window (or the admin inbox) asks for new messages with
+// ?wait=1 and there are none yet, the server holds the request for up to 25 seconds and answers the moment
+// a message arrives. Replies show instantly and an idle chat costs one request every 25 seconds, not every few.
+var WAIT_MS = 25e3, MAX_WAITERS = 300, waiters = [];
+function waitKey(p, query, out) {
+  if (!query.wait || out.status !== 200) return "";
+  var m = /^\/api\/chat\/([^/]+)$/.exec(p);
+  if (m && out.body.messages && !out.body.messages.length) return "chat:" + m[1];
+  if (p === "/api/chats" && query.since && out.body.chats && !out.body.chats.length) return "chats";
+  return "";
+}
+function park(key, res, rerun, first) {
+  if (waiters.length >= MAX_WAITERS) return sendJson(res, first.status, first.body);
+  var w = { key: key, done: false };
+  var stop = function () { if (w.done) return false; w.done = true; clearTimeout(w.timer); var i = waiters.indexOf(w); if (i > -1) waiters.splice(i, 1); return true; };
+  w.fire = function () { if (!stop()) return; var out = rerun(); sendJson(res, out.status, out.body); };
+  w.timer = setTimeout(w.fire, WAIT_MS);
+  res.on("close", stop); // the visitor closed the window or left the page
+  waiters.push(w);
+}
+function wake(keys) {
+  waiters.filter(function (w) { return keys.indexOf(w.key) > -1; }).forEach(function (w) { setImmediate(w.fire); });
+}
+function chatChanged(req, out) {
+  var m = /^\/api\/chats?\/([^/]+)/.exec(String(req.path || ""));
+  if (!m || req.method === "GET") return;
+  var id = m[1] === "start" ? out.body && out.body.id : m[1];
+  wake(["chats", "chat:" + id]);
 }
 
 var server = http.createServer(function (req, res) {
@@ -617,13 +647,15 @@ function api(req, res, u, p) {
     if (ssl) return paymentCallback(ssl[1], Object.assign({}, Object.fromEntries(u.searchParams), body), res);
 
     var query = Object.fromEntries(u.searchParams);
-    var out;
+    var out, call = function () { return run({ method: req.method, path: p, query: query, body: body, headers: req.headers, ip: ip }); };
     try {
-      out = run({ method: req.method, path: p, query: query, body: body, headers: req.headers, ip: ip });
+      out = call();
     } catch (e) {
       console.error(e);
       return sendJson(res, 500, { error: "Something went wrong on the server." });
     }
+    var hold = req.method === "GET" && waitKey(p, query, out);
+    if (hold) return park(hold, res, function () { try { return call(); } catch (e) { console.error(e); return { status: 500, body: { error: "Something went wrong on the server." } }; } }, out);
     // Online payment: hand the customer to SSLCOMMERZ.
     if (p === "/api/orders" && req.method === "POST" && out.status === 201 && body.paymentMethod === "sslcommerz") {
       var order = db.orders.filter(function (o) { return o.number === out.body.order.number; })[0];

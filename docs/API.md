@@ -136,7 +136,7 @@ Product fields: `name`, `slug`, `sku`, `status`, `price`, `comparePrice`, `descr
 
 | Method | Path | What it does |
 |---|---|---|
-| GET | `/api/chats` | Conversations. Query: `status` (open, closed), `since` (ms, only chats updated after), `messages=1` to include messages |
+| GET | `/api/chats` | Conversations. Query: `status` (open, closed), `since` (ms, only chats updated after), `messages=1` to include messages, `wait=1` (with `since`) to hold the request up to 25 s until a chat changes |
 | GET | `/api/chats/:id` | One conversation with all messages |
 | POST | `/api/chats/:id/messages` | Reply: `{ "text": "…" }`. With an API key it shows as the bot; add `"author": "Ravelle AI"` to change the name |
 | PATCH | `/api/chats/:id` | `{ "status": "closed" }`, `{ "read": true }` |
@@ -145,10 +145,10 @@ How to wire an AI tool:
 
 1. Create a read-and-write key.
 2. Add a webhook for `chat.message.created`. Each new customer message is POSTed to your tool with the chat id, the message and the whole conversation so far.
-3. Your tool answers with `POST /api/chats/:id/messages`. The customer sees it within a few seconds.
+3. Your tool answers with `POST /api/chats/:id/messages`. The customer sees it at once.
 4. Turn off the automatic reply in **Admin → Settings → Live chat**.
 
-No webhook endpoint? Poll `GET /api/chats?status=open&messages=1&since=<last time you checked>` every few seconds instead.
+No webhook endpoint? Call `GET /api/chats?status=open&messages=1&since=<newest updatedAt you have>&wait=1` in a loop instead. The server answers as soon as a chat changes, or after 25 seconds with an empty list, so you get messages instantly without polling every few seconds.
 
 ### Content
 

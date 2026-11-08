@@ -1714,43 +1714,77 @@
     view.innerHTML = `<div class="head"><div><h1 class="h1">Live chat</h1><p class="muted">Conversations from the chat bubble on the store. Your AI reply software can read and answer these through the API (see <a href="#/integrations">Integrations</a>).</p></div>
       <div class="tabs" id="chTabs"><button class="tab is-on" data-s="open">Open</button><button class="tab" data-s="closed">Closed</button><button class="tab" data-s="">All</button></div></div>
       <div class="card card--flush"><div class="inbox"><div class="inbox__list" id="chList"></div><div class="inbox__conv" id="chConv"><p class="empty">Pick a conversation.</p></div></div></div>`;
-    let status = "open", list = [], current = id || null, timer = null;
+    let status = "open", list = [], current = id || null, timer = null, alive = true, stamp = 0, shown = null;
+    const bubbles = (c) => c.messages.map((m) => `<div class="bubble${m.from === "customer" ? "" : " bubble--out"}${m.from === "bot" ? " bubble--bot" : ""}">${m.image ? `<a href="${esc(m.image)}" target="_blank" rel="noopener"><img src="${esc(m.image)}" alt="Photo from the customer" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin-bottom:4px"></a>` : ""}${m.text ? `<p>${esc(m.text)}</p>` : ""}<small>${m.from === "customer" ? esc(c.name || "Visitor") : esc(m.author || (m.from === "bot" ? "Bot" : "Team"))}${m.from === "bot" ? " · auto" : ""} · ${dateTime(m.at)}</small></div>`).join("");
     const loadList = async () => {
       try { list = (await api("GET", "/api/chats" + (status ? "?status=" + status : ""))).chats; } catch (err) { return; }
+      if (!alive) return;
+      list.forEach((c) => { stamp = Math.max(stamp, c.updatedAt); });
       $("#chList").innerHTML = list.map((c) => `<button class="inbox__item${c.id === current ? " is-on" : ""}" data-id="${c.id}"><b><span>${esc(c.name || "Visitor")}</span>${c.unread ? `<span class="side__count">${c.unread}</span>` : `<small>${ago(c.updatedAt)}</small>`}</b><small>${c.lastMessage ? (c.lastMessage.from === "customer" ? "" : "You: ") + esc(c.lastMessage.text) : "No messages"}</small></button>`).join("") || `<p class="empty">No ${status} chats.</p>`;
     };
-    const loadConv = async (scroll) => {
+    // Opening a chat draws all of it; later updates only redraw the messages, so a reply being typed,
+    // the cursor and the scroll position stay as they are
+    const loadConv = async () => {
       if (!current) return;
       let c;
+      const hadUnread = (list.find((x) => x.id === current) || {}).unread;
       try { c = (await api("GET", "/api/chats/" + current + "?markRead=1")).chat; } catch (err) { current = null; return; }
+      if (!alive) return;
       const box = $("#chConv");
-      const keepDraft = $("#chText") ? $("#chText").value : "";
-      box.innerHTML = `<div class="inbox__head"><div><b>${esc(c.name || "Visitor")}</b> ${pill(c.status)}<br><small class="muted">Started ${dateTime(c.createdAt)}${c.page ? " on " + esc(c.page) : ""} · ID <span class="mono">${esc(c.id)}</span></small></div>
-        <button class="btn btn--ghost btn--sm" id="chToggle">${c.status === "open" ? "Close chat" : "Reopen"}</button></div>
-        <div class="inbox__msgs" id="chMsgs">${c.messages.map((m) => `<div class="bubble${m.from === "customer" ? "" : " bubble--out"}${m.from === "bot" ? " bubble--bot" : ""}">${m.image ? `<a href="${esc(m.image)}" target="_blank" rel="noopener"><img src="${esc(m.image)}" alt="Photo from the customer" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin-bottom:4px"></a>` : ""}${m.text ? `<p>${esc(m.text)}</p>` : ""}<small>${m.from === "customer" ? esc(c.name || "Visitor") : esc(m.author || (m.from === "bot" ? "Bot" : "Team"))}${m.from === "bot" ? " · auto" : ""} · ${dateTime(m.at)}</small></div>`).join("")}</div>
-        <form class="inbox__form" id="chForm"><textarea class="input grow" id="chText" rows="2" placeholder="Write a reply… (Enter to send, Shift+Enter for a new line)"></textarea><button class="btn btn--dark" type="submit">Send</button></form>`;
-      $("#chText").value = keepDraft;
       const msgs = $("#chMsgs");
-      if (scroll !== false) msgs.scrollTop = msgs.scrollHeight;
+      if (shown && shown.id === c.id && msgs) {
+        if (shown.updatedAt === c.updatedAt && shown.count === c.messages.length) return;
+        const atEnd = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 40;
+        msgs.innerHTML = bubbles(c);
+        $("#chPill").innerHTML = pill(c.status);
+        $("#chToggle").textContent = c.status === "open" ? "Close chat" : "Reopen";
+        if (atEnd) msgs.scrollTop = msgs.scrollHeight;
+      } else {
+        box.innerHTML = `<div class="inbox__head"><div><b>${esc(c.name || "Visitor")}</b> <span id="chPill">${pill(c.status)}</span><br><small class="muted">Started ${dateTime(c.createdAt)}${c.page ? " on " + esc(c.page) : ""} · ID <span class="mono">${esc(c.id)}</span></small></div>
+          <button class="btn btn--ghost btn--sm" id="chToggle">${c.status === "open" ? "Close chat" : "Reopen"}</button></div>
+          <div class="inbox__msgs" id="chMsgs">${bubbles(c)}</div>
+          <form class="inbox__form" id="chForm"><textarea class="input grow" id="chText" rows="2" placeholder="Write a reply… (Enter to send, Shift+Enter for a new line)"></textarea><button class="btn btn--dark" type="submit">Send</button></form>`;
+        const m = $("#chMsgs");
+        m.scrollTop = m.scrollHeight;
+        $("#chText").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chForm").requestSubmit(); } };
+        $("#chForm").onsubmit = async (e) => {
+          e.preventDefault();
+          const text = $("#chText").value.trim();
+          if (!text) return;
+          $("#chText").value = "";
+          try { await api("POST", "/api/chats/" + current + "/messages", { text }); await loadConv(); const mm = $("#chMsgs"); if (mm) mm.scrollTop = mm.scrollHeight; loadList(); } catch (err) { fail(err); $("#chText").value = text; }
+        };
+      }
       $("#chToggle").onclick = async () => { await api("PATCH", "/api/chats/" + c.id, { status: c.status === "open" ? "closed" : "open" }).catch(fail); loadList(); loadConv(); };
-      $("#chText").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chForm").requestSubmit(); } };
-      $("#chForm").onsubmit = async (e) => {
-        e.preventDefault();
-        const text = $("#chText").value.trim();
-        if (!text) return;
-        $("#chText").value = "";
-        try { await api("POST", "/api/chats/" + c.id + "/messages", { text }); loadConv(); loadList(); } catch (err) { fail(err); $("#chText").value = text; }
-      };
-      refreshCounts();
+      shown = { id: c.id, updatedAt: c.updatedAt, count: c.messages.length };
+      if (hadUnread) refreshCounts(); // the side menu badge only changes when unread messages were just read
     };
     $("#chTabs").onclick = (e) => { const b = e.target.closest("[data-s]"); if (!b) return; status = b.dataset.s; $$("#chTabs .tab").forEach((x) => x.classList.toggle("is-on", x === b)); loadList(); };
     $("#chList").onclick = (e) => { const b = e.target.closest("[data-id]"); if (!b) return; current = b.dataset.id; history.replaceState(null, "", "#/chat/" + current); loadList(); loadConv(); };
     await loadList();
     if (!current && list[0]) current = list[0].id;
     loadConv();
-    const tick = () => { timer = setTimeout(async () => { await loadList(); const m = $("#chMsgs"); const atEnd = !m || m.scrollHeight - m.scrollTop - m.clientHeight < 40; if (!$("#chText") || document.activeElement !== $("#chText") || !$("#chText").value) await loadConv(atEnd); tick(); }, 4000); };
-    tick();
-    cleanup = () => clearTimeout(timer);
+    // Waits for changes instead of reloading everything every few seconds: the server answers as soon as any chat
+    // changes (or after 25 s with nothing), and only then are the list and the open chat fetched again.
+    // Nothing is checked while the admin tab is in the background.
+    const watch = async () => {
+      if (!alive) return;
+      if (document.hidden) { timer = setTimeout(watch, 2000); return; }
+      const t0 = Date.now();
+      let changed;
+      try { changed = (await api("GET", "/api/chats?since=" + stamp + "&wait=1")).chats; } catch (err) { if (alive) timer = setTimeout(watch, 8000); return; }
+      if (!alive) return;
+      if (changed.length) {
+        changed.forEach((c) => { stamp = Math.max(stamp, c.updatedAt); });
+        if (changed.some((c) => c.id === current)) await loadConv(); // first, so the open chat is already read in the list
+        await loadList();
+        if (changed.some((c) => c.unread)) refreshCounts();
+      }
+      // an answer after a wait (or with news) means the server holds requests: ask again at once; otherwise wait 4 s
+      timer = setTimeout(watch, changed.length || Date.now() - t0 > 1500 ? 200 : 4000);
+    };
+    watch();
+    cleanup = () => { alive = false; clearTimeout(timer); };
   }
 
   // Contact form messages
@@ -2756,7 +2790,7 @@
     drawSide();
     route();
     refreshCounts();
-    setInterval(refreshCounts, 30000);
+    setInterval(() => { if (!document.hidden) refreshCounts(); }, 30000);
   }
   $("#loginForm").onsubmit = async (e) => {
     e.preventDefault();
