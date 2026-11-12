@@ -2413,7 +2413,7 @@
     ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog", "subscribers"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
-    db.upgrades = ["stores-franchise", "popup", "seo-text"];
+    db.upgrades = ["stores-franchise", "popup", "seo-text", "winter-jackets"];
     return db;
   }
   // Brings an older saved database up to date: new pages and lists, once
@@ -2442,6 +2442,37 @@
         if (s && s.seoTitle && !c.seoTitle) c.seoTitle = s.seoTitle;
       });
       done.push("seo-text");
+      changed = true;
+    }
+    // Jacket and Sweat shirt categories with their 17 products (Nov 2026), added
+    // to stores that started before them. Anything already there by slug is left alone.
+    if (done.indexOf("winter-jackets") < 0) {
+      var winterCats = ["jacket", "sweat-shirt"];
+      var catIds = {};
+      winterCats.forEach(function (slug) {
+        var have = (db.categories || []).filter(function (c) { return c.slug === slug; })[0];
+        var s = (seed.categories || []).filter(function (c) { return c.slug === slug; })[0];
+        if (!have && s) { have = clone(s); db.categories.push(have); }
+        if (have && s) catIds[s.id] = have.id;
+      });
+      var slugs = {};
+      (db.products || []).forEach(function (p) { slugs[p.slug] = 1; });
+      (seed.products || []).forEach(function (p) {
+        var mine = p.categoryIds.some(function (id) { return catIds[id]; });
+        if (!mine || slugs[p.slug]) return;
+        var np = clone(p);
+        np.categoryIds = np.categoryIds.map(function (id) { return catIds[id] || id; });
+        db.products.push(np);
+      });
+      var men = ((db.menus || {}).header || []).filter(function (m) { return m.id === "mi_men"; })[0];
+      if (men) {
+        men.children = men.children || [];
+        [["jacket", "Jacket"], ["sweat-shirt", "Sweat shirt"]].forEach(function (c) {
+          var url = "#category/" + c[0];
+          if (!men.children.some(function (i) { return i.url === url; })) men.children.push({ id: "mi_" + c[0], label: c[1], url: url, children: [] });
+        });
+      }
+      done.push("winter-jackets");
       changed = true;
     }
     if (done.indexOf("popup") < 0) {
