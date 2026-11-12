@@ -29,6 +29,14 @@
   var S = { settings: {}, categories: [], attributes: [], products: [], pages: {}, menus: { header: [], footer: [] } };
   var BY_ID = {}, BY_SLUG = {}, CAT_BY_SLUG = {}, CAT_BY_ID = {};
   var cart = [], saved = store.get("saved", []);
+  // Size chart made in Admin › Size charts (a table), picked on the product; an uploaded chart image is the fallback
+  function chartOf(p) { return p && p.sizeChartId ? ((S && S.sizeCharts) || []).filter(function (x) { return x.id === p.sizeChartId; })[0] || null : null; }
+  function sizeChartHtml(ch, label) {
+    return '<div class="szc"><div class="szc__top"><h3 class="szc__title">' + esc(ch.title || ch.name) + '<span>Size chart</span></h3>' + (ch.unit ? '<p class="szc__unit">Measurements<br>in ' + esc(ch.unit) + "</p>" : "") + "</div>" +
+      '<div class="szc__wrap"><table class="szc__t"><thead><tr>' + ch.columns.map(function (c, i) { return "<th>" + esc(c) + (i && ch.unit ? "<small>" + esc(ch.unit) + "</small>" : "") + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      ch.rows.map(function (r) { return "<tr>" + r.map(function (v, i) { return i ? "<td>" + esc(v) + "</td>" : "<th scope=\"row\">" + esc(v) + "</th>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>" +
+      '<div class="szc__foot">' + (ch.note ? "<span><b>Tip</b> " + esc(ch.note) + "</span>" : "<span></span>") + '<span class="szc__logo">' + esc(label || "") + "</span></div></div>";
+  }
 
   function index() {
     BY_ID = {}; BY_SLUG = {}; CAT_BY_SLUG = {}; CAT_BY_ID = {};
@@ -64,7 +72,8 @@
   // Smaller copies of the site's own photos sit next to them as "<name>-s.webp" (360 px wide for products,
   // 600 px tall for Try the Look models). Phones and small cards load those instead of the full photo.
   // If a small copy is missing the server sends the full photo, so a new photo never shows as broken.
-  var SMALL_RE = /^(\/?assets\/img\/(?:products\/[\w.-]+|home\/look-\d+))\.webp$/;
+  // Photos uploaded in the admin get a 600 px "-s" copy too (older uploads fall back to the full photo)
+  var SMALL_RE = /^(\/?assets\/img\/(?:products\/[\w.-]+|home\/look-\d+)|\/uploads\/(?:\d{4}\/\d{2}\/)?[\w-]+)\.webp$/;
   function smallOf(src) { var m = SMALL_RE.exec(src || ""); return m && !/-s$/.test(m[1]) ? m[1] + "-s.webp" : ""; }
   function imgSet(src, smallW, fullW, sizes) {
     var s = smallOf(src);
@@ -453,7 +462,8 @@
     $("#footerCopy").innerHTML = LAY().footer.copyright ? esc(LAY().footer.copyright).replace(/\{year\}/g, new Date().getFullYear())
       : "© " + new Date().getFullYear() + " " + esc(st.legalName || "Ravelle") + " · Prices in BDT (৳)";
     var payments = S.settings.payments || {};
-    $("#payBadges").innerHTML = (payments.sslcommerz ? ["VISA", "Mastercard", "AMEX", "bKash", "Nagad", "Rocket", "Upay", "DBBL Nexus", "Internet banking"] : []).concat(payments.cod ? ["Cash on delivery"] : [])
+    $("#payBadges").innerHTML = (payments.sslcommerz ? ["VISA", "Mastercard", "AMEX", "bKash", "Nagad", "DBBL Nexus", "Internet banking"] : [])
+      .concat(!payments.sslcommerz && payments.bkash ? ["bKash"] : []).concat(!payments.sslcommerz && payments.nagad ? ["Nagad"] : []).concat(payments.cod ? ["Cash on delivery"] : [])
       .map(function (b) { return '<span class="pay-badge">' + esc(b) + "</span>"; }).join("");
     $("#sslBanner").hidden = !payments.sslcommerz;
     bind($("#footer"), S.pages.home);
@@ -1032,7 +1042,7 @@
             var isSize = /size/i.test(a.name);
             return '<div class="pd__block" data-attr="' + esc(a.name) + '">' +
               '<div class="pd__label-row"><p class="pd__label mono">' + esc(a.name) + ' · <span data-attr-label>Choose one</span></p>' +
-                (isSize && p.sizeGuide ? '<button class="guide-btn" type="button" data-size-guide>' + ICON.ruler + "Size guide</button>" : "") + "</div>" +
+                (isSize && (p.sizeGuide || chartOf(p)) ? '<button class="guide-btn" type="button" data-size-guide>' + ICON.ruler + "Size guide</button>" : "") + "</div>" +
               '<div class="sizes' + (def.type === "color" ? " sizes--color" : "") + '" role="radiogroup" aria-label="' + esc(a.name) + '">' + a.values.map(function (val) {
                 var hex = def.type === "color" ? ((def.values || []).filter(function (x) { return x.label === val; })[0] || {}).hex : "";
                 return '<button class="size" type="button" role="radio" aria-checked="false" data-value="' + esc(val) + '"' + (hex ? ' style="--sw:' + esc(hex) + '"' : "") + ">" + esc(val) + "</button>";
@@ -1140,6 +1150,8 @@
     });
     var guide = $("[data-size-guide]", page);
     if (guide) guide.addEventListener("click", function () {
+      var ch = chartOf(p);
+      if (ch) return openModal(sizeChartHtml(ch, shortName(p)), "Size guide");
       openModal('<figure class="guide"><img src="' + esc(p.sizeGuide) + '" alt="Size guide for ' + esc(shortName(p)) + '"><figcaption class="mono">' + esc(shortName(p)) + " · size guide</figcaption></figure>", "Size guide");
     });
     var main = $(".pd__main");
@@ -1417,14 +1429,14 @@
       '<div class="empty"><p>Nothing saved yet.</p><a class="pill pill--dark pill--sm" href="#shop">Browse the shop</a></div>') + "</section>";
   }
 
-  var STATUS = { pending: "Order placed", confirmed: "Confirmed", hold: "On hold", processing: "Packing", shipped: "On the way", delivered: "Delivered", cancelled: "Cancelled", returned: "Returned" };
+  var STATUS = { pending: "Order placed", confirmed: "Confirmed", hold: "On hold", processing: "Packing", shipped: "On the way", delivered: "Delivered", partial_return: "Partly returned", cancelled: "Cancelled", returned: "Returned" };
   var STEPS = ["pending", "confirmed", "processing", "shipped", "delivered"];
   function orderHTML(o) {
     var at = STEPS.indexOf(o.status);
     return '<div class="order panel">' +
       '<div class="order__head"><div><p class="mono">Order ' + esc(o.number) + " · " + new Date(o.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) + "</p>" +
         '<h2 class="h2 order__status">' + esc(STATUS[o.status] || o.status) + "</h2></div>" +
-        '<span class="chip ' + (o.paymentStatus === "paid" ? "chip--paid" : "chip--muted") + '">' + (o.paymentStatus === "paid" ? "Paid" : o.paymentMethod === "cod" ? "Cash on delivery" : "Payment " + esc(o.paymentStatus)) + "</span></div>" +
+        '<span class="chip ' + (o.paymentStatus === "paid" ? "chip--paid" : "chip--muted") + '">' + (o.paymentStatus === "paid" ? "Paid" : o.paymentMethod === "cod" ? "Cash on delivery" : o.paymentStatus === "unpaid" && (o.paymentMethod === "bkash" || o.paymentMethod === "nagad") ? "Checking " + PAY_NAME[o.paymentMethod] + " payment" : "Payment " + esc(o.paymentStatus)) + "</span></div>" +
       (at > -1 ? '<ol class="steps">' + STEPS.map(function (s, i) { return '<li class="' + (i <= at ? "is-done" : "") + '">' + STATUS[s] + "</li>"; }).join("") + "</ol>" : "") +
       (o.courier && (o.courier.name || o.courier.code) ? '<p class="order__track">' + esc(o.courier.name ? o.courier.name.charAt(0).toUpperCase() + o.courier.name.slice(1) : "Courier") +
           (o.courier.code ? " · <b>" + esc(o.courier.code) + "</b>" : "") + (o.courier.url ? ' · <a href="' + esc(safe(o.courier.url)) + '" target="_blank" rel="noopener">Track with the courier</a>' : "") +
@@ -1440,7 +1452,7 @@
         (o.discount ? "<div><dt>Discount" + (o.coupon ? " (" + esc(o.coupon) + ")" : "") + "</dt><dd>−" + taka(o.discount) + "</dd></div>" : "") +
         "<div><dt>Delivery" + (o.shippingZone ? " · " + esc(o.shippingZone.name) : "") + "</dt><dd>" + (o.shipping ? taka(o.shipping) : "Free") + "</dd></div>" +
         '<div class="totals__grand"><dt>Total</dt><dd>' + taka(o.total) + "</dd></div></dl>" +
-      '<p class="order__addr"><span class="mono">Deliver to</span>' + esc(o.customer.name) + " · " + esc(o.customer.phone) + "<br>" + esc(o.customer.address) + (o.customer.city ? ", " + esc(o.customer.city) : "") + "</p>" +
+      '<p class="order__addr"><span class="mono">Deliver to</span>' + esc(o.customer.name) + " · " + esc(o.customer.phone) + "<br>" + esc(o.customer.address) + (o.customer.area ? ", " + esc(o.customer.area) : "") + (o.customer.city ? ", " + esc(o.customer.city) : "") + "</p>" +
     "</div>";
   }
   function myOrders() { return store.get("orders", []); }
@@ -1562,7 +1574,7 @@
     clearTimeout(captureTimer);
     captureTimer = setTimeout(function () {
       if (!form.isConnected || !cart.length) return;
-      var cu = { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value };
+      var pl = placeOf(form), cu = { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: pl.city, area: pl.area };
       var okPhone = /^(?:\+?88)?01[3-9]\d{8}$/.test(cu.phone.replace(/[\s-]/g, "")), okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cu.email.trim());
       if (!okPhone && !okEmail) return;
       var body = { cid: cartId(), customer: cu, items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }), zone: checkoutState.zone, source: trafficSource() };
@@ -1616,16 +1628,15 @@
             '<p class="checkout__hint">Add your email to get the invoice. We keep these details so we can help if your order doesn\'t go through.</p></fieldset>' +
           '<fieldset class="panel"><legend class="panel__title">Delivery</legend>' +
             field("co-address", "Full address", '<textarea id="co-address" name="address" required rows="2" autocomplete="street-address" placeholder="House, road, area">' + esc(saved.address || "") + "</textarea>") +
-            field("co-city", "District / city", '<input id="co-city" name="city" autocomplete="address-level2" placeholder="Dhaka" value="' + esc(saved.city || "") + '">') +
+            '<div class="field-row">' + field("co-city", "City", '<input id="co-city" name="city" autocomplete="address-level2" placeholder="Dhaka" value="' + esc(saved.city || "") + '">') +
+              '<span id="areaBox" hidden>' + field("co-area", "Area", '<select id="co-area" name="area" disabled><option value="">Choose the city first</option></select>') + "</span></div>" +
             '<div class="zones" role="radiogroup" aria-label="Delivery area">' + ship.zones.map(function (z) {
               return '<label class="radio"><input type="radio" name="zone" value="' + esc(z.id) + '"' + (z.id === checkoutState.zone ? " checked" : "") + "><span><b>" + esc(z.name) + " · " + taka(z.fee) + "</b>Delivery in " + esc(z.days) + "</span></label>";
             }).join("") + "</div>" +
             (ship.freeOver ? '<p class="checkout__hint mono">Free delivery on orders over ' + taka(ship.freeOver) + "</p>" : "") +
             field("co-note", "Order note (optional)", '<input id="co-note" name="note" placeholder="Best time to call, landmark…">') + "</fieldset>" +
           '<fieldset class="panel"><legend class="panel__title">Payment</legend>' +
-            (pay.cod ? '<label class="radio"><input type="radio" name="pay" value="cod" checked><span><b>Cash on delivery</b>Pay the rider when your order arrives.</span></label>' : "") +
-            (pay.sslcommerz ? '<label class="radio"><input type="radio" name="pay" value="sslcommerz"' + (pay.cod ? "" : " checked") + '><span><b>Pay online</b>Card, bKash, Nagad, Rocket or internet banking, secured by SSLCOMMERZ.</span></label>' +
-              '<div class="ssl-row"><img src="https://securepay.sslcommerz.com/public/image/SSLCommerz-Pay-With-logo-All-Size-03.png" alt="Pay with SSLCOMMERZ: cards, mobile banking and internet banking" loading="lazy" onerror="this.parentNode.classList.add(\'no-img\');this.remove()"><span class="ssl-row__fallback mono">Secured by SSLCOMMERZ</span></div>' : "") +
+            payOptions(pay) +
             '<em class="field__err" data-err="payment" hidden></em></fieldset>' +
           '<label class="agree"><input type="checkbox" name="agree" id="co-agree" required checked><span>I have read and agree to the website\'s <a href="#terms" data-policy="terms">Terms &amp; conditions</a>, <a href="#privacy" data-policy="privacy">Privacy policy</a> and <a href="#refund" data-policy="refund">Return &amp; refund policy</a>.</span></label>' +
           '<em class="field__err" data-err="agree" hidden></em>' +
@@ -1640,6 +1651,13 @@
       "</section>";
     drawSummary();
     var form = $("#checkoutForm");
+    setupPlace(form, saved);
+    // bKash / Nagad Send Money: show the number and TrxID boxes only under the chosen one
+    var payBox = function () { $$("[data-paybox]", form).forEach(function (b) { var r = $('input[name="pay"]:checked', form); b.hidden = !r || r.value !== b.dataset.paybox;
+      // only the open box carries the names, so errors land under the right fields
+      $("[data-pay-sender]", b)[b.hidden ? "removeAttribute" : "setAttribute"]("name", "paySender"); $("[data-pay-trx]", b)[b.hidden ? "removeAttribute" : "setAttribute"]("name", "payTrx"); }); };
+    $$('input[name="pay"]', form).forEach(function (r) { r.addEventListener("change", payBox); });
+    payBox();
     $$('input[name="zone"]', form).forEach(function (r) { r.addEventListener("change", function () { checkoutState.zone = r.value; drawSummary(); }); });
     $("#couponForm").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -1672,22 +1690,28 @@
       clearTimeout(captureTimer);
       var payInput = $('input[name="pay"]:checked', form);
       var body = {
-        customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: form.city.value },
+        customer: { name: form.name.value, phone: form.phone.value, email: form.email.value, address: form.address.value, city: placeOf(form).city, area: placeOf(form).area }, place: placeOf(form).place,
         items: cart.map(function (l) { return { productId: l.productId, variantId: l.variantId, qty: l.qty }; }),
         zone: checkoutState.zone, couponCode: checkoutState.coupon ? checkoutState.coupon.code : "",
-        paymentMethod: payInput ? payInput.value : "", agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo(), cartId: cartId()
+        paymentMethod: payInput ? payInput.value : "", payment: manualPayment(form, payInput), agree: form.agree.checked, note: form.note.value, source: trafficSource(), meta: metaInfo(), cartId: cartId()
       };
       var errs = {};
       if (!body.customer.name.trim()) errs.name = "Enter your name.";
       if (!/^(?:\+?88)?01[3-9]\d{8}$/.test(body.customer.phone.replace(/[\s-]/g, ""))) errs.phone = "Enter a Bangladeshi mobile number, like 01712345678.";
       if (body.customer.address.trim().length < 6) errs.address = "Enter your full delivery address.";
+      if (form.city.tagName === "SELECT" && !form.city.value) errs.city = "Choose your city.";
+      else if (form.area && !form.area.disabled && !form.area.value) errs.area = "Choose your area.";
       if (!body.agree) errs.agree = "Please accept the terms and conditions, privacy policy and refund policy.";
+      if (body.payment) {
+        if (!/^(?:\+?88)?01[3-9]\d{8}$/.test(body.payment.sender.replace(/[\s-]/g, ""))) errs.paySender = "Enter the number you sent the money from.";
+        if (!/^[A-Z0-9]{8,12}$/i.test(body.payment.trxId.replace(/\s+/g, ""))) errs.payTrx = "Enter the transaction ID (TrxID) from your SMS, like 9C7A1B2D3E.";
+      }
       if (Object.keys(errs).length) return showErrors(form, { message: "Please check the highlighted fields.", fields: errs });
       var btn = $("#placeOrder");
       btn.disabled = true;
       btn.firstChild.textContent = "Placing order… ";
       store.set("customer", body.customer);
-      track("payment", "", { method: body.paymentMethod === "cod" ? "Cash on delivery" : "Online payment" });
+      track("payment", "", { method: PAY_NAME[body.paymentMethod] || "Online payment" });
       api("POST", "/api/orders", body).then(function (r) {
         var o = r.order;
         pixelMatch(body.customer);
@@ -1705,6 +1729,72 @@
         showErrors(form, err);
       });
     });
+  }
+  // City and Area come from Pathao's own lists, so a parcel can go to the courier without picking them again in the admin.
+  // If the lists can't load (Pathao not set up, or offline), City stays a plain text box.
+  function placeOf(form) {
+    var c = form.city, a = form.area;
+    if (c.tagName !== "SELECT") return { city: c.value, area: "", place: null };
+    var co = c.options[c.selectedIndex], ao = a && !a.disabled ? a.options[a.selectedIndex] : null;
+    var city = c.value ? co.textContent : "", area = ao && a.value ? ao.textContent : "";
+    return { city: city, area: area, place: c.value && a && a.value ? { cityId: +c.value, city: city, zoneId: +a.value, zone: area } : null };
+  }
+  function setupPlace(form, saved) {
+    var opts = function (items, first) { return '<option value="">' + first + "</option>" + items.map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.name) + "</option>"; }).join(""); };
+    var pickByName = function (sel, name) { var n = String(name || "").trim().toLowerCase(); if (!n) return; Array.prototype.some.call(sel.options, function (o) { if (o.value && o.textContent.trim().toLowerCase() === n) { sel.value = o.value; return true; } }); };
+    // the delivery charge follows the city: Dhaka keeps the Dhaka options, anywhere else is Outside Dhaka
+    var fee = function (cityName) {
+      var zones = (S.settings.shipping || {}).zones || [], out = zones.filter(function (z) { return /outside/i.test(z.name); })[0];
+      if (!out || !cityName) return;
+      var inDhaka = /dhaka/i.test(cityName), want = inDhaka ? (checkoutState.zone === out.id ? (zones.filter(function (z) { return z.id !== out.id; })[0] || out).id : checkoutState.zone) : out.id;
+      if (want && want !== checkoutState.zone) { var r = $('input[name="zone"][value="' + want + '"]', form); if (r) { r.checked = true; checkoutState.zone = want; drawSummary(); } }
+    };
+    api("GET", "/api/delivery/cities").then(function (r) {
+      var items = (r && r.items) || [];
+      if (!items.length || !form.isConnected) return;
+      var old = form.city, sel = document.createElement("select"), area = form.area;
+      sel.id = "co-city"; sel.name = "city"; sel.autocomplete = "address-level2";
+      sel.innerHTML = opts(items, "Choose your city");
+      pickByName(sel, old.value || saved.city);
+      old.replaceWith(sel);
+      $("#areaBox").hidden = false;
+      var loadAreas = function (keep) {
+        area.disabled = true; area.innerHTML = '<option value="">' + (sel.value ? "Loading…" : "Choose the city first") + "</option>";
+        fee(placeOf(form).city);
+        if (!sel.value) return;
+        api("GET", "/api/delivery/areas/" + sel.value).then(function (z) {
+          var list = (z && z.items) || [];
+          area.innerHTML = list.length ? opts(list, "Choose your area") : '<option value="">No areas found</option>';
+          area.disabled = !list.length;
+          if (keep) pickByName(area, keep);
+          captureCart(form);
+        }, function () { area.innerHTML = '<option value="">Couldn\'t load areas</option>'; });
+      };
+      sel.addEventListener("change", function () { loadAreas(""); });
+      if (sel.value) loadAreas(saved.area);
+    }, function () {});
+  }
+  var PAY_NAME = { cod: "Cash on delivery", sslcommerz: "Online payment", bkash: "bKash", nagad: "Nagad" };
+  // Checkout payment choices: only the methods turned on in Admin › Payments
+  function payOptions(pay) {
+    var first = ["cod", "sslcommerz", "bkash", "nagad"].filter(function (k) { return pay[k]; })[0];
+    var radio = function (k, title, text) { return '<label class="radio"><input type="radio" name="pay" value="' + k + '"' + (k === first ? " checked" : "") + "><span><b>" + title + "</b>" + text + "</span></label>"; };
+    var manual = function (k, name, cfg) {
+      return radio(k, name, cfg.mode === "api" ? "Pay with your " + name + " account. You'll go to " + name + " to enter your number, code and PIN." : "Send Money to our " + name + " number, then enter the transaction ID.") +
+        (cfg.mode === "api" ? "" : '<div class="paybox" data-paybox="' + k + '" hidden><p>1. Open your ' + name + " app or dial " + (k === "bkash" ? "*247#" : "*167#") + ".<br>2. " + (cfg.accountType === "Merchant" ? "Make a <b>Payment</b>" : cfg.accountType === "Agent" ? "<b>Cash Out</b>" : "<b>Send Money</b>") +
+          " of <b data-total></b> to <b class=\"mono\">" + esc(cfg.number) + "</b> (" + esc(cfg.accountType) + ").<br>3. Enter your number and the TrxID from the SMS below.</p>" +
+          '<div class="field-row">' + field("co-" + k + "-from", "Your " + name + " number", '<input id="co-' + k + '-from" data-pay-sender type="tel" inputmode="numeric" placeholder="01XXXXXXXXX">') +
+          field("co-" + k + "-trx", "Transaction ID (TrxID)", '<input id="co-' + k + '-trx" data-pay-trx autocomplete="off" autocapitalize="characters" placeholder="9C7A1B2D3E">') + "</div></div>");
+    };
+    return (pay.cod ? radio("cod", "Cash on delivery", "Pay the rider when your order arrives.") : "") +
+      (pay.sslcommerz ? radio("sslcommerz", "Pay online", "Card, mobile banking or internet banking, secured by SSLCOMMERZ.") +
+        '<div class="ssl-row"><img src="https://securepay.sslcommerz.com/public/image/SSLCommerz-Pay-With-logo-All-Size-03.png" alt="Pay with SSLCOMMERZ: cards, mobile banking and internet banking" loading="lazy" onerror="this.parentNode.classList.add(\'no-img\');this.remove()"><span class="ssl-row__fallback mono">Secured by SSLCOMMERZ</span></div>' : "") +
+      (pay.bkash ? manual("bkash", "bKash", pay.bkash) : "") +
+      (pay.nagad ? manual("nagad", "Nagad", pay.nagad) : "");
+  }
+  function manualPayment(form, input) {
+    var box = input && $('[data-paybox="' + input.value + '"]', form);
+    return box ? { sender: $("[data-pay-sender]", box).value, trxId: $("[data-pay-trx]", box).value } : undefined;
   }
   function drawSummary() {
     var box = $("#summaryLines");
@@ -2290,8 +2380,8 @@
     var send = function (name, params, custom) { if (fb) fb(custom ? "trackCustom" : "track", name, params || {}, opt); };
     try {
       if (type === "page") {
-        // Every Pixel page view is sent from here (with an event ID). GA sends the first one itself.
-        send("PageView");
+        // The Pixel sends its own PageView when the address changes inside the site, so only the first one is sent from here (with an event ID the server copy matches)
+        if (!adPages) send("PageView");
         if (adPages++ && ga) ga("event", "page_view", { page_location: location.href, page_title: document.title });
       } else if (type === "view" && p) {
         send("ViewContent", one(p, 1));
@@ -2355,7 +2445,10 @@
     var eid = eventId();
     if (!matched) pixelMatch();
     adEvent(type, productId, info, eid);
+    // later page views are counted by the Pixel itself (different event ID), so the server skips them to avoid counting twice
+    var skipMeta = type === "page" && adPages > 1 && typeof window.fbq === "function";
     var body = { type: type, productId: productId || "", sid: sid, eid: eid };
+    if (skipMeta) body.nometa = 1;
     if (info) Object.keys(info).forEach(function (k) { body[k] = info[k]; });
     var mi = metaInfo();
     body.fbp = mi.fbp; body.fbc = mi.fbc; body.url = mi.url;
