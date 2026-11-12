@@ -969,6 +969,9 @@ details[open] > .menu__link::after { transform: rotate(45deg); }
 .zones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .checkout__hint { margin: -6px 0 0; color: var(--ink-2); }
 .ssl-row { display: flex; justify-content: center; padding: 10px; border-radius: 12px; background: var(--ground); }
+.paybox { padding: 14px; border-radius: 12px; background: var(--ground); display: grid; gap: 10px; }
+.paybox[hidden] { display: none; }
+.paybox p { margin: 0; font-size: 14px; line-height: 1.6; }
 .ssl-row img { max-height: 70px; width: auto; }
 .ssl-row__fallback { display: none; color: var(--ink-2); }
 .ssl-row.no-img .ssl-row__fallback { display: block; }
@@ -1275,3 +1278,22 @@ a.contact__card:hover, button.contact__card:hover { transform: translateY(-2px);
 .fr__guide .contact__note { padding-right: 56px; }
 
 .checkout__hint { margin: -4px 0 0; color: var(--ink-2); font-size: 12px; }
+
+/* Size chart made in the admin (Size charts), shown in the Size guide popup */
+.szc { background: var(--ground); color: var(--ink); border-radius: 14px; padding: clamp(16px, 3vw, 28px); width: min(720px, 100%); }
+.szc__top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 12px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 16px; }
+.szc__title { margin: 0; font-family: var(--f-display, inherit); font-weight: 800; font-stretch: 75%; font-size: clamp(26px, 5vw, 40px); line-height: .9; text-transform: uppercase; }
+.szc__title span { display: block; color: var(--sale); }
+.szc__unit { margin: 0; text-align: right; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); line-height: 1.5; }
+.szc__wrap { overflow-x: auto; border-radius: 12px; }
+.szc__t { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border-radius: 12px; overflow: hidden; }
+.szc__t thead th { background: var(--ink); color: #f2f0ec; font-weight: 600; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; padding: 12px 8px; text-align: center; }
+.szc__t thead th small { display: block; font-size: 9px; letter-spacing: .14em; color: #a9adb3; margin-top: 2px; }
+.szc__t td, .szc__t tbody th { text-align: center; font-size: 16px; padding: 11px 8px; border-top: 1px solid #e3e2df; }
+.szc__t tbody th { font-weight: 700; background: #f6f5f2; }
+.szc__t tbody tr:nth-child(even) td { background: #fbfaf8; }
+.szc__foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+.szc__foot b { color: var(--ink); text-transform: uppercase; letter-spacing: .06em; margin-right: 4px; }
+.szc__logo { font-weight: 700; letter-spacing: .12em; color: var(--ink); text-transform: uppercase; white-space: nowrap; }
+#areaBox { display: contents; }
+#areaBox[hidden] { display: none; }

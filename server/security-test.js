@@ -102,6 +102,18 @@ async function main() {
   assert.ok(!/^whsec_/.test(s.acore.webhookSecret || ""), "managers don't see the Acore webhook secret");
   console.log("✓ custom code, email server, Acore and payment settings are owner-only");
 
+  // 4b. Pathao: managers can't change or read the courier sign-in details, and a webhook needs the secret
+  assert.equal((await call("PUT", "/api/settings", { settings: { pathao: { clientId: "x", clientSecret: "y", username: "a@b.c", password: "p" } } }, mgr)).status, 403, "manager sets Pathao login");
+  assert.equal((await call("PUT", "/api/settings", { settings: { pathao: { clientId: "cid", clientSecret: "topsecret", username: "a@b.c", password: "pw-secret", webhookSecret: "hook-secret-1" } } }, owner)).status, 200, "owner sets Pathao");
+  var ps = JSON.stringify((await call("GET", "/api/settings", null, mgr)).body.settings);
+  assert.ok(ps.indexOf("topsecret") < 0 && ps.indexOf("pw-secret") < 0 && ps.indexOf("hook-secret-1") < 0, "Pathao secrets leak to a manager");
+  ps = JSON.stringify((await call("GET", "/api/settings", null, owner)).body.settings);
+  assert.ok(ps.indexOf("topsecret") < 0 && ps.indexOf("pw-secret") < 0, "Pathao secret and password are never sent back");
+  assert.equal((await call("POST", "/api/pathao/webhook", { event: "order.delivered", merchant_order_id: "RV1001" })).status, 401, "unsigned Pathao webhook");
+  assert.equal((await call("POST", "/api/pathao/webhook", { event: "order.delivered", merchant_order_id: "RV1001" }, null, { "X-PATHAO-Signature": "wrong" })).status, 401, "wrong Pathao signature");
+  assert.equal((await call("GET", "/api/pathao/cities")).status, 401, "Pathao lists need sign-in");
+  console.log("✓ Pathao sign-in details are owner-only and never sent back; webhooks need the secret");
+
   // 5. Menu links can't run code
   var menus = (await call("GET", "/api/menus")).body.menus;
   menus.header[0].url = "javascript:alert(document.domain)";

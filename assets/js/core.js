@@ -103,8 +103,29 @@
   // API keys reach the store data, never users, settings or other keys.
   var KEY_AREAS = ["orders", "customers", "products", "catalog", "coupons", "content", "chat", "messages", "dashboard"];
 
-  var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
+  var ORDER_STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "partial_return", "cancelled", "returned"];
   var PAYMENT_STATUSES = ["unpaid", "paid", "refunded", "failed"];
+  // Payment methods (Admin › Payments). Each has an on/off switch; checkout shows only the ones that are on.
+  var PAY_DEFAULTS = {
+    sslcommerz: { enabled: false, sandbox: true, storeId: "", storePassword: "" },
+    bkash: { enabled: false, mode: "manual", sandbox: true, number: "", accountType: "Personal", appKey: "", appSecret: "", username: "", password: "" },
+    nagad: { enabled: false, number: "", accountType: "Personal" }
+  };
+  var PAY_ACCOUNTS = ["Personal", "Merchant", "Agent"];
+  var PAY_NAMES = { cod: "Cash on delivery", sslcommerz: "SSLCOMMERZ", bkash: "bKash", nagad: "Nagad" };
+  function paySettings(s) {
+    var p = s.payments || (s.payments = { cod: true });
+    if (p.cod === undefined) p.cod = true;
+    Object.keys(PAY_DEFAULTS).forEach(function (k) { p[k] = Object.assign({}, PAY_DEFAULTS[k], p[k] || {}); });
+    return p;
+  }
+  // What checkout may see: never keys or passwords
+  function publicPayments(s) {
+    var p = paySettings(s), manual = function (x) { return { mode: "manual", number: x.number, accountType: x.accountType }; };
+    return { cod: !!p.cod, sslcommerz: !!p.sslcommerz.enabled,
+      bkash: p.bkash.enabled ? (p.bkash.mode === "api" ? { mode: "api" } : manual(p.bkash)) : false,
+      nagad: p.nagad.enabled ? manual(p.nagad) : false };
+  }
   var EVENTS = ["order.created", "order.updated", "product.created", "product.updated", "product.deleted", "stock.updated", "stock.low",
     "customer.created", "chat.message.created", "contact.created", "coupon.used", "franchise.created", "subscriber.created"];
 
@@ -120,7 +141,7 @@
     return {
       id: p.id, slug: p.slug, sku: p.sku, name: p.name, line: p.line, color: p.color, hex: p.hex, colorGroup: p.colorGroup || "",
       price: p.price, comparePrice: p.comparePrice || 0, description: p.description, details: p.details || [], seoTitle: p.seoTitle || "",
-      images: p.images || [], sizeGuide: p.sizeGuide || "", categoryIds: p.categoryIds || [],
+      images: p.images || [], sizeGuide: p.sizeGuide || "", sizeChartId: p.sizeChartId || "", categoryIds: p.categoryIds || [],
       attributes: p.attributes || [], isNew: !!p.isNew, featured: !!p.featured, trackStock: !!p.trackStock,
       stock: productStock(p), createdAt: p.createdAt,
       variants: (p.variants || []).map(function (v) {
@@ -129,11 +150,13 @@
     };
   }
   function publicUser(u) {
-    return { id: u.id, name: u.name, email: u.email, role: u.role, areas: userAreas(u), createdAt: u.createdAt, lastLogin: u.lastLogin || null };
+    return { id: u.id, name: u.name, email: u.email, role: u.role, areas: userAreas(u), orderTrash: u.role === "owner" || (!!u.orderTrash && userAreas(u).indexOf("orders") > -1), createdAt: u.createdAt, lastLogin: u.lastLogin || null };
   }
   function orderSummary(o) {
     return { id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
-      customer: { name: o.customer.name, phone: o.customer.phone }, itemCount: o.items.reduce(function (s, i) { return s + i.qty; }, 0), total: o.total };
+      customer: { name: o.customer.name, phone: o.customer.phone, address: o.customer.address, area: o.customer.area || "", city: o.customer.city }, place: o.place || null, itemCount: o.items.reduce(function (s, i) { return s + i.qty; }, 0), total: o.total,
+      pathao: o.pathao && o.pathao.consignmentId ? { consignmentId: o.pathao.consignmentId, status: o.pathao.status || "", lastUpdate: o.pathao.lastUpdate || o.pathao.sentAt || 0 } : null,
+      trackingUrl: o.courier && o.courier.trackingUrl || "" };
   }
   function chatSummary(c) {
     var last = c.messages[c.messages.length - 1];
@@ -172,7 +195,7 @@
   function publicSettings(s) {
     return {
       store: s.store, social: s.social, shipping: s.shipping,
-      payments: { cod: !!(s.payments && s.payments.cod), sslcommerz: !!(s.payments && s.payments.sslcommerz && s.payments.sslcommerz.enabled) },
+      payments: publicPayments(s),
       chat: { enabled: !!(s.chat && s.chat.enabled), greeting: s.chat && s.chat.greeting, title: s.chat && s.chat.title },
       seo: s.seo, announcement: s.announcement || "", lowStock: s.lowStock,
       layout: siteLayout(s), code: { head: headCode(s), bodyEnd: siteCode(s).bodyEnd, pixelId: siteCode(s).pixelId, gaId: siteCode(s).gaId }
@@ -244,6 +267,7 @@
       if (b.details !== undefined) p.details = (Array.isArray(b.details) ? b.details : String(b.details).split("\n")).map(function (d) { return str(d, 300); }).filter(Boolean).slice(0, 20);
       if (b.images !== undefined) p.images = (b.images || []).map(function (u) { return str(u, 4000000); }).filter(Boolean).slice(0, 20);
       if (b.sizeGuide !== undefined) p.sizeGuide = str(b.sizeGuide, 4000000);
+      if (b.sizeChartId !== undefined) p.sizeChartId = (db.sizeCharts || []).some(function (x) { return x.id === b.sizeChartId; }) ? b.sizeChartId : "";
       if (b.categoryIds !== undefined) p.categoryIds = (b.categoryIds || []).filter(function (id, i, all) { return all.indexOf(id) === i && db.categories.some(function (c) { return c.id === id; }); });
       ["isNew", "featured", "trackStock"].forEach(function (k) { if (b[k] !== undefined) p[k] = bool(b[k]); });
       if (p.trackStock === undefined) p.trackStock = true;
@@ -458,13 +482,18 @@
       if (created) emit(db, "customer.created", c);
       return c;
     }
+    // How many of an order line came back in a partial return (that stock is already on the shelf)
+    function returnedQty(o, it) {
+      return (o.returns || []).filter(function (r) { return r.productId === it.productId && (r.variantId || null) === (it.variantId || null); }).reduce(function (n, r) { return n + r.qty; }, 0);
+    }
+    function moveStock(db, it, delta) {
+      var p = findProduct(db, it.productId);
+      if (!p || !p.trackStock || !delta) return;
+      var v = it.variantId ? (p.variants || []).filter(function (x) { return x.id === it.variantId; })[0] : null;
+      if (v) v.stock = Math.max(0, v.stock + delta); else p.stock = Math.max(0, int(p.stock) + delta);
+    }
     function restock(db, o) {
-      o.items.forEach(function (it) {
-        var p = findProduct(db, it.productId);
-        if (!p || !p.trackStock) return;
-        var v = it.variantId ? (p.variants || []).filter(function (x) { return x.id === it.variantId; })[0] : null;
-        if (v) v.stock += it.qty; else p.stock = int(p.stock) + it.qty;
-      });
+      o.items.forEach(function (it) { moveStock(db, it, it.qty - returnedQty(o, it)); });
       o.restocked = true;
     }
     // Meta Conversions API: the server sends the same event as the browser Pixel, with the same event ID,
@@ -541,7 +570,7 @@
     });
     function capiTrack(c, t, b) {
       var name = CAPI_NAMES[t];
-      if (!name || !host.metaEvent) return;
+      if (!name || !host.metaEvent || b.nometa) return;
       var p = b.productId ? findProduct(c.db, str(b.productId, 40)) : null, custom = null;
       if ((t === "view" || t === "cart" || t === "wishlist") && !p) return;
       var catName = function (x) { var ids = x.categoryIds || [], cat = findCategory(ids[ids.length - 1]) || findCategory(ids[0]); return cat ? cat.name : undefined; };
@@ -817,6 +846,7 @@
         settings: publicSettings(db.settings),
         categories: db.categories.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); }),
         attributes: db.attributes,
+        sizeCharts: (db.sizeCharts || []).filter(function (x) { return db.products.some(function (p) { return p.status === "published" && p.sizeChartId === x.id; }); }),
         products: db.products.filter(function (p) { return p.status === "published"; }).map(publicProduct),
         pages: publicPages(db.pages),
         menus: db.menus,
@@ -946,7 +976,10 @@
 
     route("POST", "/api/orders", null, function (c) {
       var db = c.db, b = c.body || {}, cu = b.customer || {};
-      var info = { name: str(cu.name, 80), phone: str(cu.phone, 20), email: str(cu.email, 120), address: str(cu.address, 300), city: str(cu.city, 60) };
+      var info = { name: str(cu.name, 80), phone: str(cu.phone, 20), email: str(cu.email, 120), address: str(cu.address, 300), city: str(cu.city, 60), area: str(cu.area, 80) };
+      // City and Area picked from Pathao's own lists at checkout, so the parcel can be sent without choosing them again
+      var place = b.place && int(b.place.cityId) && int(b.place.zoneId) ? { cityId: int(b.place.cityId), zoneId: int(b.place.zoneId), city: str(b.place.city, 60), zone: str(b.place.zone, 80) } : null;
+      if (place) { info.city = place.city || info.city; info.area = place.zone || info.area; }
       var errors = {};
       if (!info.name) errors.name = "Enter your name.";
       if (!isPhone(info.phone)) errors.phone = "Enter a Bangladeshi mobile number, like 01712345678.";
@@ -954,8 +987,16 @@
       if (info.address.length < 6) errors.address = "Enter your full delivery address.";
       if (!b.agree) errors.agree = "Please accept the terms and conditions, privacy policy and refund policy.";
       var pay = str(b.paymentMethod, 20);
-      var ps = db.settings.payments || {};
-      if (!(pay === "cod" && ps.cod) && !(pay === "sslcommerz" && ps.sslcommerz && ps.sslcommerz.enabled)) errors.payment = "Choose a payment method.";
+      var ps = publicPayments(db.settings), manualPay = null;
+      if (!ps[pay] || ["cod", "sslcommerz", "bkash", "nagad"].indexOf(pay) < 0) errors.payment = "Choose a payment method.";
+      else if (ps[pay].mode === "manual") {
+        // bKash / Nagad Send Money: the customer gives their number and the transaction ID; the shop checks it and marks it paid
+        var bp = b.payment || {}, trx = str(bp.trxId, 30).replace(/\s+/g, "").toUpperCase();
+        manualPay = { sender: normPhone(str(bp.sender, 20)), trxId: trx };
+        if (!isPhone(bp.sender || "")) errors.paySender = "Enter the number you sent the money from.";
+        if (!/^[A-Z0-9]{8,12}$/.test(trx)) errors.payTrx = "Enter the transaction ID (TrxID) from your SMS, like 9C7A1B2D3E.";
+        else if (db.orders.some(function (o) { return o.paymentMethod === pay && o.paymentRef === trx; })) errors.payTrx = "This transaction ID is already used on another order.";
+      }
       if (Object.keys(errors).length) fail(400, "Please check the highlighted fields.", errors);
       var q = quote(db, b);
       db.counters.order = int(db.counters.order, 1000) + 1;
@@ -963,12 +1004,14 @@
       var order = {
         id: newId("ord"), number: "RV" + db.counters.order, createdAt: t, updatedAt: t,
         status: "pending", paymentStatus: "unpaid", paymentMethod: pay,
-        customer: { name: info.name, phone: normPhone(info.phone), email: info.email, address: info.address, city: info.city },
+        customer: { name: info.name, phone: normPhone(info.phone), email: info.email, address: info.address, area: info.area, city: info.city },
+        place: place,
         shippingZone: q.zone ? { id: q.zone.id, name: q.zone.name, days: q.zone.days } : null,
         items: q.lines, subtotal: q.subtotal, discount: q.discount, coupon: q.coupon ? q.coupon.code : "", shipping: q.shipping, total: q.total,
         note: str(b.note, 500), source: str(b.source, 40) || "website",
-        history: [{ at: t, status: "pending", note: "Order placed" + (pay === "cod" ? " · cash on delivery" : " · paying online"), by: "Customer" }]
+        history: [{ at: t, status: "pending", note: "Order placed" + (pay === "cod" ? " · cash on delivery" : manualPay ? " · " + PAY_NAMES[pay] + " Send Money, TrxID " + manualPay.trxId + " from " + manualPay.sender + ". Check it, then set Payment to Paid." : " · paying online"), by: "Customer" }]
       };
+      if (manualPay) { order.paymentRef = manualPay.trxId; order.paymentSender = manualPay.sender; }
       // Reserve stock now; cancelling or returning puts it back.
       order.items.forEach(function (it) {
         var p = findProduct(db, it.productId);
@@ -1001,7 +1044,7 @@
 
     function publicOrder(o) {
       return { number: o.number, createdAt: o.createdAt, status: o.status, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
-        customer: { name: o.customer.name, phone: o.customer.phone.replace(/^(\d{3})\d{5}/, "$1•••••"), address: o.customer.address, city: o.customer.city },
+        customer: { name: o.customer.name, phone: o.customer.phone.replace(/^(\d{3})\d{5}/, "$1•••••"), address: o.customer.address, area: o.customer.area || "", city: o.customer.city },
         shippingZone: o.shippingZone, items: o.items, subtotal: o.subtotal, discount: o.discount, coupon: o.coupon, shipping: o.shipping, total: o.total,
         tracking: o.tracking || "", courier: o.courier ? { name: o.courier.name || "", code: o.courier.trackingCode || o.courier.consignmentId || "", url: o.courier.trackingUrl || "",
           rider: o.status === "shipped" ? o.courier.riderName || "" : "", riderPhone: o.status === "shipped" ? o.courier.riderPhone || "" : "" } : null, history: o.history.filter(function (h) { return !h.internal; }).map(function (h) { return { at: h.at, status: h.status, note: h.public || "" }; }) };
@@ -1657,6 +1700,57 @@
       if (!a.values || !a.values.length) fail(400, "Add at least one option.");
       return a;
     }, { publicRead: true });
+    // Size chart templates: a title, columns (Size, Chest, Length…) and one row per size
+    // Price tag labels: one saved design (size, barcode type, which lines show, font sizes) used by Catalog › Price tags
+    var LABEL_DEFAULTS = {
+      width: 50, height: 30, padding: 2, type: "code128", barHeight: 10, barWidth: 90, brand: "", pricePrefix: "৳", align: "center", border: false,
+      sheet: "roll", columns: 3, gap: 2,
+      show: { brand: true, name: true, size: true, barcode: true, code: true, price: true, oldPrice: false },
+      font: { brand: 9, name: 7, code: 6, price: 11 },
+      bold: { brand: true, name: false, code: false, price: true }
+    };
+    var LABEL_RANGES = { width: [15, 210], height: [10, 297], padding: [0, 10], barHeight: [3, 60], barWidth: [20, 100], columns: [1, 8], gap: [0, 20] };
+    var LABEL_TYPES = ["code128", "code39", "code93", "ean13", "upca", "qrcode"];
+    function labelTemplate(db) {
+      var t = clone(LABEL_DEFAULTS), saved = db.settings.labels || {};
+      Object.keys(t).forEach(function (k) {
+        if (saved[k] === undefined) return;
+        if (t[k] && typeof t[k] === "object") Object.keys(t[k]).forEach(function (f) { if (saved[k][f] !== undefined) t[k][f] = saved[k][f]; });
+        else t[k] = saved[k];
+      });
+      return t;
+    }
+    route("GET", "/api/label-template", "products", function (c) { return { template: labelTemplate(c.db), types: LABEL_TYPES }; }, { readonly: true });
+    route("PUT", "/api/label-template", "products", function (c) {
+      var b = c.body.template || {}, t = labelTemplate(c.db);
+      Object.keys(LABEL_RANGES).forEach(function (k) { if (b[k] !== undefined) t[k] = Math.min(LABEL_RANGES[k][1], Math.max(LABEL_RANGES[k][0], Math.round(num(b[k], t[k]) * 10) / 10)); });
+      if (b.type !== undefined) t.type = LABEL_TYPES.indexOf(b.type) > -1 ? b.type : "code128";
+      if (b.brand !== undefined) t.brand = str(b.brand, 40);
+      if (b.pricePrefix !== undefined) t.pricePrefix = str(b.pricePrefix, 6);
+      if (b.align !== undefined) t.align = ["left", "center", "right"].indexOf(b.align) > -1 ? b.align : "center";
+      if (b.border !== undefined) t.border = bool(b.border);
+      if (b.sheet !== undefined) t.sheet = b.sheet === "a4" ? "a4" : "roll";
+      ["show", "bold"].forEach(function (k) { if (b[k]) Object.keys(t[k]).forEach(function (f) { if (b[k][f] !== undefined) t[k][f] = bool(b[k][f]); }); });
+      if (b.font) Object.keys(t.font).forEach(function (f) { if (b.font[f] !== undefined) t.font[f] = Math.min(40, Math.max(4, Math.round(num(b.font[f], t.font[f]) * 2) / 2)); });
+      c.db.settings.labels = t;
+      return { template: t, types: LABEL_TYPES };
+    });
+    crud("size-charts", "sizeCharts", "catalog", function (db, b, ex) {
+      var x = ex ? clone(ex) : { id: newId("sc"), createdAt: now() };
+      if (b.name !== undefined) x.name = str(b.name, 60);
+      if (!x.name) fail(400, "Give the template a name, like Oversized T-shirt or Baggy Trouser.");
+      if ((db.sizeCharts || []).some(function (y) { return y.name.toLowerCase() === x.name.toLowerCase() && y.id !== x.id; })) fail(400, "There is already a size chart called " + x.name + ".");
+      if (b.title !== undefined) x.title = str(b.title, 60);
+      if (b.unit !== undefined) x.unit = str(b.unit, 20);
+      if (b.note !== undefined) x.note = str(b.note, 300);
+      if (b.columns !== undefined) x.columns = (Array.isArray(b.columns) ? b.columns : []).slice(0, 10).map(function (v) { return str(v, 30); });
+      if (!x.columns || x.columns.length < 2) fail(400, "Add at least two columns, like Size and Chest.");
+      if (b.rows !== undefined) x.rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 30).map(function (r) { return x.columns.map(function (_, i) { return str((Array.isArray(r) ? r : [])[i], 30); }); }).filter(function (r) { return r.some(Boolean); });
+      x.rows = (x.rows || []).map(function (r) { return x.columns.map(function (_, i) { return r[i] || ""; }); });
+      if (!x.rows.length) fail(400, "Add at least one size row.");
+      x.updatedAt = now();
+      return x;
+    }, { beforeDelete: function (db, x) { db.products.forEach(function (p) { if (p.sizeChartId === x.id) p.sizeChartId = ""; }); } });
     route("PUT", "/api/categories-order", "catalog", function (c) {
       (c.body.order || []).forEach(function (o) {
         var cat = c.db.categories.filter(function (x) { return x.id === o.id; })[0];
@@ -1683,10 +1777,10 @@
     route("GET", "/api/orders/:id", "orders", function (c) {
       var o = c.db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
       if (!o) fail(404, "Order not found.");
-      return { order: o };
+      return { order: o, acoreOn: acoreSettings(c.db).enabled };
     }, { readonly: true });
     route("DELETE", "/api/orders/:id", "orders", function (c) {
-      needOwner(c, "delete orders");
+      if (!canTrashOrders(c.auth)) fail(403, "You don't have permission to delete orders. Ask the store owner.");
       var db = c.db, o = db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
       if (!o) fail(404, "Order not found.");
       var put = !o.restocked && o.status !== "delivered";
@@ -1721,6 +1815,141 @@
       if (changes.length) acoreSync(c, o);
       return { order: o };
     });
+    // Edit an order by hand: customer details, items (size, quantity, price, add or remove), delivery and discount.
+    // Stock follows the change: what came off the order goes back, what was added comes out.
+    route("PUT", "/api/orders/:id/edit", "orders", function (c) {
+      var db = c.db, b = c.body || {};
+      var o = db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      if (onCourier(o)) fail(400, "This order is already with the courier, so it can't be edited here. Change the parcel in the courier's panel, or cancel it there first.");
+      var changes = [], errors = {};
+      if (b.customer) {
+        var cu = b.customer, info = { name: str(cu.name, 80), phone: str(cu.phone, 20), email: str(cu.email, 120), address: str(cu.address, 300), city: str(cu.city, 60) };
+        if (!info.name) errors.name = "Enter the customer's name.";
+        if (!isPhone(info.phone)) errors.phone = "Enter a Bangladeshi mobile number, like 01712345678.";
+        if (info.email && !isEmail(info.email)) errors.email = "That email doesn't look right.";
+        if (info.address.length < 6) errors.address = "Enter the full delivery address.";
+        if (Object.keys(errors).length) fail(400, "Please check the highlighted fields.", errors);
+        info.phone = normPhone(info.phone);
+        ["name", "phone", "email", "address", "city"].forEach(function (k) { if ((o.customer[k] || "") !== info[k]) { changes.push(k === "phone" ? "Phone: " + info.phone : k.charAt(0).toUpperCase() + k.slice(1) + " changed"); o.customer[k] = info[k]; } });
+      }
+      var itemsChanged = false;
+      if (Array.isArray(b.items)) {
+        if (!b.items.length) fail(400, "Keep at least one item. To drop the whole order, cancel it.");
+        if (b.items.length > 50) fail(400, "Too many items in one order.");
+        if (o.status === "shipped" || o.status === "delivered") fail(400, "This order is " + o.status + ", so its items can't change.");
+        var held = !o.restocked; // a live order holds its stock; a cancelled or returned one doesn't
+        var key = function (pid, vid) { return pid + "|" + (vid || ""); };
+        var old = {};
+        o.items.forEach(function (it) { old[key(it.productId, it.variantId)] = it; });
+        var want = {}, lines = [];
+        b.items.forEach(function (it) {
+          var p = findProduct(db, it.productId);
+          if (!p) fail(400, "A product on this order no longer exists.");
+          var qty = int(it.qty, 1);
+          if (qty < 1 || qty > 50) fail(400, "Quantity must be between 1 and 50.");
+          var v = null;
+          if (p.variants && p.variants.length) {
+            v = p.variants.filter(function (x) { return x.id === it.variantId; })[0];
+            if (!v) fail(400, "Choose a size for " + p.name + ".");
+          }
+          var k = key(p.id, v ? v.id : null), was = old[k];
+          var price = it.price !== undefined && it.price !== "" && it.price !== null ? Math.max(0, int(it.price)) : was ? was.price : (v && v.price != null ? v.price : p.price);
+          if (want[k]) { want[k].qty += qty; want[k].lineTotal = want[k].price * want[k].qty; return; }
+          var line = { productId: p.id, variantId: v ? v.id : null, name: was ? was.name : p.name, sku: v ? v.sku : p.sku, options: v ? v.options : {}, color: p.color || "",
+            image: was ? was.image : (p.images || [])[0] || "", price: price, comparePrice: was ? was.comparePrice : p.comparePrice || 0, qty: qty, lineTotal: price * qty };
+          want[k] = line; lines.push(line);
+        });
+        // Stock check first, then move it, so a failed edit changes nothing
+        if (held) Object.keys(want).forEach(function (k) {
+          var l = want[k], p = findProduct(db, l.productId);
+          if (!p.trackStock) return;
+          var v = l.variantId ? p.variants.filter(function (x) { return x.id === l.variantId; })[0] : null;
+          var free = (v ? v.stock : int(p.stock)) + (old[k] ? old[k].qty : 0);
+          if (l.qty > free) fail(409, free > 0 ? "Only " + free + " available of " + p.name + (v ? " (" + optionText(v.options) + ")" : "") + "." : p.name + (v ? " (" + optionText(v.options) + ")" : "") + " is out of stock.");
+        });
+        var summary = [];
+        Object.keys(old).concat(Object.keys(want).filter(function (k) { return !old[k]; })).forEach(function (k) {
+          var a = old[k] ? old[k].qty : 0, n = want[k] ? want[k].qty : 0, l = want[k] || old[k];
+          var label = l.name + (l.options && Object.keys(l.options).length ? " (" + optionText(l.options) + ")" : "");
+          if (a !== n) {
+            summary.push(!a ? "added " + n + "× " + label : !n ? "removed " + label : label + " " + a + "→" + n);
+            if (held) {
+              var p = findProduct(db, l.productId);
+              if (p && p.trackStock) {
+                var v = l.variantId ? (p.variants || []).filter(function (x) { return x.id === l.variantId; })[0] : null;
+                if (v) v.stock += a - n; else p.stock = int(p.stock) + a - n;
+                if (n > a) lowStockCheck(db, p, v);
+              }
+            }
+          } else if (old[k] && want[k] && old[k].price !== want[k].price) summary.push(label + " price " + old[k].price + "→" + want[k].price);
+        });
+        if (summary.length) { itemsChanged = true; o.items = lines; changes.push("Items: " + summary.join(", ")); }
+      }
+      if (b.zone !== undefined && b.zone && (!o.shippingZone || o.shippingZone.id !== b.zone)) {
+        var z = ((db.settings.shipping || {}).zones || []).filter(function (x) { return x.id === b.zone; })[0];
+        if (!z) fail(400, "Choose a delivery area.");
+        o.shippingZone = { id: z.id, name: z.name, days: z.days };
+        if (b.shipping === undefined || b.shipping === "") b.shipping = int(z.fee);
+        changes.push("Delivery area: " + z.name);
+      }
+      if (b.shipping !== undefined && b.shipping !== "" && int(b.shipping) !== o.shipping) { o.shipping = Math.max(0, int(b.shipping)); changes.push("Delivery charge: ৳" + o.shipping); }
+      var subtotal = o.items.reduce(function (n, it) { return n + it.lineTotal; }, 0);
+      if (b.discount !== undefined && b.discount !== "" && int(b.discount) !== o.discount) { o.discount = Math.max(0, int(b.discount)); changes.push("Discount: ৳" + o.discount); }
+      if (o.discount > subtotal) o.discount = subtotal;
+      var total = subtotal - o.discount + o.shipping;
+      if (subtotal !== o.subtotal || total !== o.total) { if (total !== o.total) changes.push("Total: ৳" + o.total + " → ৳" + total); o.subtotal = subtotal; o.total = total; }
+      var note = str(b.note, 500);
+      if (!changes.length) return { order: o, changed: false };
+      o.updatedAt = now();
+      o.history.push({ at: now(), status: o.status, note: "Order edited · " + changes.join(" · ") + (note ? " · " + note : ""), by: c.auth ? c.auth.name : "System", internal: true });
+      if (o.customerId) { var cust = db.customers.filter(function (x) { return x.id === o.customerId; })[0]; if (cust && b.customer) { cust.name = o.customer.name; cust.address = o.customer.address; cust.city = o.customer.city || cust.city; if (o.customer.email) cust.email = o.customer.email; } }
+      emit(db, "order.updated", o);
+      acoreSync(c, o);
+      return { order: o, changed: true };
+    });
+    function onCourier(o) {
+      return !!((o.pathao && o.pathao.consignmentId) || (o.courier && o.courier.consignmentId) || ["shipped", "delivered", "partial_return", "returned"].indexOf(o.status) > -1);
+    }
+    // Partial return: the customer kept some items and sent the rest back. Staff pick which items and how many;
+    // those go back into stock. Sending it again replaces the earlier pick.
+    route("POST", "/api/orders/:id/partial-return", "orders", function (c) {
+      var db = c.db, b = c.body || {};
+      var o = db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      if (o.status === "cancelled" || o.status === "returned") fail(400, "This order is " + o.status + ". Reopen it first.");
+      var pick = Array.isArray(b.items) ? b.items : [];
+      var next = [], all = true;
+      o.items.forEach(function (it, i) {
+        var want = pick.filter(function (x) { return int(x.index, -1) === i; })[0];
+        var q = want ? int(want.qty, 0) : 0;
+        if (q < 0 || q > it.qty) fail(400, "Return between 0 and " + it.qty + " of " + it.name + ".");
+        if (q < it.qty) all = false;
+        if (q) next.push({ productId: it.productId, variantId: it.variantId || null, name: it.name, options: it.options || {}, sku: it.sku, qty: q, price: it.price, value: it.price * q });
+      });
+      if (!next.length) fail(400, "Choose at least one returned item.");
+      if (all) fail(400, "Every item came back. Mark the whole order as Returned instead.");
+      // Move only the difference from the last pick
+      var before = o.returns || [];
+      o.items.forEach(function (it) {
+        var a = returnedQty({ returns: before }, it), n = returnedQty({ returns: next }, it);
+        if (!o.restocked) moveStock(db, it, n - a);
+      });
+      var was = o.status;
+      o.returns = next;
+      o.returnedValue = next.reduce(function (n, r) { return n + r.value; }, 0);
+      if (b.collected !== undefined && b.collected !== "") o.collected = Math.max(0, int(b.collected));
+      if (was !== "partial_return") { o.status = "partial_return"; gaServer(c, o, "refund"); }
+      if (o.paymentMethod === "cod" && o.paymentStatus !== "paid" && o.collected) o.paymentStatus = "paid";
+      o.updatedAt = now();
+      var note = str(b.note, 300);
+      o.history.push({ at: now(), status: o.status, note: "Partly returned: " + next.map(function (r) { return r.qty + "× " + r.name + (Object.keys(r.options).length ? " (" + optionText(r.options) + ")" : ""); }).join(", ") +
+        " · returned ৳" + o.returnedValue + (o.collected !== undefined ? " · collected ৳" + o.collected : "") + (note ? " · " + note : ""), public: "Some items were returned", by: c.auth ? c.auth.name : "System" });
+      statusEmail(db, o);
+      emit(db, "order.updated", o);
+      acoreSync(c, o);
+      return { order: o };
+    });
     function setStatus(c, o, status) {
       var db = c.db;
       if (ORDER_STATUSES.indexOf(status) < 0) fail(400, "Unknown status.");
@@ -1731,13 +1960,13 @@
       if ((status === "cancelled" || status === "returned") && was !== "cancelled" && was !== "returned") gaServer(c, o, "refund");
       if ((was === "cancelled" || was === "returned") && status !== "cancelled" && status !== "returned" && o.restocked) {
         // Reopening takes the stock back out.
-        o.items.forEach(function (it) {
-          var p = findProduct(db, it.productId);
-          if (!p || !p.trackStock) return;
-          var v = it.variantId ? p.variants.filter(function (x) { return x.id === it.variantId; })[0] : null;
-          if (v) v.stock = Math.max(0, v.stock - it.qty); else p.stock = Math.max(0, int(p.stock) - it.qty);
-        });
+        o.items.forEach(function (it) { moveStock(db, it, -(it.qty - returnedQty(o, it))); });
         o.restocked = false;
+      }
+      // Leaving "partly returned" for a normal status undoes the partial return: those items count as sold again
+      if (o.returns && o.returns.length && ["partial_return", "returned", "cancelled"].indexOf(status) < 0) {
+        o.returns.forEach(function (r) { if (!o.restocked) moveStock(db, r, -r.qty); });
+        o.returns = []; o.returnedValue = 0;
       }
       return true;
     }
@@ -1849,6 +2078,115 @@
       emit(db, "order.updated", o);
       return { ok: true, status: o.status, order_number: o.number };
     });
+    // ---------------------------------------------------------------------------
+    // Pathao courier: the server talks to Pathao; these routes check the request and say what to do
+    // ---------------------------------------------------------------------------
+    function pathaoSettings(db) {
+      var p = db.settings.pathao || {};
+      return { enabled: !!p.enabled, sandbox: p.sandbox !== false, clientId: p.clientId || "", clientSecret: p.clientSecret || "", username: p.username || "",
+        password: p.password || "", storeId: p.storeId || "", storeName: p.storeName || "", webhookSecret: p.webhookSecret || "",
+        weight: num(p.weight, 0.5) || 0.5, itemType: int(p.itemType, 2) === 1 ? 1 : 2, deliveryType: int(p.deliveryType, 48) === 12 ? 12 : 48 };
+    }
+    function pathaoReady(db, needStore) {
+      var p = pathaoSettings(db);
+      if (!host.pathao) fail(400, "Pathao is reached from the live store. The demo has no server.");
+      if (!p.clientId || !p.clientSecret || !p.username || !p.password) fail(400, "Add the Pathao Client ID, Client Secret, login email and password in Admin › Pathao first.");
+      if (needStore && !p.storeId) fail(400, "Choose your Pathao pickup store in Admin › Pathao first.");
+      return p;
+    }
+    function pathaoOrder(c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.params.id || x.number === String(c.params.id).toUpperCase(); })[0];
+      if (!o) fail(404, "Order not found.");
+      return o;
+    }
+    // Admin › Pathao › Check connection: signs in and lists the pickup stores
+    route("POST", "/api/pathao/test", "settings", function (c) { pathaoReady(c.db); return { pathao: { op: "stores" } }; });
+    route("GET", "/api/pathao/cities", "orders", function (c) { pathaoReady(c.db); return { pathao: { op: "cities" } }; }, { readonly: true });
+    // Checkout: Pathao's cities and areas (zones) for the City / Area boxes. Empty when Pathao isn't set up, so checkout shows a plain City box.
+    var pathaoOn = function (db) { var p = pathaoSettings(db); return !!(host.pathao && p.clientId && p.clientSecret && p.username && p.password); };
+    route("GET", "/api/delivery/cities", null, function (c) { return pathaoOn(c.db) ? { pathao: { op: "cities", cache: true } } : { items: [] }; }, { readonly: true });
+    route("GET", "/api/delivery/areas/:city", null, function (c) { return pathaoOn(c.db) && int(c.params.city) ? { pathao: { op: "zones", city: int(c.params.city), cache: true } } : { items: [] }; }, { readonly: true });
+    route("GET", "/api/pathao/zones/:city", "orders", function (c) { pathaoReady(c.db); return { pathao: { op: "zones", city: int(c.params.city) } }; }, { readonly: true });
+    route("GET", "/api/pathao/areas/:zone", "orders", function (c) { pathaoReady(c.db); return { pathao: { op: "areas", zone: int(c.params.zone) } }; }, { readonly: true });
+    // Admin › order › Send to Pathao: makes the parcel request
+    route("POST", "/api/orders/:id/pathao", "orders", function (c) {
+      var p = pathaoReady(c.db, true), o = pathaoOrder(c), b = c.body || {};
+      if (o.status === "cancelled" || o.status === "returned") fail(400, "This order is " + o.status + ". Reopen it before sending it to Pathao.");
+      if (o.pathao && o.pathao.consignmentId && !b.again) fail(409, "This order is already with Pathao (" + o.pathao.consignmentId + ").");
+      var city = int(b.cityId), zone = int(b.zoneId), area = int(b.areaId);
+      if (!city || !zone) fail(400, "Choose the city and zone for Pathao.");
+      var phone = normPhone(o.customer.phone);
+      if (!/^01\d{9}$/.test(phone)) fail(400, "Pathao needs an 11-digit mobile number (01XXXXXXXXX). Fix the customer's phone first.");
+      var due = o.paymentStatus === "paid" ? 0 : Math.max(0, Math.round(num(o.total, 0)));
+      var collect = b.amount !== undefined && b.amount !== "" ? Math.max(0, Math.round(num(b.amount, due))) : due;
+      var qty = o.items.reduce(function (n, it) { return n + int(it.qty, 1); }, 0) || 1;
+      var addr = [o.customer.address, o.customer.area, o.customer.city].filter(Boolean).join(", ");
+      var payload = {
+        store_id: int(p.storeId), merchant_order_id: o.number, recipient_name: str(o.customer.name, 100) || "Customer", recipient_phone: phone,
+        recipient_address: str(addr, 220), recipient_city: city, recipient_zone: zone, delivery_type: p.deliveryType, item_type: p.itemType,
+        special_instruction: str(b.note !== undefined ? b.note : o.note, 200), item_quantity: qty, item_weight: Math.min(10, Math.max(0.5, num(b.weight, p.weight) || p.weight)),
+        amount_to_collect: collect, item_description: str(o.items.map(function (it) { return it.qty + " x " + it.name + (it.options && it.options.Size ? " (" + it.options.Size + ")" : ""); }).join(", "), 250)
+      };
+      if (area) payload.recipient_area = area;
+      if (String(payload.recipient_address).length < 10) fail(400, "Pathao needs an address of at least 10 letters. Fix the customer's address first.");
+      return { pathao: { op: "create", orderId: o.id, payload: payload } };
+    });
+    // Admin › order › Refresh from Pathao
+    route("POST", "/api/orders/:id/pathao-status", "orders", function (c) {
+      pathaoReady(c.db); var o = pathaoOrder(c);
+      if (!o.pathao || !o.pathao.consignmentId) fail(400, "This order hasn't been sent to Pathao yet.");
+      return { pathao: { op: "info", orderId: o.id, consignmentId: o.pathao.consignmentId } };
+    });
+    // The server saves Pathao's answer to a parcel request
+    route("POST", "/api/internal/pathao-sent", "internal", function (c) {
+      var o = c.db.orders.filter(function (x) { return x.id === c.body.orderId; })[0], d = c.body.data || {};
+      if (!o) fail(404, "Order not found.");
+      var cid = str(d.consignment_id, 80);
+      o.pathao = { consignmentId: cid, status: str(d.order_status, 40), fee: num(d.delivery_fee, 0), sentAt: now(), amount: num(c.body.amount, 0), seen: [] };
+      o.courier = o.courier || {};
+      o.courier.name = "Pathao"; o.courier.consignmentId = cid;
+      o.courier.trackingUrl = "https://merchant.pathao.com/tracking?consignment_id=" + encodeURIComponent(cid) + "&phone=" + encodeURIComponent(normPhone(o.customer.phone));
+      o.tracking = "Pathao " + cid;
+      var by = c.body.by || "Admin";
+      if (o.status === "pending" || o.status === "confirmed" || o.status === "hold") setStatus(c, o, "processing");
+      o.updatedAt = now();
+      o.history.push({ at: now(), status: o.status, note: "Sent to Pathao · consignment " + cid + (o.pathao.fee ? " · delivery fee ৳" + o.pathao.fee : "") + " · collect ৳" + o.pathao.amount, public: "Handed to the courier", by: by });
+      emit(c.db, "order.updated", o);
+      return { order: o };
+    });
+    // A Pathao webhook (the server checks the secret first)
+    var PATHAO_STATUS = { pickup_requested: "processing", assigned_for_pickup: "processing", picked: "shipped", at_the_sorting_hub: "shipped", in_transit: "shipped",
+      received_at_last_mile_hub: "shipped", assigned_for_delivery: "shipped", delivered: "delivered", partial_delivery: "partial_return", returned: "returned", paid_return: "returned" };
+    var PATHAO_PUBLIC = { pickup_requested: "Handed to the courier", assigned_for_pickup: "Courier is coming to pick it up", picked: "Picked up by the courier",
+      at_the_sorting_hub: "At the courier's sorting hub", in_transit: "On the way", received_at_last_mile_hub: "Reached your area's hub", assigned_for_delivery: "Out for delivery",
+      delivered: "Delivered", partial_delivery: "Partly delivered", delivery_failed: "Delivery attempt failed. The courier will contact you.", on_hold: "On hold at the courier",
+      returned: "Returned to us", paid_return: "Returned to us" };
+    route("POST", "/api/internal/pathao", "internal", function (c) {
+      var b = c.body || {}, db = c.db;
+      var ev = str(b.event, 60).toLowerCase().replace(/^order\./, "").replace(/[\s-]+/g, "_");
+      var cid = str(b.consignment_id, 80), num_ = str(b.merchant_order_id, 40).toUpperCase();
+      var o = db.orders.filter(function (x) { return (cid && x.pathao && x.pathao.consignmentId === cid) || (num_ && x.number === num_); })[0];
+      if (!o) return { ok: true, ignored: "No order " + (num_ || cid) + " on this website." };
+      o.pathao = o.pathao || { consignmentId: cid, seen: [] };
+      var key = ev + "|" + str(b.updated_at || b.timestamp, 40);
+      o.pathao.seen = o.pathao.seen || [];
+      if (o.pathao.seen.indexOf(key) > -1) return { ok: true, duplicate: true };
+      o.pathao.seen.push(key); if (o.pathao.seen.length > 40) o.pathao.seen.splice(0, o.pathao.seen.length - 40);
+      o.pathao.status = ev; o.pathao.lastUpdate = now();
+      if (b.delivery_fee !== undefined) o.pathao.fee = num(b.delivery_fee, o.pathao.fee || 0);
+      var parts = ["Pathao: " + ev.replace(/_/g, " ")], mapped = PATHAO_STATUS[ev];
+      if (mapped && setStatus(c, o, mapped)) { parts.push("Status: " + mapped.replace(/_/g, " ")); statusEmail(db, o); }
+      if (b.collected_amount !== undefined && (mapped === "delivered" || mapped === "partial_return")) o.collected = num(b.collected_amount, 0);
+      if (mapped === "partial_return") parts.push("Open the order and pick which items came back, so they go back into stock");
+      if ((mapped === "delivered" || (mapped === "partial_return" && num(b.collected_amount, 0) > 0)) && o.paymentMethod === "cod" && o.paymentStatus !== "paid") {
+        o.paymentStatus = "paid"; parts.push("Payment: paid (cash collected" + (num(b.collected_amount, 0) ? " ৳" + num(b.collected_amount, 0) : "") + ")");
+      }
+      if (b.reason) parts.push(str(b.reason, 200));
+      o.updatedAt = now();
+      o.history.push({ at: now(), status: o.status, note: parts.join(" · "), public: PATHAO_PUBLIC[ev] || "", by: "Pathao" });
+      emit(db, "order.updated", o);
+      return { ok: true, status: o.status, order_number: o.number };
+    });
     // Payment callbacks from the server's SSLCOMMERZ handler
     route("POST", "/api/internal/payment", "internal", function (c) {
       var o = c.db.orders.filter(function (x) { return x.id === c.body.orderId; })[0];
@@ -1859,7 +2197,7 @@
       o.paymentRef = str(c.body.ref, 120);
       if (paid && o.status === "pending") o.status = "confirmed";
       if (!paid && o.status === "pending") { o.status = "cancelled"; if (!o.restocked) restock(c.db, o); }
-      o.history.push({ at: now(), status: o.status, note: paid ? "Paid online · " + o.paymentRef : "Online payment " + str(c.body.status, 20), public: paid ? "Payment received" : "Payment didn't go through", by: "SSLCOMMERZ" });
+      o.history.push({ at: now(), status: o.status, note: paid ? "Paid online · " + o.paymentRef : "Online payment " + str(c.body.status, 20), public: paid ? "Payment received" : "Payment didn't go through", by: str(c.body.by, 30) || "SSLCOMMERZ" });
       emit(c.db, "order.updated", o);
       acoreSync(c, o);
       return { order: o };
@@ -1969,6 +2307,9 @@
       if (!m) fail(400, "Upload a PNG, JPG, WebP, GIF or AVIF image.");
       if (data.length > 14e6) fail(413, "That image is over 10 MB.");
       var saved = host.saveMedia(name, data, m[1]);
+      // the phone/card copy, when the browser made one
+      var small = String(c.body.small || "");
+      if (small && host.saveSmall && m[1] === "image/webp" && /^data:image\/webp;base64,/.test(small) && small.length < 4e6) host.saveSmall(saved.url, small);
       var item = { id: newId("med"), url: saved.url, name: name, alt: str(c.body.alt, 200), type: m[1], size: saved.size,
         width: int(c.body.width) || null, height: int(c.body.height) || null, createdAt: now() };
       c.db.media.push(item);
@@ -2019,7 +2360,7 @@
       db.trash = keep;
       return changed;
     }
-    function trashAllowed(c, x) { return x.kind === "order" ? isOwner(c.auth) : canSee(c.auth, TRASH_AREA[x.kind]); }
+    function trashAllowed(c, x) { return x.kind === "order" ? canTrashOrders(c.auth) : canSee(c.auth, TRASH_AREA[x.kind]); }
     function trashItem(c) {
       var x = (c.db.trash || []).filter(function (t) { return t.id === c.params.id; })[0];
       if (!x || !trashAllowed(c, x)) fail(404, "That item isn't in the trash any more.");
@@ -2076,9 +2417,17 @@
       s.code.capiTokenSet = !!s.code.capiToken; s.code.capiToken = "";
       s.code.gaSecretSet = !!s.code.gaSecret; s.code.gaSecret = "";
       s.code.catalogTokenSet = !!s.code.catalogToken; s.code.catalogToken = "";
+      var pp = paySettings(s);
+      pp.sslcommerz.storePasswordSet = !!pp.sslcommerz.storePassword; pp.sslcommerz.storePassword = "";
+      pp.bkash.appSecretSet = !!pp.bkash.appSecret; pp.bkash.appSecret = "";
+      pp.bkash.passwordSet = !!pp.bkash.password; pp.bkash.password = "";
       if (s.email) { s.email.passwordSet = !!s.email.password; s.email.password = ""; }
       var ac = acoreSettings(c.db);
       s.acore = { enabled: ac.enabled, url: ac.url, apiKeySet: !!ac.apiKey, webhookSecret: isOwner(c.auth) ? ac.webhookSecret : (ac.webhookSecret ? "Only the owner can see this" : ""), since: ac.since };
+      var pa = pathaoSettings(c.db);
+      s.pathao = { enabled: pa.enabled, sandbox: pa.sandbox, clientId: pa.clientId, username: pa.username, storeId: pa.storeId, storeName: pa.storeName, weight: pa.weight,
+        itemType: pa.itemType, deliveryType: pa.deliveryType, clientSecretSet: !!pa.clientSecret, passwordSet: !!pa.password,
+        webhookSecret: isOwner(c.auth) ? pa.webhookSecret : (pa.webhookSecret ? "Only the owner can see this" : "") };
       if (host.describeSettings) host.describeSettings(s);
       return { settings: s };
     }, { readonly: true });
@@ -2106,13 +2455,41 @@
         if (!s.shipping.zones.length) fail(400, "Keep at least one delivery area.");
       }
       if (b.payments) {
-        var ssl = b.payments.sslcommerz || {}, cur = s.payments.sslcommerz || {};
-        var nextSsl = { enabled: bool(ssl.enabled), sandbox: bool(ssl.sandbox), storeId: str(ssl.storeId, 80) };
-        // Turning sandbox (test) mode on, or swapping the store ID, would let orders "pay" without real money
-        if (nextSsl.enabled !== !!cur.enabled || nextSsl.sandbox !== !!cur.sandbox || nextSsl.storeId !== (cur.storeId || "")) needOwner(c, "change the SSLCOMMERZ settings");
-        s.payments.cod = bool(b.payments.cod);
-        s.payments.sslcommerz = nextSsl;
-        if (!s.payments.cod && !s.payments.sslcommerz.enabled) fail(400, "Keep at least one payment method on.");
+        var bp = b.payments, curP = paySettings(s), nextP = clone(curP);
+        if (bp.cod !== undefined) nextP.cod = bool(bp.cod);
+        var keep = function (v, old, max) { return v ? str(v, max) : old; };   // secrets: empty means "keep the saved one"
+        if (bp.sslcommerz) {
+          var x = bp.sslcommerz, y = nextP.sslcommerz;
+          if (x.enabled !== undefined) y.enabled = bool(x.enabled);
+          if (x.sandbox !== undefined) y.sandbox = bool(x.sandbox);
+          if (x.storeId !== undefined) y.storeId = str(x.storeId, 80);
+          y.storePassword = keep(x.storePassword, y.storePassword, 120);
+        }
+        if (bp.bkash) {
+          var k = bp.bkash, bk = nextP.bkash;
+          ["enabled", "sandbox"].forEach(function (f) { if (k[f] !== undefined) bk[f] = bool(k[f]); });
+          if (k.mode !== undefined) bk.mode = k.mode === "api" ? "api" : "manual";
+          if (k.number !== undefined) bk.number = normPhone(str(k.number, 20));
+          if (k.accountType !== undefined) bk.accountType = PAY_ACCOUNTS.indexOf(k.accountType) > -1 ? k.accountType : "Personal";
+          if (k.appKey !== undefined) bk.appKey = str(k.appKey, 120);
+          if (k.username !== undefined) bk.username = str(k.username, 120);
+          bk.appSecret = keep(k.appSecret, bk.appSecret, 200);
+          bk.password = keep(k.password, bk.password, 120);
+        }
+        if (bp.nagad) {
+          var n = bp.nagad, ng = nextP.nagad;
+          if (n.enabled !== undefined) ng.enabled = bool(n.enabled);
+          if (n.number !== undefined) ng.number = normPhone(str(n.number, 20));
+          if (n.accountType !== undefined) ng.accountType = PAY_ACCOUNTS.indexOf(n.accountType) > -1 ? n.accountType : "Personal";
+        }
+        // Online payment settings decide where money goes, and test mode lets orders "pay" without real money: owner only
+        var gw = function (p) { return JSON.stringify([p.sslcommerz, p.bkash, p.nagad]); };
+        if (gw(nextP) !== gw(curP)) needOwner(c, "change the online payment settings");
+        if (nextP.bkash.enabled && nextP.bkash.mode === "manual" && !isPhone(nextP.bkash.number)) fail(400, "Enter the bKash number customers send money to.");
+        if (nextP.bkash.enabled && nextP.bkash.mode === "api" && !(nextP.bkash.appKey && nextP.bkash.username && nextP.bkash.appSecret && nextP.bkash.password)) fail(400, "Fill in all four bKash API details: app key, app secret, username and password.");
+        if (nextP.nagad.enabled && !isPhone(nextP.nagad.number)) fail(400, "Enter the Nagad number customers send money to.");
+        if (!nextP.cod && !nextP.sslcommerz.enabled && !nextP.bkash.enabled && !nextP.nagad.enabled) fail(400, "Keep at least one payment method on.");
+        s.payments = nextP;
       }
       if (b.lowStock !== undefined) s.lowStock = Math.max(0, int(b.lowStock));
       if (b.announcement !== undefined) s.announcement = str(b.announcement, 200);
@@ -2130,6 +2507,25 @@
           });
         });
         s.layout = cur;
+      }
+      if (b.pathao && typeof b.pathao === "object") {
+        var pt = s.pathao = s.pathao || {}, bp = b.pathao;
+        // Courier sign-in details and the webhook secret: owner only
+        if (bp.clientSecret || bp.password || bp.newSecret || bp.webhookSecret || (bp.clientId !== undefined && String(bp.clientId || "").trim() !== (pt.clientId || "")) ||
+          (bp.username !== undefined && String(bp.username || "").trim() !== (pt.username || "")) || (bp.sandbox !== undefined && bool(bp.sandbox) !== (pt.sandbox !== false))) needOwner(c, "change the Pathao sign-in details");
+        if (bp.enabled !== undefined) pt.enabled = bool(bp.enabled);
+        if (bp.sandbox !== undefined) pt.sandbox = bool(bp.sandbox);
+        if (bp.clientId !== undefined) pt.clientId = str(String(bp.clientId || "").trim(), 100);
+        if (bp.username !== undefined) pt.username = str(String(bp.username || "").trim(), 120);
+        if (bp.clientSecret) pt.clientSecret = String(bp.clientSecret).trim().slice(0, 300);
+        if (bp.password) pt.password = String(bp.password).slice(0, 200);
+        if (bp.storeId !== undefined) pt.storeId = str(String(bp.storeId || "").replace(/[^\d]/g, ""), 20);
+        if (bp.storeName !== undefined) pt.storeName = str(bp.storeName, 100);
+        if (bp.weight !== undefined) pt.weight = Math.min(10, Math.max(0.5, num(bp.weight, 0.5)));
+        if (bp.itemType !== undefined) pt.itemType = int(bp.itemType) === 1 ? 1 : 2;
+        if (bp.deliveryType !== undefined) pt.deliveryType = int(bp.deliveryType) === 12 ? 12 : 48;
+        if (bp.webhookSecret) pt.webhookSecret = String(bp.webhookSecret).trim().slice(0, 200);
+        else if (bp.newSecret || !pt.webhookSecret) pt.webhookSecret = "pth_" + host.random(16);
       }
       if (b.acore && typeof b.acore === "object") {
         var ac = s.acore = s.acore || {}, ba = b.acore;
@@ -2181,6 +2577,8 @@
     }
     function isOwner(auth) { return !!(auth && auth.kind === "user" && auth.user.role === "owner"); }
     function needOwner(c, what) { if (!isOwner(c.auth)) fail(403, "Only the store owner can " + what + "."); }
+    // Moving orders to the trash and deleting them for good: the owner, and staff the owner allowed
+    function canTrashOrders(auth) { return isOwner(auth) || !!(auth && auth.kind === "user" && auth.user.orderTrash && userAreas(auth.user).indexOf("orders") > -1); }
     // A staff member who can open Users may not give anyone (or themselves) access they don't have
     function checkGrant(c, role, areas) {
       if (isOwner(c.auth)) return;
@@ -2199,6 +2597,7 @@
       var u = { id: newId("usr"), name: str(b.name, 80), email: email, role: b.role, createdAt: now() };
       if (b.role === "custom") u.areas = cleanAreas(b.areas);
       checkGrant(c, u.role, u.areas);
+      if (b.orderTrash) { needOwner(c, "let staff delete orders"); u.orderTrash = true; }
       setPassword(u, b.password);
       c.db.users.push(u);
       return { user: publicUser(u) };
@@ -2221,6 +2620,7 @@
       u.role = role;
       if (role === "custom") u.areas = areas; else delete u.areas;
       if (accessChanged) c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id || (c.auth.user && c.auth.user.id === u.id); });
+      if (b.orderTrash !== undefined && !!b.orderTrash !== !!u.orderTrash && u.role !== "owner") { needOwner(c, "let staff delete orders"); u.orderTrash = !!b.orderTrash; }
       if (b.name) u.name = str(b.name, 80);
       if (b.password) { c.db.sessions = c.db.sessions.filter(function (s) { return s.userId !== u.id; }); }
       return { user: publicUser(u) };
@@ -2424,6 +2824,37 @@
     if (!db.emailLog) db.emailLog = [];
     if (!db.subscribers) db.subscribers = [];
     if (!db.trash) db.trash = [];
+    // Size chart templates: add the seed ones once, and link products that used those chart images
+    if (done.indexOf("size-charts") < 0) {
+      if (!db.sizeCharts) db.sizeCharts = clone(seed.sizeCharts || []);
+      done.push("size-charts");
+      changed = true;
+    }
+    if (!db.sizeCharts) db.sizeCharts = [];
+    // The old shop's size chart pictures leave the product photos; their products use the matching template
+    if (done.indexOf("chart-photos") < 0) {
+      (seed.sizeCharts || []).forEach(function (t) { if (!db.sizeCharts.some(function (x) { return x.id === t.id; })) db.sizeCharts.push(clone(t)); });
+      var cp = seed.chartPhotos || {};
+      db.products.forEach(function (p) {
+        var hit = null;
+        p.images = (p.images || []).filter(function (u) { var k = String(u).replace(/^.*\//, "").replace(/\.webp$/, ""); if (cp[k]) { hit = cp[k]; return false; } return true; });
+        if (hit && !p.sizeChartId && db.sizeCharts.some(function (x) { return x.id === hit; })) p.sizeChartId = hit;
+      });
+      done.push("chart-photos");
+      changed = true;
+    }
+    // Every option a product uses shows in Variations too (pant waist sizes 28–36 were missing from Size)
+    if (done.indexOf("attr-values") < 0) {
+      (db.attributes || []).forEach(function (a) {
+        var have = (a.values || []).map(function (v) { return String(v.label).toLowerCase(); });
+        db.products.forEach(function (p) { (p.attributes || []).forEach(function (pa) {
+          if (pa.name !== a.name) return;
+          (pa.values || []).forEach(function (v) { if (have.indexOf(String(v).toLowerCase()) < 0) { have.push(String(v).toLowerCase()); a.values.push({ label: String(v) }); } });
+        }); });
+      });
+      done.push("attr-values");
+      changed = true;
+    }
     if (done.indexOf("stores-franchise") < 0) {
       ["stores", "franchise"].forEach(function (k) { if (!db.pages[k] && seed.pages[k]) db.pages[k] = clone(seed.pages[k]); });
       var col = ((db.menus || {}).footer || []).filter(function (f) { return f.id === "fc_company"; })[0] || ((db.menus || {}).footer || [])[1];
@@ -2473,6 +2904,16 @@
         });
       }
       done.push("winter-jackets");
+      changed = true;
+    }
+    // Dhaka Sub Area delivery (Savar, Gazipur, Narayanganj, Keraniganj), ৳100, between Inside and Outside Dhaka
+    if (done.indexOf("dhaka-sub-zone") < 0) {
+      var zs = (db.settings.shipping = db.settings.shipping || {}).zones = db.settings.shipping.zones || [];
+      if (!zs.some(function (z) { return z.id === "dhaka-sub"; })) {
+        var at = zs.map(function (z) { return z.id; }).indexOf("inside-dhaka");
+        zs.splice(at > -1 ? at + 1 : zs.length, 0, { id: "dhaka-sub", name: "Dhaka Sub Area", fee: 100, days: "2–4 days" });
+      }
+      done.push("dhaka-sub-zone");
       changed = true;
     }
     if (done.indexOf("popup") < 0) {

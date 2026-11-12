@@ -195,6 +195,7 @@
     shipping: {
       zones: [
         { id: "inside-dhaka", name: "Inside Dhaka", fee: 70, days: "1–3 days" },
+        { id: "dhaka-sub", name: "Dhaka Sub Area", fee: 100, days: "2–4 days" },
         { id: "outside-dhaka", name: "Outside Dhaka", fee: 130, days: "3–5 days" }
       ],
       freeOver: 0, processing: "Orders are confirmed by phone and packed within 24 hours."
@@ -331,7 +332,7 @@
     delivery: {
       title: "Delivery policy", updated: "28 October 2026",
       intro: "We deliver all over Bangladesh through trusted courier partners. Here are the charges, times and steps.",
-      body: "## Delivery times and charges\n- **Inside Dhaka:** 1–3 days · ৳70\n- **Outside Dhaka:** 3–5 days · ৳130\n\nTimes are counted from when we confirm your order and may be longer during holidays, strikes or bad weather.\n\n## How delivery works\n1. **Order placed:** you get an order number on screen.\n2. **Confirmation:** we call or message you within 24 hours to confirm.\n3. **Packed and shipped:** we hand your parcel to the courier and share the tracking details.\n4. **Delivered:** the courier calls you before arriving. For cash on delivery, pay the rider when you receive the parcel.\n\n## Checking your parcel\nPlease check your parcel in front of the rider. If anything is damaged or wrong, tell the rider and contact us within 3 days.\n\n## If delivery fails\nIf we can't reach you after three tries, the parcel comes back to us and the order is cancelled. Online payments are refunded minus the delivery charge.\n\n## Tracking your order\nUse [Track order](#track) with your order number and phone number to see the latest status."
+      body: "## Delivery times and charges\n- **Inside Dhaka:** 1–3 days · ৳70\n- **Dhaka Sub Area** (Savar, Gazipur, Narayanganj, Keraniganj): 2–4 days · ৳100\n- **Outside Dhaka:** 3–5 days · ৳130\n\nTimes are counted from when we confirm your order and may be longer during holidays, strikes or bad weather.\n\n## How delivery works\n1. **Order placed:** you get an order number on screen.\n2. **Confirmation:** we call or message you within 24 hours to confirm.\n3. **Packed and shipped:** we hand your parcel to the courier and share the tracking details.\n4. **Delivered:** the courier calls you before arriving. For cash on delivery, pay the rider when you receive the parcel.\n\n## Checking your parcel\nPlease check your parcel in front of the rider. If anything is damaged or wrong, tell the rider and contact us within 3 days.\n\n## If delivery fails\nIf we can't reach you after three tries, the parcel comes back to us and the order is cancelled. Online payments are refunded minus the delivery charge.\n\n## Tracking your order\nUse [Track order](#track) with your order number and phone number to see the latest status."
     }
   };
 
@@ -379,7 +380,7 @@
   ];
 
   return {
-    version: 2, settings: settings, categories: categories, attributes: attributes, products: products,
+    version: 2, settings: settings, categories: categories, attributes: attributes, products: products, sizeCharts: [],
     pages: pages, menus: menus, coupons: coupons, counters: { order: 1000 }
   };
 });
