@@ -19,7 +19,7 @@
     if (s < 86400) return Math.floor(s / 3600) + " h ago";
     return Math.floor(s / 86400) + " d ago";
   };
-  const human = (k) => String(k).replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase()).replace(/ (\d)$/, " $1");
+  const human = (k) => String(k).replace(/_/g, " ").replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase()).replace(/ (\d)$/, " $1");
   const optText = (o) => Object.keys(o || {}).map((k) => o[k]).join(" / ");
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
@@ -39,7 +39,7 @@
     });
   }
   // "trash" isn't a module of its own: anyone who can delete products or images (and the owner, for orders) sees it
-  const can = (area) => area === "trash" ? (areas.indexOf("products") > -1 || areas.indexOf("content") > -1 || !!(me && me.role === "owner")) : areas.indexOf(area) > -1;
+  const can = (area) => area === "trash" ? (areas.indexOf("products") > -1 || areas.indexOf("content") > -1 || !!(me && (me.role === "owner" || me.orderTrash))) : areas.indexOf(area) > -1;
 
   // ---------------------------------------------------------------------------
   // Toast, modal, confirm
@@ -108,9 +108,9 @@
     }).join(",")).join("\n");
   }
   const pill = (s) => `<span class="pill pill--${esc(s)}">${esc(human(s))}</span>`;
-  const STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "cancelled", "returned"];
+  const STATUSES = ["pending", "confirmed", "hold", "processing", "shipped", "delivered", "partial_return", "cancelled", "returned"];
   const PAY_STATUSES = ["unpaid", "paid", "refunded", "failed"];
-  const PAY_LABEL = { cod: "Cash on delivery", sslcommerz: "SSLCOMMERZ" };
+  const PAY_LABEL = { cod: "Cash on delivery", sslcommerz: "SSLCOMMERZ", bkash: "bKash", nagad: "Nagad" };
 
   // ---------------------------------------------------------------------------
   // Media: upload (resized in the browser) and the picker
@@ -129,11 +129,20 @@
           const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
           const c = document.createElement("canvas");
           c.width = w; c.height = h;
-          c.getContext("2d").drawImage(img, 0, 0, w, h);
-          let out = c.toDataURL("image/webp", 0.86);
+          const g0 = c.getContext("2d"); g0.imageSmoothingQuality = "high"; g0.drawImage(img, 0, 0, w, h);
+          let out = c.toDataURL("image/webp", 0.88);
           if (out.indexOf("data:image/webp") !== 0) out = c.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.86);
+          // A 600 px wide copy for phones and product cards (saved next to the photo as <name>-s.webp)
+          let small = "";
+          if (w > 760 && out.indexOf("data:image/webp") === 0) {
+            const sw = 600, sh = Math.round(h * sw / w), c2 = document.createElement("canvas");
+            c2.width = sw; c2.height = sh;
+            const g = c2.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(c, 0, 0, sw, sh);
+            small = c2.toDataURL("image/webp", 0.84);
+          }
           // Keep the original when it is already smaller.
-          resolve({ dataUrl: out.length < fr.result.length || scale < 1 ? out : fr.result, width: w, height: h });
+          const keepOrig = !(out.length < fr.result.length || scale < 1);
+          resolve({ dataUrl: keepOrig ? fr.result : out, small: keepOrig && file.type !== "image/webp" ? "" : small, width: w, height: h });
         };
         img.src = fr.result;
       };
@@ -146,7 +155,7 @@
     for (const f of Array.from(files)) {
       try {
         const img = await readImage(f, max);
-        const r = await api("POST", "/api/media", { name: f.name, dataUrl: img.dataUrl, width: img.width, height: img.height, alt: f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ") });
+        const r = await api("POST", "/api/media", { name: f.name, dataUrl: img.dataUrl, small: img.small || "", width: img.width, height: img.height, alt: f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ") });
         out.push(r.item);
       } catch (err) { fail(err); }
     }
@@ -211,7 +220,7 @@
     [/^house\.card\d+\.image$/, 900, 1200, "3:4 photo", 150],
     [/^poster\.image$/, 900, 1125, "4:5 photo", 200],
     [/^lookbook\.looks\.\d+\.image$/, 900, 1200, "3:4 photo", 180],
-    [/^sizeGuide$/, 1200, 0, "width", 120],
+    [/^sizeGuide$/, 1200, 800, "3:2 landscape chart, shown in full", 120, true],
     [/^image$/, 900, 1200, "3:4 photo", 150],
     [/^product$/, 690, 862, "4:5 photo", 80],
     [/^logo$/, 360, 120, "wide logo with a see-through background", 30],
@@ -223,7 +232,7 @@
   ];
   function imgSpec(name) {
     const s = IMG_SPECS.find((x) => x[0].test(name)) || [null, 1200, 0, "longest side", 200];
-    return { w: s[1], h: s[2], what: s[3], kb: s[4],
+    return { w: s[1], h: s[2], what: s[3], kb: s[4], fit: !!s[5],
       text: `Best size: ${s[2] ? `${s[1]} × ${s[2]} px` : `${s[1]} px on the ${s[3]}`}${s[2] ? ` (${s[3]})` : ""} · WebP · under ${s[4]} KB` };
   }
   // Show an image's real size and weight, with a warning when it is far off the recommended one
@@ -235,7 +244,8 @@
       const w = im.naturalWidth, h = im.naturalHeight;
       fetch(url).then((r) => r.blob()).then((b) => b.size, () => 0).then((bytes) => {
         const kb = Math.round(bytes / 1024), warn = [];
-        if (spec.h && Math.abs(w / h - spec.w / spec.h) > 0.03) warn.push("different shape, the edges will be cropped");
+        if (spec.h && !spec.fit && Math.abs(w / h - spec.w / spec.h) > 0.03) warn.push("different shape, the edges will be cropped");
+        if (spec.fit && (w / h < 0.9 || w / h > 2.2)) warn.push(w / h < 0.9 ? "tall chart, hard to read on phones; a landscape 3:2 chart works best" : "very wide chart, text gets small on phones");
         if (w < spec.w * 0.8) warn.push("smaller than recommended, may look soft");
         if (kb && kb > spec.kb * 1.5) warn.push(`heavy file, aim for under ${spec.kb} KB`);
         out.innerHTML = `This image: ${w} × ${h} px${kb ? ` · ${kb} KB` : ""} ${warn.length ? `· <span style="color:#b3261e">${esc(warn.join("; "))}</span>` : "· good fit"}`;
@@ -439,12 +449,72 @@
     });
     $("#prodCsv").onclick = () => download(`ravelle-products-${dashDays}d.csv`, csv([cols.map((c) => c[1]).concat(["SKU"])].concat(d.products.map((p) => [p.name, p.views, p.carts, p.orders, p.units, p.revenue, p.conversion, p.stock, p.sku]))));
   }
-  function ordersTable(list) {
-    if (!list.length) return `<p class="empty">No orders yet.</p>`;
-    return `<div class="table-wrap"><table class="t"><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Payment</th><th class="right">Items</th><th class="right">Total</th></tr></thead><tbody>${list.map((o) => `
-      <tr class="is-link" data-href="#/orders/${esc(o.number)}"><td><b>${esc(o.number)}</b></td><td class="nowrap">${dateTime(o.createdAt)}</td><td>${esc(o.customer.name)}<br><small class="muted">${esc(o.customer.phone)}</small></td>
-      <td>${pill(o.status)}</td><td>${pill(o.paymentStatus)}<br><small class="muted">${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</small></td><td class="right num">${o.itemCount}</td><td class="right num"><b>${taka(o.total)}</b></td></tr>`).join("")}</tbody></table></div>`;
+  // Pathao column: the parcel's live status, or a one-click Send button
+  // Pathao order (consignment) ID in its own column, next to Send to Pathao / status
+  function pathaoIdCell(o) {
+    const id = o.pathao && o.pathao.consignmentId;
+    return `<td class="nowrap">${id ? `<span class="mono">${esc(id)}</span> <button class="peek" type="button" data-copyid="${esc(id)}" title="Copy Pathao ID" aria-label="Copy Pathao ID ${esc(id)}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>` : `<span class="muted">—</span>`}</td>`;
   }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-copyid]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    try { navigator.clipboard.writeText(b.dataset.copyid); toast("Copied " + b.dataset.copyid); } catch (_) { toast(b.dataset.copyid); }
+  }, true);
+  function pathaoCell(o) {
+    const pt = o.pathao;
+    if (pt) return `<td class="pt-cell"><span class="pill pill--pt${/deliver/.test(pt.status) && !/fail/.test(pt.status) ? " pill--pt-ok" : /return|fail|cancel/.test(pt.status) ? " pill--pt-bad" : ""}">${esc(String(pt.status || "sent").replace(/_/g, " "))}</span>${o.trackingUrl ? `<br><a class="small" href="${esc(o.trackingUrl)}" target="_blank" rel="noopener" data-stop>Track</a>` : ""}</td>`;
+    if (o.status === "cancelled" || o.status === "returned" || o.status === "delivered") return `<td class="pt-cell"><span class="muted">—</span></td>`;
+    return `<td class="pt-cell"><button class="btn btn--ghost btn--sm" type="button" data-pathao="${esc(o.id)}">Send to Pathao</button></td>`;
+  }
+  // Hold and cancel straight from the list; not once the courier has the parcel
+  const withCourier = (o) => !!((o.pathao && o.pathao.consignmentId) || ["shipped", "delivered", "partial_return", "returned"].indexOf(o.status) > -1);
+  const canDo = (o, s) => !withCourier(o) && (s === "hold" ? ["pending", "confirmed", "processing"].indexOf(o.status) > -1 : s === "cancelled" ? ["pending", "confirmed", "processing", "hold"].indexOf(o.status) > -1 : s === "confirmed" ? ["pending", "hold"].indexOf(o.status) > -1 : false);
+  function rowActions(o) {
+    return [["confirmed", "Confirm"], ["hold", "Hold"], ["cancelled", "Cancel"]].filter((a) => canDo(o, a[0])).map((a) => `<button class="btn btn--ghost btn--sm" type="button" data-act="${a[0]}" data-num="${esc(o.number)}">${a[1]}</button>`).join("").replace(/^(.+)$/, '<div class="row-acts">$1</div>') || `<span class="muted">—</span>`;
+  }
+  function ordersTable(list, courier) {
+    if (!list.length) return `<p class="empty">No orders yet.</p>`;
+    return `<div class="table-wrap"><table class="t${courier ? " t--tight" : ""}"><thead><tr>${courier ? `<th style="width:34px"><input type="checkbox" data-selall aria-label="Select all"></th>` : ""}<th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Payment</th>${courier ? "<th>Pathao</th><th>Pathao ID</th>" : ""}<th class="right">Items</th><th class="right">Total</th>${courier ? `<th class="right">Actions</th>` : ""}</tr></thead><tbody>${list.map((o) => `
+      <tr class="is-link" data-href="#/orders/${esc(o.number)}">${courier ? `<td data-stop><input type="checkbox" data-sel="${esc(o.number)}" aria-label="Select ${esc(o.number)}"></td>` : ""}<td class="nowrap"><b>${esc(o.number)}</b> <button class="peek" type="button" data-peek="${esc(o.number)}" title="Quick view" aria-label="Quick view ${esc(o.number)}"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></td><td class="nowrap">${dateTime(o.createdAt)}</td><td>${esc(o.customer.name)}<br><small class="muted">${esc(o.customer.phone)}</small></td>
+      <td>${pill(o.status)}</td><td>${pill(o.paymentStatus)}<br><small class="muted">${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</small></td>${courier ? pathaoCell(o) + pathaoIdCell(o) : ""}<td class="right num">${o.itemCount}</td><td class="right num"><b>${taka(o.total)}</b></td>${courier ? `<td class="right">${rowActions(o)}</td>` : ""}</tr>`).join("")}</tbody></table></div>`;
+  }
+
+  // Quick view: the eye button next to an order number shows the customer, items and bill in a box, without leaving the list
+  async function orderPeek(num) {
+    const body = modal("Order " + num, `<p class="muted">Loading…</p>`, { wide: true, noFocus: true });
+    let o;
+    try { o = (await api("GET", "/api/orders/" + encodeURIComponent(num))).order; } catch (err) { closeModal(); return fail(err); }
+    const ret = (it) => (o.returns || []).filter((r) => r.productId === it.productId && (r.variantId || null) === (it.variantId || null)).reduce((n, r) => n + r.qty, 0);
+    const pt = o.pathao || {}, tel = o.customer.phone;
+    body.innerHTML = `<div class="stack peek-box">
+      <p class="muted" style="margin:0">${dateTime(o.createdAt)} · ${pill(o.status)} ${pill(o.paymentStatus)} · ${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</p>
+      <div class="cols" style="gap:16px">
+        <div class="stack" style="gap:8px">
+          <h3 class="h3" style="margin:0">Items</h3>
+          <div class="items">${o.items.map((it) => `<div class="item">${it.image ? `<img src="${esc(it.image)}" alt="">` : `<span class="ph"></span>`}<div><b>${esc(it.name)}</b><small>${esc(optText(it.options))} · SKU ${esc(it.sku)}</small><small>${it.qty} × ${taka(it.price)}</small>${ret(it) ? `<small style="color:var(--danger)">Returned: ${ret(it)}</small>` : ""}</div><b class="num">${taka(it.lineTotal)}</b></div>`).join("")}</div>
+          <div class="totals"><div><span>Subtotal</span><span class="num">${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount${o.coupon ? " (" + esc(o.coupon) + ")" : ""}</span><span class="num">−${taka(o.discount)}</span></div>` : ""}
+            <div><span>Delivery${o.shippingZone ? " · " + esc(o.shippingZone.name) : ""}</span><span class="num">${o.shipping ? taka(o.shipping) : "Free"}</span></div><div class="grand"><span>Total</span><span class="num">${taka(o.total)}</span></div>
+            ${o.returnedValue ? `<div style="color:var(--danger)"><span>Returned items</span><span class="num">−${taka(o.returnedValue)}</span></div><div><span>Kept by customer</span><span class="num">${taka(o.total - o.returnedValue)}</span></div>` : ""}
+            ${o.collected != null ? `<div><span>Cash collected</span><span class="num">${taka(o.collected)}</span></div>` : ""}</div>
+        </div>
+        <div class="stack" style="gap:8px">
+          <h3 class="h3" style="margin:0">Customer</h3>
+          <dl class="kv"><dt>Name</dt><dd>${esc(o.customer.name)}</dd><dt>Phone</dt><dd><a href="tel:${esc(tel)}">${esc(tel)}</a></dd>${o.customer.email ? `<dt>Email</dt><dd>${esc(o.customer.email)}</dd>` : ""}
+            <dt>Address</dt><dd>${esc(o.customer.address)}${o.customer.area ? ", " + esc(o.customer.area) : ""}${o.customer.city ? ", " + esc(o.customer.city) : ""}</dd>${o.shippingZone ? `<dt>Delivery</dt><dd>${esc(o.shippingZone.name)}</dd>` : ""}</dl>
+          ${pt.consignmentId ? `<h3 class="h3" style="margin:6px 0 0">Pathao</h3><dl class="kv"><dt>Consignment</dt><dd class="mono">${esc(pt.consignmentId)}</dd><dt>Status</dt><dd>${esc(String(pt.status || "sent").replace(/_/g, " "))}</dd></dl>` : ""}
+          ${o.note ? `<h3 class="h3" style="margin:6px 0 0">Customer note</h3><p style="margin:0">${esc(o.note)}</p>` : ""}
+        </div>
+      </div>
+      <div class="modal__foot"><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/invoice" data-modal-close>Order invoice</a><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/courier-invoice" data-modal-close>Courier invoice</a><a class="btn btn--dark" href="#/orders/${esc(o.number)}" data-modal-close>Open order</a></div>
+    </div>`;
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-peek]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    orderPeek(b.dataset.peek);
+  }, true);
 
   // ---------------------------------------------------------------------------
   // Orders
@@ -456,26 +526,135 @@
     view.innerHTML = `<div class="head"><div><h1 class="h1">Orders</h1><p class="muted">Confirm, pack and ship orders. Cancelling or returning an order puts the stock back.</p></div>
       <button class="btn btn--ghost" id="ordCsv">Export CSV</button></div>
       <div class="tabs" id="ordTabs"></div>
-      <div class="toolbar"><div class="grow"><input class="input" id="ordQ" placeholder="Search by order number, name, phone or email" value="${esc(state.q)}"></div>
+      <div class="toolbar"><div class="flex ord-act"><select class="input" id="ordAct" aria-label="Action for ticked orders"><option value="">Action…</option>
+          <option value="confirmed">Confirm</option><option value="hold">Hold</option><option value="cancelled">Cancel</option><option value="pathao">Send to Pathao</option>
+          <option value="courier">Courier invoice</option><option value="order">Order invoice</option>${me.orderTrash ? `<option value="trash">Move to trash</option>` : ""}</select>
+          <button class="btn btn--dark" type="button" id="ordApply">Apply</button><small class="muted" id="ordSelN">Tick orders first</small></div>
+        <div class="ord-search"><input class="input" id="ordQ" placeholder="Search order, name or phone" value="${esc(state.q)}"></div>
         <label class="flex small muted">From <input class="input input--sm" type="date" id="ordFrom"></label><label class="flex small muted">To <input class="input input--sm" type="date" id="ordTo"></label></div>
       <div class="card card--flush" id="ordList"><p class="empty">Loading…</p></div>`;
-    let all = [];
+    let all = [], trash = [];
+    // Trash tab: deleted orders stay 30 days; restore them, or delete them for good
+    const drawTrash = () => {
+      const left = (t) => Math.max(0, Math.ceil((t - Date.now()) / 864e5));
+      $("#ordList").innerHTML = trash.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Order</th><th>Deleted</th><th></th></tr></thead><tbody>${trash.map((x) => `
+        <tr><td><b>${esc(x.label.replace(/^Order /, ""))}</b><br><small class="muted">${esc(x.detail || "")}</small></td><td class="nowrap">${dateTime(x.deletedAt)}${x.deletedBy ? ` · ${esc(x.deletedBy)}` : ""}<br><small class="muted">Deleted for good in ${left(x.expiresAt)} days</small></td>
+        <td class="right nowrap"><button class="btn btn--dark btn--sm" type="button" data-trestore="${esc(x.id)}">Restore</button> <button class="btn btn--danger btn--sm" type="button" data-tforever="${esc(x.id)}">Delete permanently</button></td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="empty">No orders in the trash. Orders you move to the trash wait here for 30 days before they're deleted for good.</p>`;
+    };
+    $("#ordList").addEventListener("click", async (e) => {
+      const rs = e.target.closest("[data-trestore]"), fg = e.target.closest("[data-tforever]");
+      if (!rs && !fg) return;
+      e.preventDefault(); e.stopPropagation();
+      const x = trash.find((t) => t.id === (rs || fg).dataset[rs ? "trestore" : "tforever"]);
+      if (rs) { busy(rs, true); try { const out = await api("POST", "/api/trash/" + x.id + "/restore"); toast("Order " + (out.number || "") + " restored"); load(); refreshCounts(); } catch (err) { busy(rs, false); fail(err); } return; }
+      if (!(await confirmBox("Delete " + x.label + " permanently?", "It's removed for good and can't be restored.", "Delete permanently", true))) return;
+      try { await api("DELETE", "/api/trash/" + x.id); toast(x.label + " deleted permanently"); load(); } catch (err) { fail(err); }
+    }, true);
     const load = async () => {
       const params = new URLSearchParams();
       if (state.q) params.set("q", state.q);
       if (state.from) params.set("from", new Date(state.from + "T00:00:00").getTime());
       if (state.to) params.set("to", new Date(state.to + "T23:59:59").getTime());
       try { all = (await api("GET", "/api/orders?" + params)).orders; } catch (err) { return fail(err); }
+      if (me.orderTrash) { try { trash = (await api("GET", "/api/trash")).items.filter((x) => x.kind === "order"); } catch (_) { trash = []; } }
       draw();
     };
     const draw = () => {
       const counts = {};
       all.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; });
-      $("#ordTabs").innerHTML = [["", "All", all.length]].concat(STATUSES.map((s) => [s, human(s), counts[s] || 0]))
-        .map(([k, l, n]) => `<button class="tab${state.status === k ? " is-on" : ""}" data-s="${k}">${l}<small>${n}</small></button>`).join("");
+      $("#ordTabs").innerHTML = [["", "All", all.length]].concat(STATUSES.map((s) => [s, human(s), counts[s] || 0])).concat(me.orderTrash ? [["trash", "Trash", trash.length]] : [])
+        .map(([k, l, n]) => `<button class="tab${state.status === k ? " is-on" : ""}${k === "trash" ? " tab--trash" : ""}" data-s="${k}">${l}<small>${n}</small></button>`).join("");
+      $(".ord-act").hidden = state.status === "trash";
+      if (state.status === "trash") return drawTrash();
       const list = all.filter((o) => !state.status || o.status === state.status);
-      $("#ordList").innerHTML = ordersTable(list);
+      $("#ordList").innerHTML = ordersTable(list, true);
+      list.forEach((o) => { const b = $(`[data-sel="${o.number}"]`); if (b) b.checked = picked.has(o.number); });
+      bulkBar();
     };
+    // Tick orders, then print their order or courier invoices together
+    const picked = new Set();
+    const bulkBar = () => { $("#ordSelN").textContent = picked.size ? picked.size + " selected" : "Tick orders first"; };
+    $("#ordList").addEventListener("change", (e) => {
+      if (e.target.matches("[data-selall]")) $$("[data-sel]").forEach((b) => { b.checked = e.target.checked; if (b.checked) picked.add(b.dataset.sel); else picked.delete(b.dataset.sel); });
+      else if (e.target.matches("[data-sel]")) { if (e.target.checked) picked.add(e.target.dataset.sel); else picked.delete(e.target.dataset.sel); }
+      bulkBar();
+    });
+    // Action box: the chosen action runs on the ticked orders
+    $("#ordApply").onclick = () => {
+      const act = $("#ordAct").value, sel = all.filter((o) => picked.has(o.number));
+      if (!act) return toast("Choose an action first.", true);
+      if (!sel.length) return toast("Tick the orders first.", true);
+      $("#ordAct").value = "";
+      if (act === "order" || act === "courier") return go("invoices?type=" + act + "&orders=" + sel.map((o) => o.number).join(","));
+      if (act === "pathao") return bulkPathao(sel);
+      if (act === "trash") return bulkTrash(sel);
+      listStatus(sel, act);
+    };
+    const bulkPathao = async (sel) => {
+      const ok = sel.filter((o) => !(o.pathao && o.pathao.consignmentId) && ["cancelled", "returned", "delivered", "partial_return", "shipped"].indexOf(o.status) < 0);
+      const skip = sel.length - ok.length;
+      if (!ok.length) return toast("These orders are already with Pathao, or closed.", true);
+      if (!(await confirmBox("Send " + (ok.length === 1 ? ok[0].number : ok.length + " orders") + " to Pathao?", "City and zone are picked from each address. If one can't be matched, a form opens for it." + (skip ? " " + skip + " ticked order" + (skip > 1 ? "s are" : " is") + " skipped: already sent or closed." : ""), "Send to Pathao"))) return;
+      const btn = $("#ordApply"); busy(btn, true);
+      let done = 0; const bad = [];
+      for (const o of ok) { try { if (await pathaoQuickSend(o)) done++; } catch (err) { bad.push(o.number + ": " + err.message); } }
+      busy(btn, false); picked.clear();
+      toast(done + " sent to Pathao" + (bad.length ? ". Not sent: " + bad.join("; ") : ""), !!bad.length);
+      load();
+    };
+    const bulkTrash = async (sel) => {
+      if (!(await confirmBox("Move " + (sel.length === 1 ? "order " + sel[0].number : sel.length + " orders") + " to the trash?", "They leave Orders and your sales numbers, and items of open orders go back into stock. They wait in the Trash tab for 30 days, so you can restore them.", "Move to trash", true))) return;
+      let done = 0; const bad = [];
+      for (const o of sel) { try { await api("DELETE", "/api/orders/" + o.id); done++; } catch (err) { bad.push(o.number + ": " + err.message); } }
+      picked.clear();
+      toast(done + " moved to trash" + (bad.length ? ". Not moved: " + bad.join("; ") : ""), !!bad.length);
+      load(); refreshCounts();
+    };
+    // One order (row button) or many (ticked): confirm, hold or cancel with an optional note
+    const LABEL = { confirmed: ["Confirm", "confirmed", "btn--dark"], hold: ["Put on hold", "on hold", "btn--dark"], cancelled: ["Cancel", "cancelled", "btn--danger"] };
+    const listStatus = (orders, s) => {
+      const ok = orders.filter((o) => canDo(o, s)), skip = orders.length - ok.length, L = LABEL[s];
+      if (!ok.length) return toast(orders.length > 1 ? "None of these orders can be " + L[1] + " now." : "This order can't be " + L[1] + " now.", true);
+      const names = ok.length === 1 ? "order " + ok[0].number : ok.length + " orders";
+      const body = modal(L[0] + " " + names + "?", `<form class="stack" id="lsForm">
+        <p class="muted" style="margin:0">${ok.length > 1 ? esc(ok.map((o) => o.number).join(", ")) + "." : ""}${s === "cancelled" ? " The items go back into stock." : s === "hold" ? " The items stay reserved while the order is on hold." : ""}${skip ? ` ${skip} selected order${skip > 1 ? "s are" : " is"} skipped: already with the courier, or already in a status that can't change this way.` : ""}</p>
+        <label class="field"><span>Reason or note (optional)</span><input class="input" name="note" maxlength="300"></label>
+        ${s !== "confirmed" ? `<label class="check"><input type="checkbox" name="notifyCustomer"> Show this note to the customer on the order tracking page</label>` : ""}
+        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Back</button><button class="btn ${L[2]}" type="submit">${L[0]}${ok.length > 1 ? " " + ok.length : ""}</button></div></form>`);
+      $("#lsForm", body).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = formData(e.target), btn = $("button[type=submit]", e.target); busy(btn, true);
+        let done = 0; const bad = [];
+        for (const o of ok) { try { await api("PATCH", "/api/orders/" + o.number, { status: s, note: f.note, notifyCustomer: !!f.notifyCustomer }); done++; } catch (err) { bad.push(o.number + ": " + err.message); } }
+        closeModal(); picked.clear();
+        toast(bad.length ? done + " done. Not changed: " + bad.join("; ") : (done === 1 ? ok[0].number + " " + L[1] : done + " orders " + L[1]), !!bad.length);
+        load(); refreshCounts();
+      };
+    };
+    $("#ordList").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]"); if (!b) return;
+      e.preventDefault(); e.stopPropagation();
+      listStatus(all.filter((o) => o.number === b.dataset.num), b.dataset.act);
+    }, true);
+    // One click: Send to Pathao guesses the city and zone from the address; if it can't, the full form opens
+    $("#ordList").addEventListener("click", async (e) => {
+      if (e.target.closest("[data-stop]")) { e.stopPropagation(); return; }
+      const b = e.target.closest("[data-pathao]");
+      if (!b) return;
+      e.preventDefault(); e.stopPropagation();
+      const o = all.filter((x) => x.id === b.dataset.pathao)[0];
+      if (!o) return;
+      b.disabled = true; b.textContent = "Sending…";
+      try {
+        const sent = await pathaoQuickSend(o);
+        if (!sent) { b.disabled = false; b.textContent = "Send to Pathao"; return; }
+        toast(o.number + " sent to Pathao · " + sent);
+        load();
+      } catch (err) { b.disabled = false; b.textContent = "Send to Pathao"; fail(err); }
+    }, true);
+    // Live: Pathao updates arrive by webhook, so the list reloads by itself every 30 seconds while it's open
+    const timer = setInterval(() => { if (!document.body.contains($("#ordList"))) return clearInterval(timer); if (document.visibilityState === "visible" && !document.querySelector("#modal:not([hidden])")) load(); }, 30000);
     $("#ordTabs").onclick = (e) => { const b = e.target.closest("[data-s]"); if (b) { state.status = b.dataset.s; draw(); } };
     $("#ordQ").oninput = debounce((e) => { state.q = e.target.value.trim(); load(); }, 250);
     $("#ordFrom").onchange = (e) => { state.from = e.target.value; load(); };
@@ -497,17 +676,22 @@
   async function viewOrder(id) {
     setTitle("Order " + id);
     let o;
-    try { o = (await api("GET", "/api/orders/" + encodeURIComponent(id))).order; } catch (err) { view.innerHTML = `<p class="empty">${esc(err.message)}</p>`; return; }
+    let acoreOn = false;
+    try { const r = await api("GET", "/api/orders/" + encodeURIComponent(id)); o = r.order; acoreOn = !!r.acoreOn; } catch (err) { view.innerHTML = `<p class="empty">${esc(err.message)}</p>`; return; }
     const tel = o.customer.phone;
+    // Once the courier has the parcel, the order can't be edited here any more
+    const onCourier = !!((o.pathao && o.pathao.consignmentId) || (o.courier && o.courier.consignmentId) || ["shipped", "delivered", "partial_return", "returned"].indexOf(o.status) > -1);
+    const retOf = (it) => (o.returns || []).filter((r) => r.productId === it.productId && (r.variantId || null) === (it.variantId || null)).reduce((n, r) => n + r.qty, 0);
     view.innerHTML = `<div class="head"><div><a class="btn btn--link" href="#/orders">← Orders</a><h1 class="h1" style="margin-top:8px">Order ${esc(o.number)}</h1>
       <p class="muted">${dateTime(o.createdAt)} · ${pill(o.status)} ${pill(o.paymentStatus)}</p></div>
-      <div class="flex"><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/invoice">Invoice</a><a class="btn btn--ghost" href="tel:${esc(tel)}">Call customer</a>${me.role === "owner" ? `<button class="btn btn--danger" type="button" id="oDel">Delete order</button>` : ""}</div></div>
+      <div class="flex">${o.status === "pending" || o.status === "hold" ? `<button class="btn btn--dark" type="button" data-quick="confirmed">Confirm</button>` : ""}${!onCourier && ["pending", "confirmed", "processing"].indexOf(o.status) > -1 ? `<button class="btn btn--ghost" type="button" data-quick="hold">Hold</button>` : ""}${["cancelled", "returned", "delivered", "shipped", "partial_return"].indexOf(o.status) < 0 ? `<button class="btn btn--ghost" type="button" data-quick="cancelled">Cancel order</button>` : ""}${o.status === "partial_return" ? `<button class="btn btn--ghost" type="button" data-quick="delivered">Undo partial return</button>` : ""}${o.status === "cancelled" ? `<button class="btn btn--ghost" type="button" data-quick="pending">Reopen</button>` : ""}${onCourier ? "" : `<button class="btn btn--ghost" type="button" id="oEdit">Edit order</button>`}${onCourier && ["cancelled", "returned"].indexOf(o.status) < 0 ? `<button class="btn btn--ghost" type="button" id="oPartial">${o.status === "partial_return" ? "Change returned items" : "Partial return"}</button>` : ""}<a class="btn btn--ghost" href="#/orders/${esc(o.number)}/invoice">Order invoice</a><a class="btn btn--ghost" href="#/orders/${esc(o.number)}/courier-invoice">Courier invoice</a><a class="btn btn--ghost" href="tel:${esc(tel)}">Call customer</a>${me.orderTrash ? `<button class="btn btn--danger" type="button" id="oDel">Move to trash</button>` : ""}</div></div>
       <div class="cols">
         <div class="stack">
           <div class="card"><h2 class="h2">Items</h2><div class="items">${o.items.map((it) => `<div class="item">${it.image ? `<img src="${esc(it.image)}" alt="">` : `<span class="ph"></span>`}
-            <div><a href="#/products/${esc(it.productId)}"><b>${esc(it.name)}</b></a><small>${esc(optText(it.options))} · SKU ${esc(it.sku)}</small><small>${it.qty} × ${taka(it.price)}</small></div><b class="num">${taka(it.lineTotal)}</b></div>`).join("")}</div>
+            <div><a href="#/products/${esc(it.productId)}"><b>${esc(it.name)}</b></a><small>${esc(optText(it.options))} · SKU ${esc(it.sku)}</small><small>${it.qty} × ${taka(it.price)}</small>${retOf(it) ? `<small style="color:var(--danger)">Returned: ${retOf(it)} of ${it.qty}</small>` : ""}</div><b class="num">${taka(it.lineTotal)}</b></div>`).join("")}</div>
             <div class="totals"><div><span>Subtotal</span><span class="num">${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount${o.coupon ? " (" + esc(o.coupon) + ")" : ""}</span><span class="num">−${taka(o.discount)}</span></div>` : ""}
-              <div><span>Delivery${o.shippingZone ? " · " + esc(o.shippingZone.name) : ""}</span><span class="num">${o.shipping ? taka(o.shipping) : "Free"}</span></div><div class="grand"><span>Total</span><span class="num">${taka(o.total)}</span></div></div></div>
+              <div><span>Delivery${o.shippingZone ? " · " + esc(o.shippingZone.name) : ""}</span><span class="num">${o.shipping ? taka(o.shipping) : "Free"}</span></div><div class="grand"><span>Total</span><span class="num">${taka(o.total)}</span></div>${o.returnedValue ? `<div style="color:var(--danger)"><span>Returned items</span><span class="num">−${taka(o.returnedValue)}</span></div><div><span>Kept by customer</span><span class="num">${taka(o.total - o.returnedValue)}</span></div>` : ""}${o.collected != null ? `<div><span>Cash collected by courier</span><span class="num">${taka(o.collected)}</span></div>` : ""}</div>
+            ${onCourier && o.status !== "cancelled" ? `<p class="muted small" style="margin:10px 0 0">With the courier: the order can't be edited any more. Status updates from Pathao change it here by themselves.</p>` : ""}</div>
           <div class="card"><h2 class="h2">Update order</h2>
             <form class="stack" id="ordForm">
               <div class="row row--3"><label class="field"><span>Order status</span><select class="input" name="status">${STATUSES.map((s) => `<option value="${s}"${s === o.status ? " selected" : ""}>${human(s)}</option>`).join("")}</select></label>
@@ -521,11 +705,22 @@
         </div>
         <div class="stack">
           <div class="card"><h2 class="h2">Customer</h2><dl class="kv"><dt>Name</dt><dd>${esc(o.customer.name)}</dd><dt>Phone</dt><dd><a href="tel:${esc(tel)}">${esc(tel)}</a></dd>
-            ${o.customer.email ? `<dt>Email</dt><dd><a href="mailto:${esc(o.customer.email)}">${esc(o.customer.email)}</a></dd>` : ""}<dt>Address</dt><dd>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</dd>
+            ${o.customer.email ? `<dt>Email</dt><dd><a href="mailto:${esc(o.customer.email)}">${esc(o.customer.email)}</a></dd>` : ""}<dt>Address</dt><dd>${esc(o.customer.address)}${o.customer.area ? ", " + esc(o.customer.area) : ""}${o.customer.city ? ", " + esc(o.customer.city) : ""}</dd>
             ${o.shippingZone ? `<dt>Area</dt><dd>${esc(o.shippingZone.name)} · ${esc(o.shippingZone.days)}</dd>` : ""}</dl>
             ${o.customerId && can("customers") ? `<a class="btn btn--ghost btn--sm" href="#/customers/${esc(o.customerId)}">Customer profile</a>` : ""}</div>
           ${(() => {
+            const pt = o.pathao || {};
+            return `<div class="card"><h2 class="h2">Pathao courier</h2>${pt.consignmentId ? `<dl class="kv"><dt>Consignment</dt><dd class="mono">${esc(pt.consignmentId)}</dd>
+              <dt>Pathao status</dt><dd>${esc(String(pt.status || "sent").replace(/_/g, " "))}</dd>${pt.fee ? `<dt>Delivery fee</dt><dd>${taka(pt.fee)}</dd>` : ""}
+              <dt>Collect</dt><dd>${taka(pt.amount || 0)}</dd><dt>Sent</dt><dd>${dateTime(pt.sentAt)}</dd>
+              ${o.courier && o.courier.trackingUrl ? `<dt>Tracking</dt><dd><a href="${esc(o.courier.trackingUrl)}" target="_blank" rel="noopener">Open Pathao tracking</a></dd>` : ""}</dl>
+              <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="pathaoRefresh">Refresh from Pathao</button><button class="btn btn--ghost btn--sm" type="button" id="pathaoSend" data-again="1">Send again</button></div>`
+              : `<p class="muted small" style="margin:0 0 10px">Make a Pathao parcel for this order. Pathao picks it up from your store and updates the status here.</p><button class="btn btn--dark btn--sm" type="button" id="pathaoSend">Send to Pathao</button>`}</div>`;
+          })()}
+          ${(() => {
             const a = o.acore || {}, cr = o.courier || {};
+            // Shown while Acore is turned on, or for orders that went to Acore before
+            if (!acoreOn && !o.acore) return "";
             const state = a.pending ? "Sending…" : a.error ? `<span style="color:var(--danger)">Not sent: ${esc(a.error)}</span>` : a.sentAt ? `Sent ${dateTime(a.sentAt)}${a.id ? ` · Acore id <span class="mono">${esc(a.id)}</span>` : ""}` : "Not sent yet";
             return `<div class="card"><h2 class="h2">Acore and courier</h2><dl class="kv"><dt>Acore</dt><dd>${state}</dd>
               ${a.lastUpdate ? `<dt>Last update</dt><dd>${dateTime(a.lastUpdate)}</dd>` : ""}
@@ -534,11 +729,17 @@
               ${cr.riderName ? `<dt>Rider</dt><dd>${esc(cr.riderName)}${cr.riderPhone ? ` · <a href="tel:${esc(cr.riderPhone)}">${esc(cr.riderPhone)}</a>` : ""}</dd>` : ""}</dl>
               <button class="btn btn--ghost btn--sm" type="button" id="acoreSend">${a.sentAt ? "Send again" : "Send to Acore"}</button></div>`;
           })()}
-          <div class="card"><h2 class="h2">Payment</h2><dl class="kv"><dt>Method</dt><dd>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</dd><dt>Status</dt><dd>${pill(o.paymentStatus)}</dd>${o.paymentRef ? `<dt>Reference</dt><dd class="mono">${esc(o.paymentRef)}</dd>` : ""}</dl></div>
+          <div class="card"><h2 class="h2">Payment</h2><dl class="kv"><dt>Method</dt><dd>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)}</dd><dt>Status</dt><dd>${pill(o.paymentStatus)}</dd>${o.paymentRef ? `<dt>${o.paymentSender ? "TrxID" : "Reference"}</dt><dd class="mono">${esc(o.paymentRef)}</dd>` : ""}${o.paymentSender ? `<dt>Sent from</dt><dd class="mono">${esc(o.paymentSender)}</dd>` : ""}</dl>
+            ${o.paymentSender && o.paymentStatus === "unpaid" ? `<p class="small muted" style="margin:8px 0 0">Check this TrxID in your ${esc(PAY_LABEL[o.paymentMethod])} app or statement. If the money is there, set Payment to Paid above.</p>` : ""}</div>
           ${o.note ? `<div class="card"><h2 class="h2">Customer note</h2><p style="margin:0">${esc(o.note)}</p></div>` : ""}
         </div>
       </div>`;
-    $("#acoreSend").onclick = async () => {
+    $("#pathaoSend").onclick = (e) => pathaoSendDialog(o, !!e.target.dataset.again, () => viewOrder(id));
+    if ($("#pathaoRefresh")) $("#pathaoRefresh").onclick = async (e) => {
+      busy(e.target, true);
+      try { const r = await api("POST", "/api/orders/" + o.id + "/pathao-status"); toast("Pathao: " + String(r.status || "updated").replace(/_/g, " ")); viewOrder(id); } catch (err) { busy(e.target, false); fail(err); }
+    };
+    if ($("#acoreSend")) $("#acoreSend").onclick = async () => {
       try { await api("POST", "/api/orders/" + o.id + "/acore"); toast("Sending to Acore"); setTimeout(() => viewOrder(id), 1500); } catch (err) { fail(err); }
     };
     $("#ordForm").onsubmit = async (e) => {
@@ -548,28 +749,206 @@
       busy(btn, true);
       try { await api("PATCH", "/api/orders/" + o.number, b); toast("Order updated"); viewOrder(o.number); refreshCounts(); }
       catch (err) { fail(err); busy(btn, false); }
-    };    if ($("#oDel")) $("#oDel").onclick = async () => {
+    };
+    // Quick status buttons: Confirm, Hold, Cancel, Reopen
+    $$("[data-quick]", view).forEach((b) => { b.onclick = async () => {
+      const s = b.dataset.quick, msg = { confirmed: ["Confirm order " + o.number + "?", "The order moves to Confirmed.", "Confirm"], hold: ["Put " + o.number + " on hold?", "Use this while you wait for the customer, for example to check the size or address. The items stay reserved.", "Put on hold"],
+        cancelled: ["Cancel order " + o.number + "?", "The items go back into stock." + (o.pathao && o.pathao.consignmentId ? " This order is already with Pathao, so cancel the parcel in the Pathao panel too." : ""), "Cancel order"], pending: ["Reopen order " + o.number + "?", "The items come out of stock again.", "Reopen"], delivered: ["Undo the partial return?", "The order goes back to Delivered and the returned items come out of stock again.", "Undo"] }[s];
+      let note = "";
+      const body = modal(msg[0], `<form class="stack" id="qkForm"><p class="muted" style="margin:0">${esc(msg[1])}</p>
+        <label class="field"><span>Reason or note (optional)</span><input class="input" name="note" maxlength="300" placeholder="${s === "hold" ? "Waiting for the customer to confirm the size" : s === "cancelled" ? "Customer cancelled on the phone" : ""}"></label>
+        ${s === "cancelled" || s === "hold" ? `<label class="check"><input type="checkbox" name="notifyCustomer"> Show this note to the customer on the order tracking page</label>` : ""}
+        <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Back</button><button class="btn ${s === "cancelled" ? "btn--danger" : "btn--dark"}" type="submit">${msg[2]}</button></div></form>`);
+      $("#qkForm", body).onsubmit = async (e) => {
+        e.preventDefault();
+        const f = formData(e.target), btn = $("button[type=submit]", e.target); busy(btn, true);
+        try { await api("PATCH", "/api/orders/" + o.number, { status: s, note: f.note, notifyCustomer: !!f.notifyCustomer }); closeModal(); toast(o.number + ": " + human(s)); viewOrder(o.number); refreshCounts(); }
+        catch (err) { busy(btn, false); fail(err); }
+      };
+    }; });
+    if ($("#oEdit")) $("#oEdit").onclick = () => orderEditDialog(o, () => { viewOrder(o.number); refreshCounts(); });
+    if ($("#oPartial")) $("#oPartial").onclick = () => partialReturnDialog(o, () => { viewOrder(o.number); refreshCounts(); });
+    if ($("#oDel")) $("#oDel").onclick = async () => {
       const live = !o.restocked && o.status !== "delivered";
       if (!(await confirmBox("Delete order " + o.number + "?", "It disappears from Orders and your sales numbers" + (live ? ", and its items go back into stock" : "") + ". It stays in Trash for 30 days, so you can restore it.", "Delete order", true))) return;
-      try { await api("DELETE", "/api/orders/" + o.id); toast("Order moved to Trash"); refreshCounts(); location.hash = "#/orders"; } catch (err) { fail(err); }
+      try { await api("DELETE", "/api/orders/" + o.id); toast("Order moved to Trash"); refreshCounts(); go("orders"); } catch (err) { fail(err); }
     };
   }
 
-  async function viewInvoice(id) {
-    setTitle("Invoice " + id);
-    let o;
-    try { o = (await api("GET", "/api/orders/" + encodeURIComponent(id))).order; } catch (err) { return fail(err); }
-    const st = (store.settings && store.settings.store) || {};
-    view.innerHTML = `<div class="head no-print"><a class="btn btn--link" href="#/orders/${esc(o.number)}">← Order ${esc(o.number)}</a><button class="btn btn--dark" data-print>Print invoice</button></div>
-      <div class="card" style="max-width:820px;padding:36px">
-        <div class="flex flex--between" style="align-items:flex-start"><div><img src="assets/img/logo.webp" alt="Ravelle" style="height:40px;width:auto"><p class="small muted">${esc(st.legalName || "")}<br>${esc(st.address || "")}<br>${esc(st.phone || "")} · ${esc(st.email || "")}${st.tradeLicense ? "<br>Trade license: " + esc(st.tradeLicense) : ""}${st.bin ? " · BIN: " + esc(st.bin) : ""}</p></div>
-          <div class="right"><h1 class="h1">Invoice</h1><p class="muted">${esc(o.number)}<br>${date(o.createdAt)}<br>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)} · ${esc(human(o.paymentStatus))}</p></div></div>
-        <div><p class="h3">Bill to</p><p style="margin:0">${esc(o.customer.name)}<br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}${o.customer.city ? ", " + esc(o.customer.city) : ""}</p></div>
-        <table class="t"><thead><tr><th>Item</th><th>SKU</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead><tbody>${o.items.map((it) => `<tr><td>${esc(it.name)}<br><small class="muted">${esc(optText(it.options))}</small></td><td class="mono">${esc(it.sku)}</td><td class="right">${it.qty}</td><td class="right">${taka(it.price)}</td><td class="right">${taka(it.lineTotal)}</td></tr>`).join("")}</tbody></table>
-        <div class="totals" style="margin-left:auto;width:min(300px,100%)"><div><span>Subtotal</span><span>${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount</span><span>−${taka(o.discount)}</span></div>` : ""}<div><span>Delivery</span><span>${taka(o.shipping)}</span></div><div class="grand"><span>Total</span><span>${taka(o.total)}</span></div></div>
+  // Edit an order by hand: customer, items (size, quantity, price, add or remove), delivery and discount
+  async function orderEditDialog(o, done) {
+    let st;
+    try { st = await loadStore(true); } catch (err) { return fail(err); }
+    const prods = st.products.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const zones = ((st.settings && st.settings.shipping) || {}).zones || [];
+    const locked = o.status === "shipped" || o.status === "delivered";
+    // Products on the order that are hidden from the store now still need to be choosable
+    o.items.forEach((it) => { if (!prods.some((p) => p.id === it.productId)) prods.unshift({ id: it.productId, name: it.name + " (hidden)", price: it.price, variants: it.variantId ? [{ id: it.variantId, options: it.options, stock: null }] : [], trackStock: false }); });
+    let rows = o.items.map((it) => ({ productId: it.productId, variantId: it.variantId, qty: it.qty, price: it.price, was: it.qty, orig: it }));
+    const held = !o.restocked;
+    const free = (p, v, r) => { if (!p.trackStock) return null; const s = v ? v.stock : p.stock; const back = held && r.orig && r.orig.productId === p.id && (r.orig.variantId || null) === (v ? v.id : null) ? r.orig.qty : 0; return s == null ? null : s + back; };
+    const body = modal("Edit order " + o.number, `<form class="stack" id="oeForm">
+      ${locked ? `<p class="muted small" style="margin:0">This order is ${esc(o.status)}, so only the customer details can change.</p>` : ""}
+      ${o.pathao && o.pathao.consignmentId ? `<p class="small" style="margin:0;color:var(--danger)">Already sent to Pathao (${esc(o.pathao.consignmentId)}). Changes here don't update the Pathao parcel, so change it in the Pathao panel too.</p>` : ""}
+      <h3 class="h3" style="margin:4px 0 0">Customer</h3>
+      <div class="row row--2"><label class="field"><span>Name</span><input class="input" name="name" value="${esc(o.customer.name)}" maxlength="80" required></label>
+      <label class="field"><span>Phone</span><input class="input" name="phone" value="${esc(o.customer.phone)}" maxlength="20" required></label></div>
+      <label class="field"><span>Address</span><input class="input" name="address" value="${esc(o.customer.address)}" maxlength="300" required></label>
+      <div class="row row--2"><label class="field"><span>City</span><input class="input" name="city" value="${esc(o.customer.city || "")}" maxlength="60"></label>
+      <label class="field"><span>Email (optional)</span><input class="input" name="email" type="email" value="${esc(o.customer.email || "")}" maxlength="120"></label></div>
+      <h3 class="h3" style="margin:8px 0 0">Items</h3>
+      <div id="oeItems" class="stack" style="gap:8px"></div>
+      ${locked ? "" : `<button class="btn btn--ghost btn--sm" type="button" id="oeAdd" style="align-self:flex-start">+ Add product</button>`}
+      <div class="row row--3"><label class="field"><span>Delivery area</span><select class="input" name="zone"${locked ? " disabled" : ""}>${zones.map((z) => `<option value="${esc(z.id)}" data-fee="${z.fee}"${o.shippingZone && o.shippingZone.id === z.id ? " selected" : ""}>${esc(z.name)} · ${taka(z.fee)}</option>`).join("")}</select></label>
+      <label class="field"><span>Delivery charge (৳)</span><input class="input" name="shipping" type="number" min="0" step="1" value="${o.shipping}"${locked ? " disabled" : ""}></label>
+      <label class="field"><span>Discount (৳)</span><input class="input" name="discount" type="number" min="0" step="1" value="${o.discount || 0}"${locked ? " disabled" : ""}></label></div>
+      <div class="totals" id="oeTotals"></div>
+      <label class="field"><span>Why (optional, staff only)</span><input class="input" name="note" maxlength="300" placeholder="Customer asked for size L instead of M"></label>
+      <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save changes</button></div></form>`, { wide: true, noFocus: true });
+    const f = $("#oeForm", body), box = $("#oeItems", body);
+    const pOf = (id) => prods.filter((p) => p.id === id)[0];
+    const draw = () => {
+      box.innerHTML = rows.map((r, i) => {
+        const p = pOf(r.productId), vs = (p && p.variants) || [];
+        const v = vs.filter((x) => x.id === r.variantId)[0], left = p ? free(p, v, r) : null;
+        return `<div class="flex" data-i="${i}" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <label class="field" style="flex:2 1 220px"><span>Product</span><select class="input" data-k="productId"${locked ? " disabled" : ""}>${prods.map((x) => `<option value="${esc(x.id)}"${x.id === r.productId ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+          ${vs.length ? `<label class="field" style="flex:1 1 110px"><span>Size</span><select class="input" data-k="variantId"${locked ? " disabled" : ""}><option value="">Choose…</option>${vs.map((x) => { const l = free(p, x, r); return `<option value="${esc(x.id)}"${x.id === r.variantId ? " selected" : ""}>${esc(optText(x.options))}${l != null ? " · " + l + " left" : ""}</option>`; }).join("")}</select></label>` : ""}
+          <label class="field" style="flex:0 1 80px"><span>Qty</span><input class="input" type="number" min="1" max="50" data-k="qty" value="${r.qty}"${locked ? " disabled" : ""}></label>
+          <label class="field" style="flex:0 1 110px"><span>Price (৳)</span><input class="input" type="number" min="0" data-k="price" value="${r.price}"${locked ? " disabled" : ""}></label>
+          ${locked ? "" : `<button class="btn btn--ghost btn--sm" type="button" data-rm title="Remove" style="margin-bottom:4px">Remove</button>`}
+          ${left != null && r.qty > left ? `<small style="flex-basis:100%;color:var(--danger)">Only ${left} in stock</small>` : ""}</div>`;
+      }).join("") || `<p class="muted">No items.</p>`;
+      totals();
+    };
+    const totals = () => {
+      const sub = rows.reduce((n, r) => n + (+r.price || 0) * (+r.qty || 0), 0), ship = +f.shipping.value || 0, disc = Math.min(sub, +f.discount.value || 0);
+      $("#oeTotals", body).innerHTML = `<div><span>Subtotal</span><span class="num">${taka(sub)}</span></div>${disc ? `<div><span>Discount</span><span class="num">−${taka(disc)}</span></div>` : ""}<div><span>Delivery</span><span class="num">${taka(ship)}</span></div>
+        <div class="grand"><span>New total</span><span class="num">${taka(sub - disc + ship)}</span></div>${sub - disc + ship !== o.total ? `<small class="muted">Was ${taka(o.total)}</small>` : ""}`;
+    };
+    box.addEventListener("change", (e) => {
+      const row = e.target.closest("[data-i]"); if (!row) return;
+      const r = rows[+row.dataset.i], k = e.target.dataset.k;
+      if (k === "productId") { const p = pOf(e.target.value); r.productId = p.id; r.variantId = null; r.price = p.price; r.orig = null; const first = (p.variants || []).filter((v) => v.stock == null || v.stock > 0)[0]; if (first) { r.variantId = first.id; if (first.price != null) r.price = first.price; } draw(); }
+      else if (k === "variantId") { r.variantId = e.target.value || null; const v = (pOf(r.productId).variants || []).filter((x) => x.id === r.variantId)[0]; if (v && v.price != null && !r.orig) r.price = v.price; draw(); }
+      else { r[k] = Math.max(k === "qty" ? 1 : 0, Math.round(+e.target.value || 0)); draw(); }
+    });
+    box.addEventListener("input", (e) => { const row = e.target.closest("[data-i]"); if (row && (e.target.dataset.k === "qty" || e.target.dataset.k === "price")) { rows[+row.dataset.i][e.target.dataset.k] = +e.target.value || 0; totals(); } });
+    box.addEventListener("click", (e) => { if (!e.target.closest("[data-rm]")) return; rows.splice(+e.target.closest("[data-i]").dataset.i, 1); draw(); });
+    if ($("#oeAdd", body)) $("#oeAdd", body).onclick = () => { const p = prods.filter((x) => !x.trackStock || x.stock > 0)[0] || prods[0]; const v = (p.variants || []).filter((x) => x.stock == null || x.stock > 0)[0]; rows.push({ productId: p.id, variantId: v ? v.id : null, qty: 1, price: v && v.price != null ? v.price : p.price, orig: null }); draw(); };
+    f.zone.onchange = () => { const opt = f.zone.selectedOptions[0]; if (opt) f.shipping.value = opt.dataset.fee; totals(); };
+    f.shipping.oninput = totals; f.discount.oninput = totals;
+    draw();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!locked && !rows.length) return toast("Keep at least one item. To drop the whole order, cancel it.", true);
+      if (rows.some((r) => { const p = pOf(r.productId); return p && (p.variants || []).length && !r.variantId; })) return toast("Choose a size for every item.", true);
+      const b = { customer: { name: f.name.value, phone: f.phone.value, email: f.email.value, address: f.address.value, city: f.city.value }, note: f.note.value };
+      if (!locked) Object.assign(b, { items: rows.map((r) => ({ productId: r.productId, variantId: r.variantId, qty: +r.qty, price: +r.price })), zone: f.zone.value, shipping: f.shipping.value, discount: f.discount.value });
+      const btn = $("button[type=submit]", f); busy(btn, true);
+      try { const r = await api("PUT", "/api/orders/" + o.id + "/edit", b); closeModal(); toast(r.changed ? "Order " + o.number + " updated" : "Nothing changed"); done(); }
+      catch (err) { busy(btn, false); fail(err); }
+    };
+  }
+
+  // Partial return: pick which items (and how many) came back; they go back into stock
+  function partialReturnDialog(o, done) {
+    const prev = (it) => (o.returns || []).filter((r) => r.productId === it.productId && (r.variantId || null) === (it.variantId || null)).reduce((n, r) => n + r.qty, 0);
+    const body = modal("Partial return · " + o.number, `<form class="stack" id="prForm">
+      <p class="muted small" style="margin:0">The customer kept some items and sent the rest back with the courier. Enter how many of each item came back. Those go back into stock.</p>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Item</th><th class="right">Ordered</th><th class="right" style="width:120px">Came back</th></tr></thead><tbody>
+      ${o.items.map((it, i) => `<tr><td><b>${esc(it.name)}</b><br><small class="muted">${esc(optText(it.options))} · ${taka(it.price)} each</small></td><td class="right num">${it.qty}</td>
+        <td class="right"><input class="input input--sm" type="number" min="0" max="${it.qty}" step="1" data-ri="${i}" value="${prev(it)}" style="width:80px;text-align:right"></td></tr>`).join("")}</tbody></table></div>
+      <div class="row row--2"><label class="field"><span>Cash the courier collected (৳)</span><input class="input" name="collected" type="number" min="0" step="1" value="${o.collected != null ? o.collected : ""}" placeholder="${o.paymentStatus === "paid" ? "Paid online" : ""}"></label>
+      <div class="totals" id="prSum" style="align-self:end"></div></div>
+      <label class="field"><span>Note (optional)</span><input class="input" name="note" maxlength="300" placeholder="Size didn't fit"></label>
+      <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">Save partial return</button></div></form>`, { wide: true });
+    const f = $("#prForm", body);
+    const picks = () => $$("[data-ri]", f).map((el) => ({ index: +el.dataset.ri, qty: Math.max(0, Math.min(+el.max, Math.round(+el.value || 0))) }));
+    const sum = () => {
+      const ret = picks().reduce((n, p) => n + p.qty * o.items[p.index].price, 0);
+      $("#prSum", body).innerHTML = `<div><span>Returned</span><span class="num">${taka(ret)}</span></div><div class="grand"><span>Customer keeps</span><span class="num">${taka(o.total - ret)}</span></div>`;
+    };
+    f.addEventListener("input", sum); sum();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $("button[type=submit]", f); busy(btn, true);
+      try { await api("POST", "/api/orders/" + o.id + "/partial-return", { items: picks().filter((p) => p.qty), collected: f.collected.value, note: f.note.value }); closeModal(); toast(o.number + " marked partly returned"); done(); }
+      catch (err) { busy(btn, false); fail(err); }
+    };
+  }
+
+  // QR code as SVG (qrcode.js, MIT, Kazuhiko Arase)
+  function qr(text, px) {
+    if (!window.qrcode) return "";
+    const q = window.qrcode(0, "M"); q.addData(String(text)); q.make();
+    const n = q.getModuleCount(); let d = "";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 2} ${r + 2}h1v1h-1z`;
+    return `<svg class="qr" viewBox="0 0 ${n + 4} ${n + 4}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR ${esc(text)}"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  }
+  // Code 128 (set B) barcode for order and parcel numbers, drawn as SVG
+  function barcode(text, h) {
+    const P = "212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112".split(" ");
+    const codes = [104].concat([...String(text)].map((ch) => Math.max(0, Math.min(94, ch.charCodeAt(0) - 32))));
+    codes.push(codes.reduce((s, c, i) => s + c * (i || 1), 0) % 103, 106);
+    let x = 10, bars = "";
+    codes.forEach((c) => { [...P[c]].forEach((w, i) => { if (i % 2 === 0) bars += `<rect x="${x}" y="0" width="${w}" height="${h}"/>`; x += +w; }); });
+    return `<svg viewBox="0 0 ${x + 10} ${h}" height="${h}" style="width:100%;max-width:${(x + 10) * 1.6}px" preserveAspectRatio="none" aria-label="${esc(text)}">${bars}</svg>`;
+  }
+  const kept = (o, it) => it.qty - (o.returns || []).filter((r) => r.productId === it.productId && (r.variantId || null) === (it.variantId || null)).reduce((n, r) => n + r.qty, 0);
+  // Order invoice: the customer's bill, with prices
+  function orderInvoiceHtml(o, st) {
+    return `<div class="card inv-page" style="max-width:820px;padding:36px">
+        <div class="flex flex--between" style="align-items:flex-start"><div><img src="assets/img/logo.webp" alt="Ravelle" style="height:26px;width:auto"><p class="small muted">${esc(st.legalName || "")}<br>${esc(st.address || "")}<br>${esc(st.phone || "")} · ${esc(st.email || "")}${st.tradeLicense ? "<br>Trade license: " + esc(st.tradeLicense) : ""}${st.bin ? " · BIN: " + esc(st.bin) : ""}</p></div>
+          <div class="right"><h1 class="h1">Invoice</h1><p class="muted">${esc(o.number)}<br>${date(o.createdAt)}<br>${esc(PAY_LABEL[o.paymentMethod] || o.paymentMethod)} · ${esc(human(o.paymentStatus))}</p><div class="flex" style="justify-content:flex-end;align-items:center;gap:10px;margin-top:6px"><div style="width:150px">${barcode(o.number, 34)}</div>${qr((st.website || location.origin).replace(/\/$/, "") + "/order/" + o.number, 74)}</div><small class="muted">Scan to track ${esc(o.number)}</small></div></div>
+        <div><p class="h3">Bill to</p><p style="margin:0">${esc(o.customer.name)}<br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}${o.customer.area ? ", " + esc(o.customer.area) : ""}${o.customer.city ? ", " + esc(o.customer.city) : ""}</p></div>
+        <table class="t"><thead><tr><th>Item</th><th>SKU</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead><tbody>${o.items.map((it) => `<tr><td>${esc(it.name)}<br><small class="muted">${esc(optText(it.options))}</small>${kept(o, it) < it.qty ? `<br><small>Returned: ${it.qty - kept(o, it)}</small>` : ""}</td><td class="mono">${esc(it.sku)}</td><td class="right">${it.qty}</td><td class="right">${taka(it.price)}</td><td class="right">${taka(it.lineTotal)}</td></tr>`).join("")}</tbody></table>
+        <div class="totals" style="margin-left:auto;width:min(300px,100%)"><div><span>Subtotal</span><span>${taka(o.subtotal)}</span></div>${o.discount ? `<div><span>Discount</span><span>−${taka(o.discount)}</span></div>` : ""}<div><span>Delivery</span><span>${taka(o.shipping)}</span></div><div class="grand"><span>Total</span><span>${taka(o.total)}</span></div>
+          ${o.returnedValue ? `<div><span>Returned items</span><span>−${taka(o.returnedValue)}</span></div><div class="grand"><span>Final amount</span><span>${taka(o.total - o.returnedValue)}</span></div>` : ""}</div>
         <p class="small muted">Thank you for shopping with ${esc(st.name || "Ravelle")}. Exchanges and returns within 7 days of delivery: ${esc((st.website || "").replace(/^https?:\/\//, ""))}/refund</p>
       </div>`;
+  }
+  // Courier invoice: the parcel slip that goes on the package. Who to deliver to, cash to collect, what is inside; no item prices
+  function courierInvoiceHtml(o, st) {
+    const due = o.paymentStatus === "paid" ? 0 : Math.round(o.pathao && o.pathao.amount != null ? o.pathao.amount : o.total);
+    const cid = (o.pathao && o.pathao.consignmentId) || (o.courier && o.courier.consignmentId) || "";
+    const qty = o.items.reduce((n, it) => n + it.qty, 0);
+    return `<div class="slip inv-page">
+      <div class="slip__top"><img src="assets/img/logo.webp" alt="Ravelle"><div class="right"><b>${cid ? "Pathao" : "Courier"}</b><br><small>${date(o.createdAt)}</small></div></div>
+      <div class="slip__codes"><div><small>Order</small><b class="mono">${esc(o.number)}</b>${barcode(o.number, 46)}</div>${cid ? `<div class="slip__pt"><div><small>Pathao ID</small><b class="mono">${esc(cid)}</b>${barcode(cid, 40)}</div>${qr(cid, 86)}</div>` : ""}</div>
+      <div class="slip__to"><small>Deliver to</small><b class="slip__name">${esc(o.customer.name)}</b><b class="slip__phone">${esc(o.customer.phone)}</b>
+        <p>${esc(o.customer.address)}${o.customer.area ? ", " + esc(o.customer.area) : ""}${o.customer.city ? ", " + esc(o.customer.city) : ""}</p>${o.shippingZone ? `<small>Delivery: ${esc(o.shippingZone.name)}</small>` : ""}</div>
+      <div class="slip__cod"><span>${due ? "Collect cash" : "Paid · collect nothing"}</span><b>${taka(due)}</b></div>
+      <table class="slip__items"><tbody>${o.items.map((it) => `<tr><td>${esc(it.name)}${Object.keys(it.options || {}).length ? " · " + esc(optText(it.options)) : ""}</td><td class="right">×${it.qty}</td></tr>`).join("")}</tbody></table>
+      <div class="slip__foot"><span>${qty} item${qty === 1 ? "" : "s"}${o.pathao && o.pathao.weight ? " · " + o.pathao.weight + " kg" : ""}</span>${o.note ? `<span>Note: ${esc(o.note)}</span>` : ""}</div>
+      <div class="slip__from"><small>From</small> ${esc(st.name || "Ravelle")} · ${esc(st.phone || "")}${st.address ? " · " + esc(st.address) : ""}<br><small>Please call the customer before delivery. Do not hand over the parcel without collecting the amount above.</small></div>
+    </div>`;
+  }
+  async function printInvoices(orders, type, back) {
+    await loadStore();
+    const st = (store && store.settings && store.settings.store) || {};
+    const other = type === "courier" ? "order" : "courier";
+    view.innerHTML = `<div class="head no-print"><a class="btn btn--link" href="${back[0]}">${esc(back[1])}</a>
+      <div class="flex"><div class="tabs" style="margin:0"><button class="tab${type === "order" ? " is-on" : ""}" data-type="order">Order invoice</button><button class="tab${type === "courier" ? " is-on" : ""}" data-type="courier">Courier invoice</button></div>
+      <button class="btn btn--dark" data-print>Print${orders.length > 1 ? " " + orders.length : ""}</button></div></div>
+      <div class="inv-list inv-list--${type}">${orders.map((o) => type === "courier" ? courierInvoiceHtml(o, st) : orderInvoiceHtml(o, st)).join("")}</div>`;
     view.querySelector("[data-print]").onclick = () => window.print();
+    $$("[data-type]", view).forEach((b) => { b.onclick = () => { if (b.dataset.type !== type) printInvoices(orders, other, back); }; });
+  }
+  async function viewInvoices(_, query) {
+    const q = new URLSearchParams(query || ""), nums = (q.get("orders") || "").split(",").filter(Boolean).slice(0, 100);
+    setTitle("Invoices");
+    let orders;
+    try { orders = await Promise.all(nums.map((n) => api("GET", "/api/orders/" + encodeURIComponent(n)).then((r) => r.order))); } catch (err) { return fail(err); }
+    if (!orders.length) { view.innerHTML = `<p class="empty">No orders chosen. Tick orders in the Orders list first.</p>`; return; }
+    printInvoices(orders, q.get("type") === "courier" ? "courier" : "order", ["#/orders", "← Orders"]);
+  }
+  async function viewCourierInvoice(id) { return viewInvoice(id, "courier"); }
+  async function viewInvoice(id, type) {
+    setTitle((type === "courier" ? "Courier invoice " : "Invoice ") + id);
+    let o;
+    try { o = (await api("GET", "/api/orders/" + encodeURIComponent(id))).order; } catch (err) { return fail(err); }
+    printInvoices([o], type === "courier" ? "courier" : "order", ["#/orders/" + o.number, "← Order " + o.number]);
   }
 
   // ---------------------------------------------------------------------------
@@ -713,7 +1092,7 @@
       const b = e.target.closest("[data-dup]");
       if (!b) return;
       e.stopPropagation();
-      try { const r = await api("POST", "/api/products/" + b.dataset.dup + "/duplicate"); toast("Duplicated as a draft"); location.hash = "#/products/" + r.product.id; } catch (err) { fail(err); }
+      try { const r = await api("POST", "/api/products/" + b.dataset.dup + "/duplicate"); toast("Duplicated as a draft"); go("products/" + r.product.id); } catch (err) { fail(err); }
     });
     $("#prdCsv").onclick = () => {
       const rows = [["Product", "SKU", "Variant SKU", "Options", "Price", "Compare at", "Stock", "Status", "Slug"]];
@@ -738,10 +1117,11 @@
     const isNew = id === "new";
     setTitle(isNew ? "New product" : p.name);
     const attrs = store.attributes;
+    const charts = ((await api("GET", "/api/size-charts").catch(() => null)) || {})["size-charts"] || [];
     let draft = clone(p);
     draft.details = (draft.details || []).join("\n");
     view.innerHTML = `<div class="head"><div><a class="btn btn--link" href="#/products">← Products</a><h1 class="h1" style="margin-top:8px">${isNew ? "Add product" : esc(p.name)}</h1>
-      ${isNew ? "" : `<p class="muted">SKU ${esc(p.sku)} · ${pill(p.status)} · <a href="./#product/${esc(p.slug)}" target="_blank" rel="noopener">View on store ↗</a></p>`}</div></div>
+      ${isNew ? "" : `<p class="muted">SKU ${esc(p.sku)} · ${pill(p.status)} · <a href="./#product/${esc(p.slug)}" target="_blank" rel="noopener">View on store ↗</a> · <a href="#/labels?product=${esc(p.id)}">Print price tags</a></p>`}</div></div>
       <form class="cols" id="pForm" novalidate>
         <div class="stack">
           <div class="card"><label class="field"><span>Product name</span><input class="input" name="name" required value="${esc(draft.name)}" placeholder="Fearless Oversized T-shirt – Black"></label>
@@ -758,8 +1138,11 @@
             <div id="varBox"></div>
             <label class="check"><input type="checkbox" name="trackStock" ${draft.trackStock ? "checked" : ""}> Track stock (sold-out sizes can't be ordered)</label>
             <label class="field" id="simpleStock" style="max-width:200px"><span>Stock</span><input class="input" name="stock" type="number" min="0" value="${esc(draft.stock == null ? 0 : draft.stock)}"></label></div>
-          <div class="card"><h2 class="h2">Size guide</h2><p class="muted small" style="margin:0">Upload a size chart image. Customers see a “Size guide” button above the sizes; it opens this image in a popup.</p>
-            ${imgField("sizeGuide", draft.sizeGuide, "Size guide image", "A wide image works best, like a chart with chest, length and sleeve.", true)}</div>
+          <div class="card"><div class="card__head"><div><h2 class="h2">Size guide</h2><p class="muted small" style="margin:0">Pick a size chart template. Customers see a “Size guide” button above the sizes; it opens the chart in a popup.</p></div><a class="btn btn--link" href="#/sizecharts">Manage size charts</a></div>
+            <label class="field"><span>Size chart template</span><select class="input" name="sizeChartId"><option value="">None</option>${charts.map((c) => `<option value="${esc(c.id)}"${c.id === draft.sizeChartId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+            <small>${charts.length ? "Made in Catalog › Size charts. Change a template there and every product using it updates." : "No templates yet. Make one in Catalog › Size charts."}</small></label>
+            <details${draft.sizeGuide && !draft.sizeChartId ? " open" : ""}><summary class="small muted">Or upload a chart image instead (used only when no template is picked)</summary>
+            ${imgField("sizeGuide", draft.sizeGuide, "Size guide image", "Ratio 3:2 landscape, 1200 × 800 px (1200 × 900 also fine). Shown in full, never cropped. Put sizes in rows and chest, length, sleeve in columns, with big text so it reads on phones.", true)}</details></div>
         </div>
         <div class="stack">
           <div class="card"><h2 class="h2">Status</h2>
@@ -887,7 +1270,7 @@
       const b = formData(form);
       const body = {
         name: b.name, slug: b.slug, sku: b.sku, status: b.status, line: b.line, color: b.color, hex: b.hex, colorGroup: b.colorGroup || "", price: b.price, comparePrice: b.comparePrice || 0,
-        description: b.description, details: b.details, seoTitle: b.seoTitle, seoDescription: b.seoDescription, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value,
+        description: b.description, details: b.details, seoTitle: b.seoTitle, seoDescription: b.seoDescription, images: draft.images, sizeGuide: $("[name=sizeGuide]", form).value, sizeChartId: $("[name=sizeChartId]", form).value,
         categoryIds: $$("[name=cat]:checked", form).map((x) => x.value), isNew: b.isNew, featured: b.featured, trackStock: b.trackStock, stock: b.stock,
         attributes: draft.attributes.filter((a) => a.values.length), variants: draft.variants
       };
@@ -899,16 +1282,16 @@
         const r = isNew ? await api("POST", "/api/products", body) : await api("PUT", "/api/products/" + p.id, body);
         toast(isNew ? "Product created" : "Product saved");
         store = null;
-        if (isNew) location.hash = "#/products/" + r.product.id; else viewProduct(p.id);
+        if (isNew) go("products/" + r.product.id); else viewProduct(p.id);
       } catch (err) { fail(err); busy(btn, false); }
     };
     if (!isNew) {
       $("#pDel").onclick = async () => {
         if (!(await confirmBox("Delete " + p.name + "?", "It's removed from the store and kept in Trash for 30 days, so you can restore it. Past orders keep their details.", "Move to Trash", true))) return;
-        try { await api("DELETE", "/api/products/" + p.id); store = null; toast("Moved to Trash"); location.hash = "#/products"; } catch (err) { fail(err); }
+        try { await api("DELETE", "/api/products/" + p.id); store = null; toast("Moved to Trash"); go("products"); } catch (err) { fail(err); }
       };
       $("#pDup").onclick = async () => {
-        try { const r = await api("POST", "/api/products/" + p.id + "/duplicate"); store = null; toast("Duplicated as a draft"); location.hash = "#/products/" + r.product.id; } catch (err) { fail(err); }
+        try { const r = await api("POST", "/api/products/" + p.id + "/duplicate"); store = null; toast("Duplicated as a draft"); go("products/" + r.product.id); } catch (err) { fail(err); }
       };
     }
   }
@@ -1248,6 +1631,252 @@
   }
 
   // Variation types (attributes)
+  // ---------------------------------------------------------------------------
+  // Size charts: templates with columns and size rows; products pick one by name
+  // ---------------------------------------------------------------------------
+  function sizeChartHtml(ch, label) {
+    const cols = ch.columns || [], rows = ch.rows || [];
+    return `<div class="szc"><div class="szc__top"><h3 class="szc__title">${esc(ch.title || ch.name || "Title")}<span>Size chart</span></h3>${ch.unit ? `<p class="szc__unit">Measurements<br>in ${esc(ch.unit)}</p>` : ""}</div>
+      <div class="szc__wrap"><table class="szc__t"><thead><tr>${cols.map((c, i) => `<th>${esc(c)}${i && ch.unit ? `<small>${esc(ch.unit)}</small>` : ""}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${cols.map((_, i) => i ? `<td>${esc(r[i] || "")}</td>` : `<th scope="row">${esc(r[i] || "")}</th>`).join("")}</tr>`).join("")}</tbody></table></div>
+      <div class="szc__foot">${ch.note ? `<span><b>Tip</b> ${esc(ch.note)}</span>` : "<span></span>"}<span class="szc__logo">${esc(label || "Ravelle")}</span></div></div>`;
+  }
+  // ---------------------------------------------------------------------------
+  // Price tags: labels with brand, name, barcode of the SKU, the number and the price
+  // ---------------------------------------------------------------------------
+  const BC_TYPES = { code128: "Code 128 (best for SKUs)", code39: "Code 39", code93: "Code 93", ean13: "EAN-13 (numbers only)", upca: "UPC-A (numbers only)", qrcode: "QR code" };
+  let bwipLoad = null;
+  const loadBwip = () => bwipLoad || (bwipLoad = new Promise((ok, no) => {
+    if (window.bwipjs) return ok();
+    const sc = document.createElement("script");
+    sc.src = "assets/admin/bwip-js.min.js?v=4.5.1";
+    sc.onload = () => ok(); sc.onerror = () => { bwipLoad = null; no(new Error("The barcode maker didn't load. Check the connection and open the page again.")); };
+    document.head.appendChild(sc);
+  }));
+  // One barcode as SVG. EAN-13 and UPC-A only take numbers, so a SKU with letters gets a clear message instead
+  function labelBarcode(t, code) {
+    const digits = /^\d+$/.test(code);
+    if (t.type === "ean13" && !(digits && (code.length === 12 || code.length === 13))) return { err: "EAN-13 needs a 12 or 13 digit number. Use Code 128 for SKUs like " + code + "." };
+    if (t.type === "upca" && !(digits && (code.length === 11 || code.length === 12))) return { err: "UPC-A needs an 11 or 12 digit number. Use Code 128 for SKUs like " + code + "." };
+    try {
+      const o = { bcid: t.type, text: code, scale: 2, paddingwidth: 0, paddingheight: 0 };
+      if (t.type !== "qrcode") o.height = t.barHeight;
+      if (t.type === "code39" || t.type === "code93") o.text = code.toUpperCase();
+      if (t.type === "code39") o.text = o.text.replace(/[^0-9A-Z\-. $\/+%]/g, "-");
+      return { svg: window.bwipjs.toSVG(o).replace("<svg ", '<svg preserveAspectRatio="none" ') };
+    } catch (e) { return { err: "This code can't be made as " + BC_TYPES[t.type] + ": " + String(e.message || e).replace(/^bwipp\.\w+#?\d*:\s*/, "") }; }
+  }
+  const LABEL_FONT = "Arial, Helvetica, sans-serif";
+  function labelHtml(t, it) {
+    const line = (k, html, extra) => t.show[k] ? `<div class="lb-${k}" style="font-size:${t.font[k]}pt;font-weight:${t.bold[k] ? 700 : 400}${extra || ""}">${html}</div>` : "";
+    const bc = t.show.barcode ? labelBarcode(t, it.sku) : null;
+    const bar = bc ? (bc.err ? `<div class="lb-err">${esc(bc.err)}</div>` : t.type === "qrcode"
+      ? `<div class="lb-bar" style="height:${t.barHeight}mm;width:${t.barHeight}mm">${bc.svg}</div>`
+      : `<div class="lb-bar" style="height:${t.barHeight}mm;width:${t.barWidth}%">${bc.svg}</div>`) : "";
+    const price = (t.show.oldPrice && it.oldPrice > it.price ? `<s style="font-weight:400;font-size:.75em;margin-right:4px">${esc(t.pricePrefix)}${it.oldPrice.toLocaleString("en-IN")}</s>` : "") + esc(t.pricePrefix) + Number(it.price || 0).toLocaleString("en-IN");
+    const just = t.align === "left" ? "flex-start" : t.align === "right" ? "flex-end" : "center";
+    return `<div class="lb" style="width:${t.width}mm;height:${t.height}mm;padding:${t.padding}mm;text-align:${t.align};align-items:${just};${t.border ? "outline:0.2mm solid #000;outline-offset:-0.2mm;" : ""}font-family:${LABEL_FONT}">
+      ${line("brand", esc(t.brand || "RAVELLE"), ";letter-spacing:.08em")}
+      ${line("name", esc(it.name) + (t.show.size && it.size ? ` <span style="font-weight:700">· ${esc(it.size)}</span>` : ""), ";overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical")}
+      ${bar}${line("code", esc(it.sku), ";letter-spacing:.06em")}${line("price", price)}</div>`;
+  }
+  const LABEL_CSS = `.lb{box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:0.6mm;overflow:hidden;background:#fff;color:#000;line-height:1.15}
+    .lb>div{max-width:100%}.lb-bar svg{display:block;width:100%;height:100%}.lb-err{font:6pt/1.2 Arial,sans-serif;color:#b00020;border:0.2mm dashed #b00020;padding:1mm}`;
+  function labelPrintDoc(t, items) {
+    const list = [];
+    items.forEach((it) => { for (let i = 0; i < it.qty; i++) list.push(labelHtml(t, it)); });
+    const page = t.sheet === "a4"
+      ? `@page{size:A4;margin:8mm}.sheet{display:grid;grid-template-columns:repeat(${t.columns},${t.width}mm);gap:${t.gap}mm}.lb{break-inside:avoid}`
+      : `@page{size:${t.width}mm ${t.height}mm;margin:0}.lb{break-after:page}`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Price tags</title><style>html,body{margin:0;background:#fff}${LABEL_CSS}${page}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body><div class="sheet">${list.join("")}</div></body></html>`;
+  }
+  async function viewLabels(_, query) {
+    setTitle("Price tags");
+    const q = new URLSearchParams(query || "");
+    let t, prods;
+    view.innerHTML = `<p class="muted">Loading…</p>`;
+    try {
+      const [tr, pr] = await Promise.all([api("GET", "/api/label-template"), api("GET", "/api/products"), loadBwip()]);
+      t = tr.template; prods = pr.products;
+    } catch (err) { return fail(err); }
+    if (!t.brand) t.brand = ((store && store.settings && store.settings.store && store.settings.store.name) || "RAVELLE").toUpperCase();
+    // every size of every product is one row
+    // serial order: by product SKU (RV-1001, RV-1002…), then sizes in their own order (M, L, XL…)
+    const rows = [];
+    prods.slice().sort((a, b) => String(a.sku || "").localeCompare(String(b.sku || ""), "en", { numeric: true })).forEach((p) => {
+      const old = +p.comparePrice || 0;
+      if (p.variants && p.variants.length) p.variants.forEach((v) => rows.push({ key: p.id + "|" + v.id, pid: p.id, name: p.name, size: Object.values(v.options || {}).join(" / "), sku: v.sku || p.sku, price: v.price != null ? +v.price : +p.price, oldPrice: old, stock: v.stock, qty: 0 }));
+      else rows.push({ key: p.id, pid: p.id, name: p.name, size: "", sku: p.sku, price: +p.price, oldPrice: old, stock: p.stock, qty: 0 });
+    });
+    let search = "";
+    const only = q.get("product");
+    if (only) { const p = prods.find((x) => x.id === only); if (p) { search = p.name; rows.filter((r) => r.pid === only).forEach((r) => { r.qty = 1; }); } }
+    const num = (id, label, v, min, max, step, unit) => `<label class="field"><span>${label}</span><div class="lb-unit"><input class="input" type="number" data-t="${id}" value="${v}" min="${min}" max="${max}" step="${step || 1}"><small>${unit || ""}</small></div></label>`;
+    const chk = (id, label, on) => `<label class="switch"><input type="checkbox" data-t="${id}" ${on ? "checked" : ""}> ${label}</label>`;
+    const lineRow = (k, title, extra) => `<div class="lb-row"><div class="lb-row__head">${chk("show." + k, `<b>${title}</b>`, t.show[k])}</div>
+      <div class="lb-row__opts">${t.font[k] != null ? num("font." + k, "Text size", t.font[k], 4, 40, 0.5, "pt") + `<label class="switch"><input type="checkbox" data-t="bold.${k}" ${t.bold[k] ? "checked" : ""}> Bold</label>` : ""}${extra || ""}</div></div>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Price tags</h1><p class="muted">Design the label once, pick products and how many of each, then print. The barcode is the size's SKU.</p></div></div>
+      <div class="lb-cols">
+        <form class="stack" id="lbForm">
+          <div class="card"><h2 class="h2">Label size</h2>
+            <div class="row row--3">${num("width", "Width", t.width, 15, 210, 1, "mm")}${num("height", "Height", t.height, 10, 297, 1, "mm")}${num("padding", "Inner margin", t.padding, 0, 10, 0.5, "mm")}</div>
+            <div class="row row--3"><label class="field"><span>Paper</span><select class="input" data-t="sheet"><option value="roll">Label printer roll (one label per page)</option><option value="a4"${t.sheet === "a4" ? " selected" : ""}>A4 sticker sheet</option></select></label>
+              <span data-a4 class="lb-a4">${num("columns", "Labels across", t.columns, 1, 8, 1, "")}${num("gap", "Gap", t.gap, 0, 20, 0.5, "mm")}</span></div>
+            <div class="row row--2"><label class="field"><span>Text alignment</span><select class="input" data-t="align">${["left", "center", "right"].map((a) => `<option value="${a}"${t.align === a ? " selected" : ""}>${a[0].toUpperCase() + a.slice(1)}</option>`).join("")}</select></label>
+              <div class="field"><span>&nbsp;</span>${chk("border", "Print a border (to test the size)", t.border)}</div></div></div>
+          <div class="card"><h2 class="h2">Barcode</h2>
+            <div class="row row--3"><label class="field"><span>Barcode type</span><select class="input" data-t="type">${Object.keys(BC_TYPES).map((k) => `<option value="${k}"${t.type === k ? " selected" : ""}>${BC_TYPES[k]}</option>`).join("")}</select></label>
+              ${num("barHeight", "Barcode height", t.barHeight, 3, 60, 0.5, "mm")}<span data-linear>${num("barWidth", "Barcode width", t.barWidth, 20, 100, 1, "% of label")}</span></div>
+            <p class="muted small" style="margin:0">Code 128 reads SKUs with letters and dashes, like RV-1001-M, and works with every scanner. EAN-13 and UPC-A only take numbers.</p></div>
+          <div class="card"><h2 class="h2">On the label, top to bottom</h2>
+            ${lineRow("brand", "1. Brand name", `<label class="field"><span>Text</span><input class="input" data-t="brand" value="${esc(t.brand)}"></label>`)}
+            ${lineRow("name", "2. Product name", chk("show.size", "Add the size", t.show.size))}
+            <div class="lb-row"><div class="lb-row__head">${chk("show.barcode", "<b>3. Barcode</b>", t.show.barcode)}</div><div class="lb-row__opts"><small class="muted">Size and type are set above.</small></div></div>
+            ${lineRow("code", "4. Number under the barcode (SKU)")}
+            ${lineRow("price", "5. Price", `<label class="field"><span>Before the price</span><input class="input" data-t="pricePrefix" value="${esc(t.pricePrefix)}" style="width:80px"></label>` + chk("show.oldPrice", "Show old price crossed out", t.show.oldPrice))}
+          </div>
+          <div class="flex"><button class="btn btn--dark" type="submit">Save label design</button><button class="btn btn--ghost" type="button" id="lbReset">Back to default</button></div>
+        </form>
+        <div class="lb-side"><div class="card"><h2 class="h2">Preview</h2><p class="muted small" style="margin:0 0 10px" id="lbPrevNote"></p><div class="lb-prev" id="lbPrev"></div></div></div>
+      </div>
+      <div class="card" style="margin-top:16px"><div class="card__head"><div><h2 class="h2">Products to print</h2><p class="muted small" style="margin:0">Type how many tags you need for each size.</p></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="lbStock">Quantity = stock</button><button class="btn btn--ghost btn--sm" type="button" id="lbClear">Clear</button><button class="btn btn--dark" type="button" id="lbPrint">Print</button></div></div>
+        <input class="input" id="lbQ" placeholder="Search product, SKU or size" value="${esc(search)}" style="max-width:340px;margin-bottom:10px">
+        <div class="table-wrap" id="lbList"></div></div>
+      <style>${LABEL_CSS}</style>`;
+    const form = $("#lbForm");
+    const shown = () => { const w = search.toLowerCase(); return rows.filter((r) => !w || (r.name + " " + r.sku + " " + r.size).toLowerCase().indexOf(w) > -1); };
+    const total = () => rows.reduce((n, r) => n + r.qty, 0);
+    const drawList = () => {
+      const list = shown();
+      $("#lbList").innerHTML = list.length ? `<table class="t t--tight"><thead><tr><th>Product</th><th>Size</th><th>SKU</th><th class="right">Price</th><th class="right">Stock</th><th class="right">Tags</th></tr></thead><tbody>${list.slice(0, 300).map((r) => `
+        <tr><td>${esc(r.name)}</td><td>${esc(r.size || "–")}</td><td class="mono">${esc(r.sku)}</td><td class="right">${taka(r.price)}</td><td class="right">${r.stock == null ? "–" : r.stock}</td>
+        <td class="right"><input class="input lb-qty" type="number" min="0" max="999" data-k="${esc(r.key)}" value="${r.qty || ""}" placeholder="0"></td></tr>`).join("")}</tbody></table>` : `<p class="empty">No products match.</p>`;
+      count();
+    };
+    const count = () => { const n = total(); $("#lbPrint").textContent = n ? "Print " + n + " tag" + (n > 1 ? "s" : "") : "Print"; };
+    const sample = () => rows.find((r) => r.qty) || shown()[0] || rows[0] || { name: "Product name", size: "M", sku: "RV-1001-M", price: 1499, oldPrice: 1999 };
+    const drawPrev = () => {
+      $("#lbPrev").innerHTML = labelHtml(t, sample());
+      $("#lbPrevNote").textContent = `Real size ${t.width} × ${t.height} mm, shown bigger. ` + (rows.find((r) => r.qty) ? "Showing the first product you picked." : "Pick products below to see them here.");
+      $$("[data-a4]", view).forEach((el) => { el.hidden = t.sheet !== "a4"; });
+      $$("[data-linear]", view).forEach((el) => { el.hidden = t.type === "qrcode"; });
+    };
+    const read = (el) => {
+      const [a, b] = el.dataset.t.split(".");
+      const v = el.type === "checkbox" ? el.checked : el.type === "number" ? +el.value : el.value;
+      if (el.type === "number" && (el.value === "" || isNaN(v))) return;
+      if (b) t[a][b] = v; else t[a] = v;
+    };
+    form.addEventListener("input", (e) => { const el = e.target.closest("[data-t]"); if (el) { read(el); drawPrev(); } });
+    form.addEventListener("change", (e) => { const el = e.target.closest("[data-t]"); if (el) { read(el); drawPrev(); } });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = e.submitter; busy(btn, true);
+      try { t = (await api("PUT", "/api/label-template", { template: t })).template; toast("Label design saved"); } catch (err) { fail(err); }
+      busy(btn, false);
+    };
+    $("#lbReset").onclick = async () => {
+      if (!(await confirmBox("Go back to the default label?", "Size 50 × 30 mm, Code 128, brand, name, barcode, SKU and price.", "Use default"))) return;
+      try { await api("PUT", "/api/label-template", { template: { width: 50, height: 30, padding: 2, type: "code128", barHeight: 10, barWidth: 90, pricePrefix: "৳", align: "center", border: false, sheet: "roll", columns: 3, gap: 2,
+        show: { brand: true, name: true, size: true, barcode: true, code: true, price: true, oldPrice: false }, font: { brand: 9, name: 7, code: 6, price: 11 }, bold: { brand: true, name: false, code: false, price: true } } }); viewLabels(_, query); } catch (err) { fail(err); }
+    };
+    $("#lbQ").oninput = (e) => { search = e.target.value; drawList(); };
+    $("#lbList").addEventListener("input", (e) => { const el = e.target.closest("[data-k]"); if (!el) return; const r = rows.find((x) => x.key === el.dataset.k); r.qty = Math.max(0, Math.min(999, parseInt(el.value, 10) || 0)); count(); drawPrev(); });
+    $("#lbStock").onclick = () => { shown().forEach((r) => { r.qty = Math.max(0, Math.min(999, r.stock || 0)); }); drawList(); drawPrev(); };
+    $("#lbClear").onclick = () => { rows.forEach((r) => { r.qty = 0; }); drawList(); drawPrev(); };
+    $("#lbPrint").onclick = () => {
+      const pick = rows.filter((r) => r.qty);
+      if (!pick.length) return toast("Type how many tags you need next to a product first.", true);
+      if (total() > 2000) return toast("That's more than 2000 tags. Print them in smaller batches.", true);
+      const bad = pick.map((r) => t.show.barcode && labelBarcode(t, r.sku).err).filter(Boolean);
+      if (bad.length) return toast(bad[0], true);
+      let fr = $("#lbFrame");
+      if (fr) fr.remove();
+      fr = document.createElement("iframe");
+      fr.id = "lbFrame"; fr.title = "Price tags"; fr.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      document.body.appendChild(fr);
+      const d = fr.contentWindow.document;
+      d.open(); d.write(labelPrintDoc(t, pick)); d.close();
+      setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); }, 300);
+    };
+    drawList(); drawPrev();
+  }
+
+  async function viewSizeCharts() {
+    setTitle("Size charts");
+    let list, prods = [];
+    try { list = (await api("GET", "/api/size-charts"))["size-charts"]; } catch (err) { return fail(err); }
+    try { prods = (await api("GET", "/api/products")).products; } catch (_) { try { prods = (await loadStore(true)).products; } catch (__) {} }
+    const used = (id) => prods.filter((p) => p.sizeChartId === id).length;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Size charts</h1><p class="muted">Make a chart once, then pick it on each product (Products › product › Size guide). Edit it here and every product using it updates.</p></div><a class="btn btn--dark" href="#/sizecharts/new">New size chart</a></div>
+      ${list.length ? `<div class="sc-grid">${list.map((c) => `<div class="card sc-card"><div class="sc-card__prev">${sizeChartHtml(c)}</div>
+        <div class="flex flex--between"><div><b>${esc(c.name)}</b><br><small class="muted">${c.rows.length} sizes · used on ${used(c.id)} product${used(c.id) === 1 ? "" : "s"}</small></div>
+        <div class="flex"><a class="btn btn--ghost btn--sm" href="#/sizecharts/${esc(c.id)}">Edit</a><button class="btn btn--ghost btn--sm" type="button" data-dup="${esc(c.id)}">Duplicate</button><button class="btn btn--ghost btn--sm" type="button" data-del="${esc(c.id)}">Delete</button></div></div></div>`).join("")}</div>`
+        : `<div class="card"><p class="empty">No size charts yet. Press New size chart to make one.</p></div>`}`;
+    view.onclick = async (e) => {
+      const d = e.target.closest("[data-dup]"), x = e.target.closest("[data-del]");
+      if (d) {
+        const c = list.find((y) => y.id === d.dataset.dup);
+        let name = c.name + " copy", n = 2; while (list.some((y) => y.name === name)) name = c.name + " copy " + n++;
+        try { const r = await api("POST", "/api/size-charts", { name, title: c.title, unit: c.unit, note: c.note, columns: c.columns, rows: c.rows }); toast("Duplicated"); go("sizecharts/" + r.item.id); } catch (err) { fail(err); }
+      }
+      if (x) {
+        const c = list.find((y) => y.id === x.dataset.del), n = used(c.id);
+        if (!(await confirmBox("Delete " + c.name + "?", n ? n + " product" + (n > 1 ? "s use" : " uses") + " it. They'll show no size guide until you pick another chart." : "No product uses it.", "Delete", true))) return;
+        try { await api("DELETE", "/api/size-charts/" + c.id); toast("Deleted"); viewSizeCharts(); } catch (err) { fail(err); }
+      }
+    };
+  }
+  async function viewSizeChart(id) {
+    const isNew = id === "new";
+    let c;
+    if (isNew) c = { name: "", title: "", unit: "inch", note: "", columns: ["Size", "Chest", "Length", "Sleeve"], rows: [["M", "", "", ""], ["L", "", "", ""], ["XL", "", "", ""], ["XXL", "", "", ""]] };
+    else { try { c = ((await api("GET", "/api/size-charts"))["size-charts"] || []).find((x) => x.id === id); } catch (err) { return fail(err); } if (!c) { view.innerHTML = `<p class="empty">That size chart doesn't exist any more.</p>`; return; } c = clone(c); }
+    setTitle(isNew ? "New size chart" : c.name);
+    view.innerHTML = `<div class="head"><div><a class="btn btn--link" href="#/sizecharts">← Size charts</a><h1 class="h1" style="margin-top:8px">${isNew ? "New size chart" : esc(c.name)}</h1></div></div>
+      <form class="cols sc-edit" id="scForm"><div class="stack">
+        <div class="card"><div class="row row--2"><label class="field"><span>Template name</span><input class="input" name="name" value="${esc(c.name)}" placeholder="Oversized T-shirt" required maxlength="60"><small>You pick it by this name on products.</small></label>
+          <label class="field"><span>Title on the chart</span><input class="input" name="title" value="${esc(c.title)}" placeholder="Oversized T-shirt" maxlength="60"></label></div>
+          <div class="row row--2"><label class="field"><span>Unit</span><input class="input" name="unit" value="${esc(c.unit)}" placeholder="inch" maxlength="20" list="scUnits"><datalist id="scUnits"><option value="inch"><option value="cm"></datalist></label>
+          <label class="field"><span>Tip under the chart (optional)</span><input class="input" name="note" value="${esc(c.note || "")}" maxlength="300" placeholder="Between two sizes? Take the bigger one."></label></div></div>
+        <div class="card"><div class="card__head"><div><h2 class="h2">Table</h2><p class="muted small" style="margin:0">First column is the size. Type the column titles in the dark row and the measurements below.</p></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="scAddCol">+ Column</button><button class="btn btn--ghost btn--sm" type="button" id="scAddRow">+ Row</button></div></div>
+          <div class="table-wrap"><table class="sc-grid-ed" id="scTable"></table></div></div>
+        <div class="flex"><button class="btn btn--dark" type="submit">${isNew ? "Save size chart" : "Save changes"}</button><a class="btn btn--ghost" href="#/sizecharts">Cancel</a></div>
+      </div>
+      <div class="stack"><div class="card sc-preview"><h2 class="h2">Preview</h2><p class="muted small" style="margin:0 0 10px">How customers see it in the Size guide popup.</p><div id="scPrev"></div></div></div></form>`;
+    const f = $("#scForm"), tb = $("#scTable");
+    const draw = () => {
+      tb.innerHTML = `<thead><tr><th class="sc-x"></th>${c.columns.map((h, i) => `<th><div class="flex" style="gap:4px;flex-wrap:nowrap"><input class="input input--sm" data-col="${i}" value="${esc(h)}" maxlength="30" aria-label="Column ${i + 1} title">${c.columns.length > 2 ? `<button class="sc-del" type="button" data-delcol="${i}" title="Remove column" aria-label="Remove column ${i + 1}">×</button>` : ""}</div></th>`).join("")}</tr></thead>
+        <tbody>${c.rows.map((r, ri) => `<tr><td class="sc-x">${c.rows.length > 1 ? `<button class="sc-del" type="button" data-delrow="${ri}" title="Remove row" aria-label="Remove row ${ri + 1}">×</button>` : ""}</td>${c.columns.map((_, ci) => `<td><input class="input input--sm${ci ? "" : " sc-size"}" data-cell="${ri}:${ci}" value="${esc(r[ci] || "")}" maxlength="30"></td>`).join("")}</tr>`).join("")}</tbody>`;
+      prev();
+    };
+    const read = () => { c.name = f.name.value; c.title = f.title.value; c.unit = f.unit.value; c.note = f.note.value; };
+    const prev = () => { read(); $("#scPrev").innerHTML = sizeChartHtml(c); };
+    f.addEventListener("input", (e) => {
+      const t = e.target;
+      if (t.dataset.col !== undefined) c.columns[+t.dataset.col] = t.value;
+      if (t.dataset.cell) { const [r, k] = t.dataset.cell.split(":").map(Number); c.rows[r][k] = t.value; }
+      prev();
+    });
+    tb.addEventListener("click", (e) => {
+      const dc = e.target.closest("[data-delcol]"), dr = e.target.closest("[data-delrow]");
+      if (dc) { const i = +dc.dataset.delcol; c.columns.splice(i, 1); c.rows.forEach((r) => r.splice(i, 1)); draw(); }
+      if (dr) { c.rows.splice(+dr.dataset.delrow, 1); draw(); }
+    });
+    $("#scAddCol").onclick = () => { if (c.columns.length >= 10) return toast("Up to 10 columns.", true); c.columns.push("New"); c.rows.forEach((r) => r.push("")); draw(); const ins = $$("[data-col]", tb); ins[ins.length - 1].select(); };
+    $("#scAddRow").onclick = () => { if (c.rows.length >= 30) return toast("Up to 30 rows.", true); c.rows.push(c.columns.map(() => "")); draw(); const ins = $$(".sc-size", tb); ins[ins.length - 1].focus(); };
+    f.onsubmit = async (e) => {
+      e.preventDefault(); read();
+      const body = { name: c.name.trim(), title: c.title.trim() || c.name.trim(), unit: c.unit.trim(), note: c.note.trim(), columns: c.columns.map((x) => x.trim()), rows: c.rows };
+      const btn = $("button[type=submit]", f); busy(btn, true);
+      try { isNew ? await api("POST", "/api/size-charts", body) : await api("PUT", "/api/size-charts/" + id, body); store = null; toast("Size chart saved"); go("sizecharts"); }
+      catch (err) { busy(btn, false); fail(err); }
+    };
+    draw();
+  }
+
   async function viewVariations() {
     setTitle("Variations");
     const list = ((await api("GET", "/api/attributes").catch(fail)) || {}).attributes || [];
@@ -1760,7 +2389,7 @@
       if (hadUnread) refreshCounts(); // the side menu badge only changes when unread messages were just read
     };
     $("#chTabs").onclick = (e) => { const b = e.target.closest("[data-s]"); if (!b) return; status = b.dataset.s; $$("#chTabs .tab").forEach((x) => x.classList.toggle("is-on", x === b)); loadList(); };
-    $("#chList").onclick = (e) => { const b = e.target.closest("[data-id]"); if (!b) return; current = b.dataset.id; history.replaceState(null, "", "#/chat/" + current); loadList(); loadConv(); };
+    $("#chList").onclick = (e) => { const b = e.target.closest("[data-id]"); if (!b) return; current = b.dataset.id; history.replaceState(null, "", PATHS ? "/admin/chat/" + current : "#/chat/" + current); loadList(); loadConv(); };
     await loadList();
     if (!current && list[0]) current = list[0].id;
     loadConv();
@@ -2044,17 +2673,18 @@
   // Each area is one module (or a few related ones) in the menu on the left
   const AREA = { dashboard: "Dashboard & Analytics", orders: "Orders & Abandoned carts", customers: "Customers & Subscribers", products: "Products & Stock", catalog: "Categories & Variations",
     coupons: "Coupons", content: "Pages, Menus & Media library", chat: "Live chat", messages: "Messages", franchise: "Franchise requests", users: "Users",
-    settings: "Settings, Header & footer, Pixel & Analytics, Email & reminders, Acore", integrations: "API & webhooks" };
+    settings: "Settings, Header & footer, Pixel & Analytics, Email & reminders, Acore, Pathao", integrations: "API & webhooks" };
   async function viewUsers() {
     setTitle("Users");
     const r = (await api("GET", "/api/users").catch(fail)) || { users: [], roles: {} };
     const areaNames = (list) => list.map((a) => AREA[a] || a).join(", ");
     view.innerHTML = `<div class="head"><div><h1 class="h1">Users</h1><p class="muted">People who can sign in to this admin panel with their email and password. Pick a role, or choose “Custom access” and tick exactly which modules they can open.</p></div><button class="btn btn--dark" id="usAdd">Add user</button></div>
       <div class="card card--flush"><div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead><tbody>${r.users.map((u) => `
-        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}${u.role === "custom" ? `<br><small class="muted">${esc(areaNames(u.areas || []))}</small>` : ""}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
+        <tr><td><b>${esc(u.name)}</b>${u.id === me.id ? ` <span class="tag">You</span>` : ""}</td><td>${esc(u.email)}</td><td>${esc((r.roles[u.role] || {}).label || u.role)}${u.role === "custom" ? `<br><small class="muted">${esc(areaNames(u.areas || []))}</small>` : ""}${u.orderTrash ? `<br><small class="muted">Can delete orders</small>` : ""}</td><td>${ago(u.lastLogin)}</td><td class="right"><button class="btn btn--ghost btn--sm" data-edit="${u.id}">Edit</button></td></tr>`).join("")}</tbody></table></div></div>
       <div class="grid-3">${Object.keys(r.roles).map((k) => `<div class="card"><h2 class="h2">${esc(r.roles[k].label)}</h2><p class="muted small" style="margin:0">${r.roles[k].custom ? "Only the modules you tick for that person." : areaNames(r.roles[k].areas)}</p></div>`).join("")}</div>`;
     const roleOpts = (sel) => Object.keys(r.roles).map((k) => `<option value="${k}"${k === sel ? " selected" : ""}>${esc(r.roles[k].label)}</option>`).join("");
-    const areaBoxes = (u) => `<fieldset class="us-areas" data-areas ${u.role === "custom" ? "" : "hidden"}><legend class="small">Modules this person can open</legend>
+    const trashBox = (u) => me.role === "owner" ? `<label class="switch"><input type="checkbox" name="orderTrash" ${u.role === "owner" || u.orderTrash ? "checked" : ""}${u.role === "owner" ? " disabled" : ""}> Can move orders to the trash and delete them permanently</label><small class="muted" style="margin-top:-8px">Off: they can work on orders but can't delete them. Owners can always.</small>` : "";
+    const areaBoxes = (u) => trashBox(u) + `<fieldset class="us-areas" data-areas ${u.role === "custom" ? "" : "hidden"}><legend class="small">Modules this person can open</legend>
       <div class="us-areas__grid">${Object.keys(AREA).map((a) => `<label class="switch"><input type="checkbox" value="${a}" ${(u.areas || []).indexOf(a) > -1 ? "checked" : ""}> ${esc(AREA[a])}</label>`).join("")}</div>
       <div class="flex"><button class="btn btn--link btn--sm" type="button" data-all="1">Tick all</button><button class="btn btn--link btn--sm" type="button" data-all="0">Clear</button></div></fieldset>`;
     const wire = (form, u) => {
@@ -2103,7 +2733,7 @@
     setTitle("Settings");
     let s;
     try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
-    const st = s.store, ssl = s.payments.sslcommerz;
+    const st = s.store;
     const f = (group, k, label, hint, ph) => `<label class="field"><span>${label}</span><input class="input" data-g="${group}" name="${k}" value="${esc((s[group] || {})[k] || "")}" placeholder="${esc(ph || "")}">${hint ? `<small>${hint}</small>` : ""}</label>`;
     view.innerHTML = `<div class="head"><div><h1 class="h1">Settings</h1><p class="muted">Store details, legal numbers, delivery, payments and chat.</p></div></div>
       <form class="stack" id="setForm">
@@ -2116,12 +2746,7 @@
         <div class="card"><h2 class="h2">Delivery</h2><div class="stack stack--sm" id="zones"></div><button class="btn btn--ghost btn--sm" type="button" id="addZone" style="justify-self:start">+ Add delivery area</button>
           <div class="row row--2"><label class="field"><span>Free delivery over (৳)</span><input class="input" type="number" min="0" id="freeOver" value="${esc(s.shipping.freeOver || "")}" placeholder="0 = never"></label>
           <label class="field"><span>Processing note</span><input class="input" id="processing" value="${esc(s.shipping.processing || "")}"></label></div></div>
-        <div class="card"><h2 class="h2">Payments</h2>
-          <label class="switch"><input type="checkbox" id="payCod" ${s.payments.cod ? "checked" : ""}> Cash on delivery</label>
-          <label class="switch"><input type="checkbox" id="paySsl" ${ssl.enabled ? "checked" : ""}> Online payment with SSLCOMMERZ (cards, bKash, Nagad, Rocket, banks)</label>
-          <div class="row row--2"><label class="field"><span>SSLCOMMERZ Store ID</span><input class="input" id="sslId" value="${esc(ssl.storeId || "")}" placeholder="From your SSLCOMMERZ merchant panel"></label>
-          <label class="field"><span>Mode</span><select class="input" id="sslSandbox"><option value="1">Sandbox (testing)</option><option value="0"${ssl.sandbox ? "" : " selected"}>Live payments</option></select></label></div>
-          <p class="small ${ssl.serverReady ? "" : "muted"}" style="margin:0">${window.Ravelle.mode === "demo" ? "In this demo, online payments are simulated." : ssl.serverReady ? "✓ The server has your SSLCOMMERZ store password." : "The store password stays secret on the server: set SSLC_STORE_PASSWORD in the server's .env file, then restart. See the README."}</p></div>
+        <div class="card"><h2 class="h2">Payments</h2><p class="muted small" style="margin:0">Cash on delivery, SSLCOMMERZ, bKash and Nagad are set up in <a href="#/payments">Payments</a>.</p></div>
         <div class="card"><h2 class="h2">Live chat</h2>
           <label class="switch"><input type="checkbox" data-g="chat" name="enabled" ${s.chat.enabled ? "checked" : ""}> Show the chat bubble on the store</label>
           <div class="row row--2">${f("chat", "title", "Chat name", "Shown at the top of the chat.")}${f("chat", "greeting", "Greeting")}</div>
@@ -2149,7 +2774,6 @@
       const out = { store: {}, social: {}, seo: {}, chat: {} };
       $$("[data-g]", e.target).forEach((el) => { out[el.dataset.g][el.name] = el.type === "checkbox" ? el.checked : el.value; });
       out.shipping = { zones, freeOver: +$("#freeOver").value || 0, processing: $("#processing").value };
-      out.payments = { cod: $("#payCod").checked, sslcommerz: { enabled: $("#paySsl").checked, sandbox: $("#sslSandbox").value === "1", storeId: $("#sslId").value } };
       out.announcement = $("#announcement").value;
       out.lowStock = +$("#lowStock").value || 0;
       try { await api("PUT", "/api/settings", { settings: out }); toast("Settings saved"); store = null; } catch (err) { fail(err); }
@@ -2394,6 +3018,176 @@
   }
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Pathao courier: send an order as a parcel, and the settings page
+  // ---------------------------------------------------------------------------
+  // Pick the Pathao city and zone whose names appear in the customer's address
+  function pathaoGuess(items, text) {
+    const t = " " + String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+    let best = null;
+    items.forEach((x) => { const n = String(x.name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); if (n && t.indexOf(" " + n + " ") > -1 && (!best || n.length > best.n.length)) best = { id: x.id, n }; });
+    return best ? best.id : "";
+  }
+  async function pathaoQuickSend(o) {
+    if (o.place && o.place.cityId && o.place.zoneId) {
+      const r = await api("POST", "/api/orders/" + o.id + "/pathao", { cityId: o.place.cityId, zoneId: o.place.zoneId });
+      return (r.order && r.order.pathao && r.order.pathao.consignmentId) || "sent";
+    }
+    const addr = [o.customer.address, o.customer.area, o.customer.city].filter(Boolean).join(", ");
+    const cities = (await api("GET", "/api/pathao/cities")).items || [];
+    const city = pathaoGuess(cities, addr) || ((cities.filter((x) => /dhaka/i.test(x.name))[0]) || {}).id;
+    const zones = city ? (await api("GET", "/api/pathao/zones/" + city)).items || [] : [];
+    const zone = pathaoGuess(zones, addr);
+    if (!city || !zone) {
+      // Not sure where it goes: open the form so the zone can be chosen
+      return new Promise((resolve) => pathaoSendDialog(o, false, () => resolve("sent")));
+    }
+    const r = await api("POST", "/api/orders/" + o.id + "/pathao", { cityId: city, zoneId: zone });
+    return (r.order && r.order.pathao && r.order.pathao.consignmentId) || "sent";
+  }
+  async function pathaoSendDialog(o, again, done) {
+    const addr = [o.customer.address, o.customer.area, o.customer.city].filter(Boolean).join(", ");
+    const pl = o.place || {};
+    const due = o.paymentStatus === "paid" ? 0 : Math.round(o.total || 0);
+    const body = modal("Send to Pathao", `<form class="stack" id="ptForm">
+      <p class="muted small" style="margin:0">${esc(o.number)} · ${esc(o.customer.name)} · ${esc(addr)}</p>
+      <div class="row row--2"><label class="field"><span>City</span><select class="input" name="cityId" required><option value="">Loading…</option></select></label>
+      <label class="field"><span>Zone</span><select class="input" name="zoneId" required><option value="">Choose the city first</option></select></label></div>
+      <label class="field"><span>Area (optional)</span><select class="input" name="areaId"><option value="">—</option></select></label>
+      <div class="row row--2"><label class="field"><span>Cash to collect (৳)</span><input class="input" name="amount" type="number" min="0" step="1" value="${due}"><small>${o.paymentStatus === "paid" ? "Paid online, so nothing to collect." : "The order total, cash on delivery."}</small></label>
+      <label class="field"><span>Weight (kg)</span><input class="input" name="weight" type="number" min="0.5" max="10" step="0.5" value="0.5"></label></div>
+      <label class="field"><span>Note for the rider</span><input class="input" name="note" value="${esc(o.note || "")}" maxlength="200"></label>
+      <div class="modal__foot"><button class="btn btn--ghost" type="button" data-modal-close>Cancel</button><button class="btn btn--dark" type="submit">${again ? "Send again" : "Send to Pathao"}</button></div></form>`);
+    const f = $("#ptForm", body), sel = (el, items, pick) => { el.innerHTML = `<option value="">Choose…</option>` + items.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join(""); if (pick) el.value = pick; };
+    const loadAreas = async () => { f.areaId.innerHTML = `<option value="">—</option>`; if (!f.zoneId.value) return; try { const r = await api("GET", "/api/pathao/areas/" + f.zoneId.value); sel(f.areaId, r.items || [], pathaoGuess(r.items || [], addr)); f.areaId.options[0].textContent = "—"; } catch (_) {} };
+    const loadZones = async () => {
+      f.zoneId.innerHTML = `<option value="">Loading…</option>`;
+      try { const r = await api("GET", "/api/pathao/zones/" + f.cityId.value); sel(f.zoneId, r.items || [], (+f.cityId.value === pl.cityId && pl.zoneId) || pathaoGuess(r.items || [], addr)); loadAreas(); } catch (err) { fail(err); }
+    };
+    f.cityId.onchange = loadZones; f.zoneId.onchange = loadAreas;
+    try {
+      const r = await api("GET", "/api/pathao/cities");
+      sel(f.cityId, r.items || [], pl.cityId || pathaoGuess(r.items || [], addr) || ((r.items || []).filter((x) => /dhaka/i.test(x.name))[0] || {}).id);
+      if (f.cityId.value) loadZones();
+    } catch (err) { closeModal(); return fail(err); }
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const b = formData(f), btn = $("button[type=submit]", f);
+      if (again) b.again = true;
+      busy(btn, true);
+      try { const r = await api("POST", "/api/orders/" + o.id + "/pathao", b); closeModal(); toast("Sent to Pathao · " + ((r.order && r.order.pathao && r.order.pathao.consignmentId) || "")); done(); }
+      catch (err) { busy(btn, false); fail(err); }
+    };
+  }
+  // Payments: each method has its own switch and details; checkout shows only the ones that are on
+  async function viewPayments() {
+    setTitle("Payments");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const p = s.payments, ssl = p.sslcommerz, bk = p.bkash, ng = p.nagad, owner = me.role === "owner", demo = window.Ravelle.mode === "demo";
+    const lock = owner ? "" : " disabled";
+    const inp = (id, label, val, extra, hint) => `<label class="field"><span>${label}</span><input class="input" id="${id}" value="${esc(val || "")}"${extra || ""}${lock}>${hint ? `<small>${hint}</small>` : ""}</label>`;
+    const secret = (id, label, isSet, hint) => `<label class="field"><span>${label}</span><input class="input" id="${id}" type="password" autocomplete="new-password" placeholder="${isSet ? "Saved. Type a new one to change it" : "Not set"}"${lock}>${hint ? `<small>${hint}</small>` : ""}</label>`;
+    const acct = (id, v) => `<label class="field"><span>Account type</span><select class="input" id="${id}"${lock}>${["Personal", "Merchant", "Agent"].map((a) => `<option${a === v ? " selected" : ""}>${a}</option>`).join("")}</select></label>`;
+    const head = (id, title, on, text) => `<div class="pay-head"><div><h2 class="h2" style="margin:0">${title}</h2><p class="muted small" style="margin:2px 0 0">${text}</p></div>
+      <label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}${id === "payCod" ? "" : lock}> <span data-onoff>${on ? "On" : "Off"}</span></label></div>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Payments</h1><p class="muted">Turn each payment method on or off. Checkout shows only the ones that are on.</p></div></div>
+      ${owner ? "" : `<p class="note">Only the store owner can change online payment details. You can turn cash on delivery on or off.</p>`}
+      <form class="stack" id="payForm">
+        <div class="card pay-card">${head("payCod", "Cash on delivery", p.cod, "The customer pays the rider. Pathao collects the money.")}</div>
+        <div class="card pay-card">${head("paySsl", "SSLCOMMERZ", ssl.enabled, "Cards, bKash, Nagad, Rocket and internet banking on SSLCOMMERZ's secure page.")}
+          <div class="row row--2">${inp("sslId", "Store ID", ssl.storeId, ` placeholder="From your SSLCOMMERZ merchant panel"`)}
+          ${secret("sslPass", "Store password", ssl.storePasswordSet, ssl.envPassword ? "The server's .env file also has a password, and that one is used." : "Kept secret: it is never shown again after saving.")}</div>
+          <label class="field"><span>Mode</span><select class="input" id="sslSandbox"${lock}><option value="1">Sandbox (testing)</option><option value="0"${ssl.sandbox ? "" : " selected"}>Live payments</option></select></label>
+          <p class="small ${ssl.serverReady ? "" : "muted"}" style="margin:0">${demo ? "In this demo, online payments are simulated." : ssl.serverReady ? "✓ Ready: the store ID and password are set." : "Add the store ID and password to take online payments."}</p></div>
+        <div class="card pay-card">${head("payBk", "bKash", bk.enabled, "Customers pay with bKash.")}
+          <label class="field"><span>How customers pay</span><select class="input" id="bkMode"${lock}><option value="manual">Send Money to your number, then enter the TrxID</option><option value="api"${bk.mode === "api" ? " selected" : ""}>bKash payment page (API, needs a bKash merchant account)</option></select></label>
+          <div data-bk="manual" class="row row--2">${inp("bkNum", "bKash number", bk.number, ` inputmode="numeric" placeholder="01XXXXXXXXX"`)}${acct("bkAcct", bk.accountType)}</div>
+          <p data-bk="manual" class="muted small" style="margin:0">The order comes in as unpaid with the customer's TrxID. Check it in your bKash app, then set the order's Payment to Paid.</p>
+          <div data-bk="api" class="stack stack--sm"><div class="row row--2">${inp("bkKey", "App key", bk.appKey)}${secret("bkSecret", "App secret", bk.appSecretSet)}</div>
+            <div class="row row--2">${inp("bkUser", "Username", bk.username)}${secret("bkPass", "Password", bk.passwordSet)}</div>
+            <label class="field"><span>Mode</span><select class="input" id="bkSandbox"${lock}><option value="1">Sandbox (testing)</option><option value="0"${bk.sandbox ? "" : " selected"}>Live payments</option></select></label>
+            <p class="muted small" style="margin:0">bKash gives these four details when your merchant account is approved for the tokenized checkout. ${demo ? "In this demo, bKash payments are simulated." : "The order is marked paid by itself after bKash confirms the payment."}</p></div></div>
+        <div class="card pay-card">${head("payNg", "Nagad", ng.enabled, "Customers Send Money by Nagad and enter the TrxID.")}
+          <div class="row row--2">${inp("ngNum", "Nagad number", ng.number, ` inputmode="numeric" placeholder="01XXXXXXXXX"`)}${acct("ngAcct", ng.accountType)}</div>
+          <p class="muted small" style="margin:0">The order comes in as unpaid with the customer's TrxID. Check it in your Nagad app, then set the order's Payment to Paid. The Nagad payment page (API) can be added once you have Nagad merchant keys.</p></div>
+        <div class="sticky-save"><span class="small">Changes show at checkout right away.</span><button class="btn btn--dark" type="submit">Save payments</button></div>
+      </form>`;
+    const mode = () => $$("[data-bk]").forEach((el) => { el.hidden = el.dataset.bk !== $("#bkMode").value; });
+    $("#bkMode").onchange = mode; mode();
+    $("#payForm").addEventListener("change", (e) => { const t = e.target.closest(".pay-head input"); if (t) t.parentNode.querySelector("[data-onoff]").textContent = t.checked ? "On" : "Off"; });
+    $("#payForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const out = { cod: $("#payCod").checked };
+      if (owner) {
+        out.sslcommerz = { enabled: $("#paySsl").checked, sandbox: $("#sslSandbox").value === "1", storeId: $("#sslId").value.trim(), storePassword: $("#sslPass").value };
+        out.bkash = { enabled: $("#payBk").checked, mode: $("#bkMode").value, sandbox: $("#bkSandbox").value === "1", number: $("#bkNum").value, accountType: $("#bkAcct").value,
+          appKey: $("#bkKey").value.trim(), appSecret: $("#bkSecret").value, username: $("#bkUser").value.trim(), password: $("#bkPass").value };
+        out.nagad = { enabled: $("#payNg").checked, number: $("#ngNum").value, accountType: $("#ngAcct").value };
+      }
+      const btn = e.submitter; busy(btn, true);
+      try { await api("PUT", "/api/settings", { settings: { payments: out } }); toast("Payments saved"); store = null; viewPayments(); } catch (err) { busy(btn, false); fail(err); }
+    };
+  }
+
+  async function viewPathao() {
+    setTitle("Pathao");
+    let s;
+    try { s = (await api("GET", "/api/settings")).settings; } catch (err) { return fail(err); }
+    const a = s.pathao || {}, demo = window.Ravelle.mode === "demo";
+    const hookUrl = a.webhookUrl || (location.origin + "/api/pathao/webhook");
+    const last = (x, none) => x ? `<span style="color:${x.ok ? "var(--ok, #1e7d4f)" : "var(--danger)"}">${esc(x.message)}</span> <small class="muted">${dateTime(x.at)}</small>` : `<span class="muted">${none}</span>`;
+    view.innerHTML = `<div class="head"><div><h1 class="h1">Pathao courier</h1><p class="muted">Send an order to Pathao from its page in Orders. Pathao's status updates (picked, on the way, delivered, returned) change the order here by themselves, and customers see them on Track order.</p></div></div>
+      <form class="stack" id="ptSet">
+        <div class="card"><h2 class="h2">Sign-in details</h2><p class="muted small" style="margin:0 0 6px">From the Pathao merchant panel › Developer's API. Only the store owner can change these.</p>
+          <div class="row row--2"><label class="field"><span>Client ID</span><input class="input" name="clientId" value="${esc(a.clientId || "")}" autocomplete="off"></label>
+          <label class="field"><span>Client Secret</span><input class="input" type="password" name="clientSecret" autocomplete="off" placeholder="${a.clientSecretSet ? "Saved. Paste a new one to replace it." : ""}"></label></div>
+          <div class="row row--2"><label class="field"><span>Pathao login email</span><input class="input" name="username" type="email" value="${esc(a.username || "")}" autocomplete="off"></label>
+          <label class="field"><span>Pathao login password</span><input class="input" type="password" name="password" autocomplete="new-password" placeholder="${a.passwordSet ? "Saved. Type a new one to replace it." : ""}"></label></div>
+          <label class="field"><span>Mode</span><select class="input" name="sandbox"><option value="0">Live (real parcels)</option><option value="1"${a.sandbox ? " selected" : ""}>Sandbox (testing)</option></select></label>
+          ${demo ? `<p class="small" style="margin:0;color:var(--warn)">This demo has no server, so it can't talk to Pathao. This page works on the live store.</p>` : ""}</div>
+        <div class="card"><h2 class="h2">Pickup store and parcel</h2>
+          <div class="row row--2"><label class="field"><span>Store ID</span><input class="input" name="storeId" value="${esc(a.storeId || "")}" inputmode="numeric"><small>${a.storeName ? esc(a.storeName) : "Or press Check connection and pick it from the list."}</small></label>
+          <label class="field"><span>Default weight (kg)</span><input class="input" type="number" name="weight" min="0.5" max="10" step="0.5" value="${a.weight || 0.5}"></label></div>
+          <div class="row row--2"><label class="field"><span>Delivery</span><select class="input" name="deliveryType"><option value="48">Normal delivery</option><option value="12"${a.deliveryType === 12 ? " selected" : ""}>On-demand delivery</option></select></label>
+          <label class="field"><span>Item type</span><select class="input" name="itemType"><option value="2">Parcel</option><option value="1"${a.itemType === 1 ? " selected" : ""}>Document</option></select></label></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="ptTest">Check connection</button><span class="small muted" id="ptMsg">Save first, then check.</span></div>
+          <div id="ptStores"></div></div>
+        <div class="card"><h2 class="h2">Paste these into Pathao</h2><p class="muted small" style="margin:0">Pathao merchant panel › Developer's API › Webhook. Works once this store is live on its own web address.</p>
+          <div class="row row--2"><label class="field"><span>Callback URL</span><input class="input" readonly value="${esc(hookUrl)}" data-copy></label>
+          <label class="field"><span>Webhook secret</span><input class="input" name="webhookSecret" autocomplete="off" value="${esc(a.webhookSecret || "")}" placeholder="Save once to make one"><small>The same secret as in Pathao. Paste yours here, or copy this one into Pathao.</small></label></div>
+          <div class="flex"><button class="btn btn--ghost btn--sm" type="button" id="ptNewSecret">Make a new secret</button><small class="muted">Making a new one stops the old one working, so update Pathao too.</small></div></div>
+        <div class="card"><h2 class="h2">Status</h2><dl class="kv">
+          <dt>Last parcel sent</dt><dd>${last(a.lastSend, "Nothing sent since the server started.")}</dd>
+          <dt>Last update from Pathao</dt><dd>${last(a.lastWebhook, "No updates received since the server started.")}</dd></dl></div>
+        <div class="sticky-save"><span class="small">Sign-in details are kept on your server and never shown again.</span><button class="btn btn--dark" type="submit">Save</button></div>
+      </form>`;
+    $$("[data-copy]").forEach((el) => { el.onclick = () => { el.select(); try { navigator.clipboard.writeText(el.value); toast("Copied"); } catch (_) {} }; });
+    let renew = false;
+    $("#ptNewSecret").onclick = (e) => { renew = true; e.target.textContent = "A new secret is made when you save"; };
+    $("#ptTest").onclick = async (e) => {
+      busy(e.target, true); $("#ptMsg").textContent = "Checking…";
+      try {
+        const r = await api("POST", "/api/pathao/test");
+        $("#ptMsg").textContent = r.message || "Connected";
+        $("#ptStores").innerHTML = (r.stores || []).length ? `<div class="table-wrap"><table class="t"><thead><tr><th>Store ID</th><th>Name</th><th>Address</th><th></th></tr></thead><tbody>${r.stores.map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.name)}</td><td class="small">${esc(x.address || "")}</td><td><button class="btn btn--ghost btn--sm" type="button" data-store="${esc(x.id)}" data-name="${esc(x.name)}">Use</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="small muted">No pickup stores on this Pathao account yet.</p>`;
+        $$("[data-store]").forEach((b) => { b.onclick = () => { $("#ptSet").storeId.value = b.dataset.store; $("#ptSet").dataset.storeName = b.dataset.name; toast("Store chosen. Press Save."); }; });
+      } catch (err) { $("#ptMsg").textContent = err.message || "Couldn't connect"; }
+      busy(e.target, false);
+    };
+    $("#ptSet").onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target, out = { enabled: true, clientId: f.clientId.value.trim(), username: f.username.value.trim(), sandbox: f.sandbox.value === "1",
+        storeId: f.storeId.value.trim(), weight: f.weight.value, deliveryType: f.deliveryType.value, itemType: f.itemType.value };
+      if (f.dataset.storeName && out.storeId) out.storeName = f.dataset.storeName; else if (out.storeId !== (a.storeId || "")) out.storeName = "";
+      if (f.clientSecret.value.trim()) out.clientSecret = f.clientSecret.value.trim();
+      if (f.password.value) out.password = f.password.value;
+      const ws = f.webhookSecret.value.trim();
+      if (renew) out.newSecret = true; else if (ws && ws !== a.webhookSecret && ws !== "Only the owner can see this") out.webhookSecret = ws;
+      try { await api("PUT", "/api/settings", { settings: { pathao: out } }); toast("Pathao settings saved"); viewPathao(); } catch (err) { fail(err); }
+    };
+  }
+
   // Acore: website orders go to Acore; Acore sends status and courier updates back
   // ---------------------------------------------------------------------------
   async function viewAcore() {
@@ -2599,7 +3393,7 @@
   async function viewIntegrations() {
     setTitle("Integrations");
     const [k, w, lg] = await Promise.all([api("GET", "/api/keys"), api("GET", "/api/webhooks"), api("GET", "/api/webhooks-log")]).catch((err) => { fail(err); return [{ keys: [] }, { webhooks: [], events: [] }, { log: [] }]; });
-    const base = window.Ravelle.mode === "demo" ? "https://your-domain.com" : location.origin + location.pathname.replace(/admin(\.html)?\/?$/, "").replace(/\/$/, "");
+    const base = window.Ravelle.mode === "demo" ? "https://your-domain.com" : location.origin + (PATHS ? "" : location.pathname.replace(/admin(\.html)?\/?$/, "").replace(/\/$/, ""));
     view.innerHTML = `<div class="head"><div><h1 class="h1">Integrations</h1><p class="muted">Connect other software to your store: AI chat replies, courier and accounting tools, Google Sheets, Zapier or your own apps.</p></div><a class="btn btn--ghost" href="docs/API.md" target="_blank" rel="noopener">Full API guide ↗</a></div>
       ${window.Ravelle.mode === "demo" ? `<div class="demo-hint">This is the browser demo. Keys and webhooks you make here only work once the store runs on your Node server.</div>` : ""}
       <div class="card"><div class="card__head"><div><h2 class="h2">API keys</h2><p class="muted small" style="margin:0">Send a key as <span class="code">Authorization: Bearer rk_…</span>. Read keys can only look; write keys can also change orders, stock, products and reply to chats.</p></div><button class="btn btn--dark btn--sm" id="kAdd">Create key</button></div>
@@ -2655,7 +3449,7 @@
       const t = e.target;
       const rv = t.closest("[data-revoke]"), te = t.closest("[data-test]"), he = t.closest("[data-hedit]"), hd = t.closest("[data-hdel]");
       if (rv && (await confirmBox("Revoke this key?", "Apps using it stop working right away.", "Revoke", true))) { await api("DELETE", "/api/keys/" + rv.dataset.revoke).catch(fail); viewIntegrations(); }
-      if (te) { await api("POST", "/api/webhooks/" + te.dataset.test + "/test").then(() => toast("Test sent. Check Recent deliveries in a moment."), fail); setTimeout(() => { if (location.hash === "#/integrations") viewIntegrations(); }, 2500); }
+      if (te) { await api("POST", "/api/webhooks/" + te.dataset.test + "/test").then(() => toast("Test sent. Check Recent deliveries in a moment."), fail); setTimeout(() => { if (cur() === "integrations") viewIntegrations(); }, 2500); }
       if (he) hookForm(w.webhooks.find((x) => x.id === he.dataset.hedit));
       if (hd && (await confirmBox("Delete this webhook?", "We'll stop sending events to it.", "Delete", true))) { await api("DELETE", "/api/webhooks/" + hd.dataset.hdel).catch(fail); viewIntegrations(); }
       if (t.closest("[data-reveal]")) { const s = t.parentElement.querySelector("[data-secret]"); s.textContent = s.dataset.secret; t.remove(); }
@@ -2686,18 +3480,18 @@
   const NAV = [
     ["", [["dashboard", "Dashboard", "dashboard"], ["analytics", "Analytics", "dashboard"]]],
     ["Sales", [["orders", "Orders", "orders"], ["carts", "Abandoned carts", "orders"], ["customers", "Customers", "customers"], ["subscribers", "Subscribers", "customers"], ["coupons", "Coupons & offers", "coupons"]]],
-    ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["bulk", "Bulk edit", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"]]],
+    ["Catalog", [["products", "Products", "products"], ["stock", "Stock", "products"], ["bulk", "Bulk edit", "products"], ["categories", "Categories", "catalog"], ["variations", "Variations", "catalog"], ["sizecharts", "Size charts", "catalog"], ["labels", "Price tags", "products"]]],
     ["Website", [["pages", "Pages", "content"], ["menus", "Menus", "content"], ["layout", "Header & footer", "settings"], ["tracking", "Pixel & Analytics", "settings"], ["popup", "Popup banner", "content"], ["media", "Media library", "content"]]],
     ["Inbox", [["chat", "Live chat", "chat"], ["messages", "Messages", "messages"], ["franchise", "Franchise requests", "franchise"]]],
-    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"], ["trash", "Trash", "trash"]]]
+    ["Admin", [["users", "Users", "users"], ["settings", "Settings", "settings"], ["payments", "Payments", "settings"], ["email", "Email & reminders", "settings"], ["integrations", "API & webhooks", "integrations"], ["acore", "Acore", "settings"], ["pathao", "Pathao", "settings"], ["trash", "Trash", "trash"]]]
   ];
   const counts = { orders: 0, chat: 0, messages: 0, franchise: 0, carts: 0 };
   function drawSide() {
-    const cur = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "dashboard";
+    const curPage = (cur().split(/[/?]/)[0]) || "dashboard";
     $("#sideNav").innerHTML = NAV.map(([g, items]) => {
       const vis = items.filter((i) => can(i[2]));
       if (!vis.length) return "";
-      return (g ? `<p class="side__group mono">${g}</p>` : "") + vis.map(([k, l]) => `<a href="#/${k}"${k === cur ? ' aria-current="page"' : ""}><span>${l}</span>${counts[k] ? `<span class="side__count">${counts[k]}</span>` : ""}</a>`).join("");
+      return (g ? `<p class="side__group mono">${g}</p>` : "") + vis.map(([k, l]) => `<a href="#/${k}"${k === curPage ? ' aria-current="page"' : ""}><span>${l}</span>${counts[k] ? `<span class="side__count">${counts[k]}</span>` : ""}</a>`).join("");
     }).join("");
     $("#sideUser").innerHTML = `${esc(me.name)}<small>${esc(me.email)}</small>`;
   }
@@ -2717,32 +3511,41 @@
     // Admin views need drafts and every category too.
     return store;
   }
+  // Clean admin addresses (/admin/orders/RV1001) on the live server; the browser demo keeps #/ links
+  const PATHS = /^\/admin(\/|$)/.test(location.pathname);
+  function cur() { return PATHS ? location.pathname.replace(/^\/admin\/?/, "") + (location.search ? "?" + location.search.slice(1) : "") : location.hash.replace(/^#\/?/, ""); }
+  function go(r, replace) {
+    r = String(r || "").replace(/^#\/?/, "").replace(/^\/admin\/?/, "");
+    if (!PATHS) { if (replace) location.replace("#/" + r); else location.hash = "#/" + r; return; }
+    history[replace ? "replaceState" : "pushState"](null, "", "/admin/" + r);
+    route();
+  }
   function setTitle(t) { $("#topTitle").textContent = t; document.title = t + " · Ravelle admin"; }
   function notFound() { view.innerHTML = `<p class="empty">That page doesn't exist. <a href="#/dashboard">Go to the dashboard</a></p>`; }
 
   const ROUTES = [
     [/^dashboard$/, viewDashboard, "dashboard"], [/^analytics$/, viewAnalytics, "dashboard"], [/^layout$/, viewLayout, "settings"], [/^tracking$/, viewTracking, "settings"], [/^popup$/, viewPopup, "content"],
-    [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
+    [/^orders$/, viewOrders, "orders"], [/^orders\/([^/]+)\/invoice$/, viewInvoice, "orders"], [/^orders\/([^/]+)\/courier-invoice$/, viewCourierInvoice, "orders"], [/^invoices$/, viewInvoices, "orders"], [/^orders\/([^/]+)$/, viewOrder, "orders"],
     [/^customers$/, viewCustomers, "customers"], [/^customers\/([^/]+)$/, viewCustomer, "customers"], [/^subscribers$/, viewSubscribers, "customers"],
     [/^coupons$/, viewCoupons, "coupons"], [/^franchise$/, viewFranchise, "franchise"], [/^carts$/, viewCarts, "orders"], [/^email$/, viewEmail, "settings"],
     [/^products$/, viewProducts, "products"], [/^products\/([^/]+)$/, viewProduct, "products"], [/^stock$/, viewStock, "products"], [/^bulk$/, viewBulk, "products"],
-    [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"],
+    [/^categories$/, viewCategories, "catalog"], [/^variations$/, viewVariations, "catalog"], [/^sizecharts$/, viewSizeCharts, "catalog"], [/^sizecharts\/([^/]+)$/, viewSizeChart, "catalog"],
     [/^pages$/, viewPages, "content"], [/^pages\/([^/]+)$/, viewPageEditor, "content"], [/^menus$/, viewMenus, "content"], [/^media$/, viewMedia, "content"], [/^trash$/, viewTrash, "trash"],
     [/^chat$/, viewChat, "chat"], [/^chat\/([^/]+)$/, viewChat, "chat"], [/^messages$/, viewMessages, "messages"],
-    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^integrations$/, viewIntegrations, "integrations"], [/^acore$/, viewAcore, "settings"],
+    [/^users$/, viewUsers, "users"], [/^settings$/, viewSettings, "settings"], [/^labels$/, viewLabels, "products"], [/^payments$/, viewPayments, "settings"], [/^integrations$/, viewIntegrations, "integrations"], [/^acore$/, viewAcore, "settings"], [/^pathao$/, viewPathao, "settings"],
     [/^account$/, viewAccount, null]
   ];
-  let leaveGuard = null, cleanup = null, lastHash = location.hash;
+  let leaveGuard = null, cleanup = null, lastHash = location.href;
   function route() {
     if (!me) return;
-    if (leaveGuard && !leaveGuard()) { history.replaceState(null, "", lastHash); return; }
+    if (leaveGuard && !leaveGuard()) { history.pushState(null, "", lastHash); return; }
     leaveGuard = null;
     if (cleanup) { cleanup(); cleanup = null; }
     if (!$("#modal").hidden) closeModal();
-    lastHash = location.hash;
-    const raw = location.hash.replace(/^#\/?/, ""), path = raw.split("?")[0], query = raw.split("?")[1] || "";
+    lastHash = location.href;
+    const raw = cur(), path = raw.split("?")[0], query = raw.split("?")[1] || "";
     const first = NAV.flatMap((g) => g[1]).find((i) => can(i[2]));
-    if (!path) { location.replace("#/" + (first ? first[0] : "account")); return; }
+    if (!path) { go(first ? first[0] : "account", true); return; }
     drawSide();
     $("#side").classList.remove("is-open"); $("#sideScrim").hidden = true;
     view.onclick = null;
@@ -2760,11 +3563,24 @@
     }
     notFound();
   }
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", () => { if (PATHS && /^#\//.test(location.hash)) return go(location.hash, true); route(); });
+  window.addEventListener("popstate", () => { if (PATHS) route(); });
+  if (PATHS && /^#\//.test(location.hash)) history.replaceState(null, "", "/admin/" + location.hash.replace(/^#\/?/, ""));
+  // Links written as #/page work as /admin/page: shown that way, and opened without reloading
+  if (PATHS) {
+    const fix = (root) => { (root.querySelectorAll ? root : document).querySelectorAll('a[href^="#/"]').forEach((a) => { a.setAttribute("href", "/admin/" + a.getAttribute("href").slice(2)); }); };
+    fix(document);
+    new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) { if (n.matches && n.matches('a[href^="#/"]')) n.setAttribute("href", "/admin/" + n.getAttribute("href").slice(2)); fix(n); } }))).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest && e.target.closest('a[href^="/admin/"], a[href^="#/"]');
+      if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target === "_blank") return;
+      e.preventDefault(); go(a.getAttribute("href"));
+    });
+  }
   // Rows with data-href act as links
   document.addEventListener("click", (e) => {
     const r = e.target.closest("tr[data-href]");
-    if (r && !e.target.closest("a, button, input, select")) location.hash = r.dataset.href;
+    if (r && !e.target.closest("a, button, input, select, [data-stop]")) go(r.dataset.href);
   });
 
   function showLogin(msg) {

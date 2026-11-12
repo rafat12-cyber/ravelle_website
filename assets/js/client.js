@@ -9,7 +9,7 @@
     var s = document.currentScript && document.currentScript.src;
     return s ? s.replace(/assets\/js\/client\.js.*$/, "") : "";
   })();
-  var DB_KEY = "ravelle:demo-db:v28";
+  var DB_KEY = "ravelle:demo-db:v29";
   var DEMO_LOGIN = { email: "admin@ravellebd.com", password: "ravelle-demo" };
 
   // The server stamps the current asset version on the page (cache busting); the demo uses the fixed one
@@ -82,9 +82,9 @@
         var out = engine.handle({ method: method, path: parts[0], query: q, body: body ? JSON.parse(JSON.stringify(body)) : {}, headers: token ? { authorization: "Bearer " + token } : {} }, db);
         if (out.changed && out.status < 400) writeDb(db);
         // Online payment in the demo: pretend the customer paid.
-        if (method === "POST" && parts[0] === "/api/orders" && out.status === 201 && body.paymentMethod === "sslcommerz") {
+        if (method === "POST" && parts[0] === "/api/orders" && out.status === 201 && (body.paymentMethod === "sslcommerz" || (body.paymentMethod === "bkash" && db.settings.payments.bkash.mode === "api"))) {
           var o = db.orders.filter(function (x) { return x.number === out.body.order.number; })[0];
-          engine.handle({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: o.id, status: "paid", ref: "DEMO-" + hex(4).toUpperCase() } }, db);
+          engine.handle({ method: "POST", path: "/api/internal/payment", internal: true, body: { orderId: o.id, status: "paid", ref: "DEMO-" + hex(4).toUpperCase(), by: body.paymentMethod === "bkash" ? "bKash" : "SSLCOMMERZ" } }, db);
           writeDb(db);
           out.body.payment = { demo: true };
         }
@@ -110,8 +110,8 @@
   var ready = detect().then(function (m) {
     mode = m;
     if (m === "server") return m;
-    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=" + assetV("1172")))
-      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=" + assetV("1168")); })
+    return (window.RavelleCore ? Promise.resolve() : loadScript("assets/js/core.js?v=" + assetV("1173")))
+      .then(function () { return window.RAVELLE_SEED ? null : loadScript("assets/js/seed.js?v=" + assetV("1173")); })
       .then(function () { startDemo(); return m; });
   });
 
