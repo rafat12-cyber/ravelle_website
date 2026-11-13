@@ -1131,7 +1131,7 @@
           <div class="card"><h2 class="h2">Price</h2><div class="row row--3">
             <label class="field"><span>Price (৳)</span><input class="input" name="price" type="number" min="0" required value="${esc(draft.price)}"></label>
             <label class="field"><span>Compare-at price (৳)</span><input class="input" name="comparePrice" type="number" min="0" value="${esc(draft.comparePrice || "")}"><small>The old price, shown crossed out.</small></label>
-            <label class="field"><span>Product SKU</span><input class="input" name="sku" value="${esc(draft.sku)}" placeholder="Made for you if empty" style="text-transform:uppercase"></label></div></div>
+            <label class="field"><span>Product SKU</span><input class="input" name="sku" value="${esc(draft.sku)}" placeholder="Auto: RVL-category no.-0001" style="text-transform:uppercase"></label></div></div>
           <div class="card"><div class="card__head"><div><h2 class="h2">Variations</h2><p class="muted small">Pick the options this product comes in. Each combination gets its own SKU, price and stock.</p></div><a class="btn btn--link" href="#/variations">Manage variation types</a></div>
             <div class="stack" id="attrBox"></div>
             <div class="flex"><select class="input" id="addAttr" style="width:auto"><option value="">+ Add a variation type…</option>${attrs.map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join("")}</select></div>
@@ -1600,7 +1600,7 @@
     (await api("GET", "/api/products").catch(() => ({ products: [] }))).products.forEach((p) => p.categoryIds.forEach((id) => { count[id] = (count[id] || 0) + 1; }));
     view.innerHTML = `<div class="head"><div><h1 class="h1">Categories</h1><p class="muted">Main categories and sub-categories. Each one gets its own page at #category/slug. Add them to the header menu in <a href="#/menus">Menus</a>.</p></div><button class="btn btn--dark" id="catAdd">Add category</button></div>
       <div class="card card--flush">${catTree(cats).map(({ c, depth }) => `<div class="cat-row" style="padding-left:${14 + depth * 28}px">${c.image ? `<img src="${esc(c.image)}" alt="">` : `<span class="ph"></span>`}
-        <div><b>${depth ? "↳ " : ""}${esc(c.name)}</b><small>#category/${esc(c.slug)} · ${count[c.id] || 0} products${c.description ? " · " + esc(c.description.slice(0, 60)) : ""}</small></div>
+        <div><b>${depth ? "↳ " : ""}${esc(c.name)}</b><small>No. ${String(c.code || "").padStart(2, "0")} · #category/${esc(c.slug)} · ${count[c.id] || 0} products${c.description ? " · " + esc(c.description.slice(0, 60)) : ""}</small></div>
         <div class="flex"><a class="btn btn--ghost btn--sm" href="./#category/${esc(c.slug)}" target="_blank" rel="noopener">View</a><button class="btn btn--ghost btn--sm" data-edit="${c.id}">Edit</button></div></div>`).join("") || `<p class="empty">No categories yet.</p>`}</div>`;
     const edit = (c) => {
       const isNew = !c.id;
@@ -1608,6 +1608,7 @@
         <label class="field"><span>Name</span><input class="input" name="name" required value="${esc(c.name || "")}"></label>
         <div class="row row--2"><label class="field"><span>Parent</span><select class="input" name="parentId"><option value="">None (main category)</option>${catTree(cats).filter(({ c: x }) => x.id !== c.id).map(({ c: x, depth }) => `<option value="${x.id}"${x.id === c.parentId ? " selected" : ""}>${"— ".repeat(depth)}${esc(x.name)}</option>`).join("")}</select></label>
         <label class="field"><span>Order</span><input class="input" name="order" type="number" value="${esc(c.order || 0)}"><small>Lower shows first.</small></label></div>
+        <label class="field"><span>Category number</span><input class="input" name="code" type="number" min="1" max="999" value="${esc(c.code || "")}" placeholder="Next free number"><small>Used in new product SKUs: RVL-<b>${String(c.code || "NN").padStart(2, "0")}</b>-0001. Changing it doesn't change SKUs that already exist.</small></label>
         <label class="field"><span>Slug</span><input class="input" name="slug" value="${esc(c.slug || "")}" placeholder="Made from the name"></label>
         <label class="field"><span>Description</span><textarea class="input" name="description" rows="2">${esc(c.description || "")}</textarea></label>
         ${imgField("image", c.image, "Image", "Used on collection cards and the coming-soon page.")}
