@@ -51,7 +51,7 @@ async function main() {
   for (var i = 0; i < 50; i++) { try { await call("GET", "/api/health"); break; } catch (e) { await wait(100); } }
   var r = await call("GET", "/api/store");
   assert.equal(r.status, 200);
-  assert.equal(r.body.products.length, 41, "41 products");
+  assert.equal(r.body.products.length, 58, "58 products");
   var product = r.body.products[0], variant = product.variants[1];
   console.log("✓ storefront data:", r.body.products.length, "products,", r.body.categories.length, "categories");
 
@@ -109,6 +109,19 @@ async function main() {
   assert.equal(r.status, 201, JSON.stringify(r.body));
   var np = r.body.product;
   assert.ok(np.sku && np.variants[0].sku.indexOf(np.sku) === 0);
+  // the 58 starting products are numbered RVL-..-0001 to 0058, so the next one is 0059
+  assert.equal(np.sku, "RVL-01-0059", "SKU from category number + serial");
+  assert.equal(np.variants[0].sku, "RVL-01-0059-M");
+  r = await call("POST", "/api/products", { name: "Test Jacket", price: 900, categoryIds: ["cat_men", "cat_jacket"] }, token);
+  assert.equal(r.body.product.sku, "RVL-08-0060", "most specific category, next serial");
+  r = await call("GET", "/api/products/fearless-oversized-t-shirt-yellow", null, token);
+  assert.ok(/^RVL-02-\d{4}$/.test(r.body.product.sku) && r.body.product.oldSku === "RV-FRL-YLW", "starting products renumbered, old SKU kept");
+  r = await call("PATCH", "/api/stock", { items: [{ sku: "RV-FRL-YLW-M", stock: 7 }] }, token);
+  assert.equal(r.body.results[0].ok, true, "old size SKU still updates stock");
+  r = await call("POST", "/api/categories", { name: "Hoodie", parentId: "cat_men" }, token);
+  assert.equal(r.body.item.code, 17, "new category gets the next number");
+  r = await call("PUT", "/api/categories/" + r.body.item.id, { code: 8 }, token);
+  assert.equal(r.status, 400, "category numbers are unique");
   r = await call("PATCH", "/api/stock", { items: [{ sku: np.variants[1].sku, stock: 9 }, { sku: "NOPE", stock: 1 }] }, token);
   assert.equal(r.body.results[0].stock, 9);
   assert.equal(r.body.results[1].ok, false);

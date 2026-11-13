@@ -1,5 +1,5 @@
 // Starting data for a new store: settings, categories, variations, the 41
-// products from the October 2026 shoot, page content and menus.
+// products from the October 2026 shoot, 17 winter jackets and sweatshirts, page content and menus.
 // The server copies this into data/db.json on first run; the demo copies it
 // into the browser. Edit the live data from the admin panel, not here.
 (function (root, factory) {
@@ -23,6 +23,8 @@
     ["full-shirt", "Full shirt", "men", 4, "", ""],
     ["trouser", "Trouser", "men", 5, "", ""],
     ["denim-pant", "Denim pant", "men", 6, "", ""],
+    ["jacket", "Jacket", "men", 7, "", "Suede leather and old money check jackets."],
+    ["sweat-shirt", "Sweat shirt", "men", 8, "", "Half-zip sweatshirts, warm and easy to wear."],
     ["women", "Women", null, 2, "assets/img/c-blue.webp", "The women's line is on its way."],
     ["the-house", "The House", null, 3, "assets/img/home/h-collage-b.webp", "Five collections from Ravelle, each with its own mood."],
     ["nior-division", "Nior Division", "the-house", 1, "assets/img/home/h-house-1.webp", "Dark washes for the after hours."],
@@ -141,6 +143,41 @@
       variants: SIZES.map(function (s) { return { id: "var_" + i + "_" + s.toLowerCase(), sku: sku + "-" + s, options: { Size: s }, price: null, stock: STOCK[s] - (i % 4) * 2 }; }),
       createdAt: T0 - i * 36e5, updatedAt: T0
     };
+  });
+
+  // Winter 26/27 jackets and sweatshirts (same pieces, prices and stock as the
+  // Ravari shop, November 2026). Ravari's XXL is Ravelle's 2XL. Live stores
+  // that started before these existed get them once through core upgradeDb
+  // ("winter-jackets").
+  var WINTER = [
+    ["suede-leather-jacket-black", "Suede Leather Jacket – Black", "Black", "#1f2022", 3299, "jacket", "RV-SLJ-BLK", 6, "A clean suede leather jacket with a soft touch and a full zip. Easy to dress up or down, from a casual day out to a winter evening.", ["Soft suede leather finish", "Full front zip", "Shirt collar", "Side pockets", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["suede-leather-jacket-navy", "Suede Leather Jacket – Navy", "Navy", "#26355a", 3299, "jacket", "RV-SLJ-NVY", 6, "A clean suede leather jacket with a soft touch and a full zip. Easy to dress up or down, from a casual day out to a winter evening.", ["Soft suede leather finish", "Full front zip", "Shirt collar", "Side pockets", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["suede-leather-jacket-maroon", "Suede Leather Jacket – Maroon", "Maroon", "#7a1f2e", 3299, "jacket", "RV-SLJ-MRN", 5, "A clean suede leather jacket with a soft touch and a full zip. Easy to dress up or down, from a casual day out to a winter evening.", ["Soft suede leather finish", "Full front zip", "Shirt collar", "Side pockets", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["suede-leather-jacket-stone", "Suede Leather Jacket – Stone", "Stone", "#bdb6a8", 3299, "jacket", "RV-SLJ-STN", 7, "A clean suede leather jacket with a soft touch and a full zip. Easy to dress up or down, from a casual day out to a winter evening.", ["Soft suede leather finish", "Full front zip", "Shirt collar", "Side pockets", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["suede-leather-jacket-tan", "Suede Leather Jacket – Tan", "Tan", "#a8743f", 3299, "jacket", "RV-SLJ-TAN", 5, "A clean suede leather jacket with a soft touch and a full zip. Easy to dress up or down, from a casual day out to a winter evening.", ["Soft suede leather finish", "Full front zip", "Shirt collar", "Side pockets", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["old-money-check-jacket-blue", "Old Money Check Jacket – Blue", "Blue", "#5b7fae", 2299, "jacket", "RV-OMJ-BLU", 6, "An old money check jacket with two chest pockets and a full zip. Throw it over a white tee and loose trousers for an easy winter look.", ["Checked fabric with a soft brushed feel", "Full front zip", "Two flap chest pockets", "Shirt collar and buttoned cuffs", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["old-money-check-jacket-grey", "Old Money Check Jacket – Grey", "Grey", "#8d8f93", 2299, "jacket", "RV-OMJ-GRY", 6, "An old money check jacket with two chest pockets and a full zip. Throw it over a white tee and loose trousers for an easy winter look.", ["Checked fabric with a soft brushed feel", "Full front zip", "Two flap chest pockets", "Shirt collar and buttoned cuffs", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["old-money-check-jacket-black", "Old Money Check Jacket – Black", "Black", "#1f2022", 2299, "jacket", "RV-OMJ-BLK", 6, "An old money check jacket with two chest pockets and a full zip. Throw it over a white tee and loose trousers for an easy winter look.", ["Checked fabric with a soft brushed feel", "Full front zip", "Two flap chest pockets", "Shirt collar and buttoned cuffs", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["old-money-check-jacket-beige", "Old Money Check Jacket – Beige", "Beige", "#b9a58c", 2299, "jacket", "RV-OMJ-BGE", 5, "An old money check jacket with two chest pockets and a full zip. Throw it over a white tee and loose trousers for an easy winter look.", ["Checked fabric with a soft brushed feel", "Full front zip", "Two flap chest pockets", "Shirt collar and buttoned cuffs", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["old-money-check-jacket-charcoal", "Old Money Check Jacket – Charcoal", "Charcoal", "#45474b", 2299, "jacket", "RV-OMJ-CHR", 6, "An old money check jacket with two chest pockets and a full zip. Throw it over a white tee and loose trousers for an easy winter look.", ["Checked fabric with a soft brushed feel", "Full front zip", "Two flap chest pockets", "Shirt collar and buttoned cuffs", "Relaxed fit, made to layer over a tee"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-black", "Zipper Sweatshirt – Black", "Black", "#1f2022", 1299, "sweat-shirt", "RV-ZSW-BLK", 4, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-beige", "Zipper Sweatshirt – Beige", "Beige", "#b9a58c", 1299, "sweat-shirt", "RV-ZSW-BGE", 6, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-olive", "Zipper Sweatshirt – Olive", "Olive", "#4b5230", 1299, "sweat-shirt", "RV-ZSW-OLV", 6, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-brown", "Zipper Sweatshirt – Brown", "Brown", "#4a3426", 1299, "sweat-shirt", "RV-ZSW-BRN", 6, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-maroon", "Zipper Sweatshirt – Maroon", "Maroon", "#7a1f2e", 1299, "sweat-shirt", "RV-ZSW-MRN", 6, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-red", "Zipper Sweatshirt – Red", "Red", "#b51f2e", 1299, "sweat-shirt", "RV-ZSW-RED", 7, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]],
+    ["zipper-sweatshirt-coffee", "Zipper Sweatshirt – Coffee", "Coffee", "#6a3c30", 1299, "sweat-shirt", "RV-ZSW-COF", 6, "A half-zip zipper sweatshirt in a solid colour with a high collar. Soft, warm and easy to wear every day through the cooler months.", ["Soft, warm fleece-back fabric", "Half zip with a high collar", "Ribbed cuffs and hem", "Regular fit"], [["M", 5], ["L", 6], ["XL", 6], ["2XL", 4]]]
+  ];
+  WINTER.forEach(function (r, i) {
+    products.push({
+      id: "prd_" + r[0].replace(/-/g, "_"), slug: r[0], sku: r[6], status: "published",
+      name: r[1], color: r[2], hex: r[3], price: r[4], comparePrice: null, description: r[8], details: r[9].slice(),
+      images: photos(r[0], r[7]), sizeGuide: "",
+      categoryIds: ["cat_men", "cat_" + r[5].replace(/-/g, "_")], isNew: true, featured: false, trackStock: true, stock: 0,
+      attributes: [{ name: "Size", values: r[10].map(function (v) { return v[0]; }) }],
+      variants: r[10].map(function (v) { return { id: "var_w" + i + "_" + v[0].toLowerCase(), sku: r[6] + "-" + v[0], options: { Size: v[0] }, price: null, stock: v[1] }; }),
+      createdAt: Date.UTC(2026, 10, 12) - i * 36e5, updatedAt: Date.UTC(2026, 10, 12)
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -312,7 +349,8 @@
       ] },
       { id: "mi_men", label: "Men", url: "#category/men", image: "assets/img/menu-men.webp", children: [
         catLink("t-shirt", "T-shirt"), catLink("polo", "Polo"), catLink("half-shirt", "Half shirt"),
-        catLink("full-shirt", "Full shirt"), catLink("trouser", "Trouser"), catLink("denim-pant", "Denim pant")
+        catLink("full-shirt", "Full shirt"), catLink("trouser", "Trouser"), catLink("denim-pant", "Denim pant"),
+        catLink("jacket", "Jacket"), catLink("sweat-shirt", "Sweat shirt")
       ] },
       { id: "mi_women", label: "Women", url: "#category/women", children: [] },
       { id: "mi_newin", label: "New in", url: "#new-in", children: [] },

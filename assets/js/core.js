@@ -21,6 +21,70 @@
   var str = function (v, max) { return v == null ? "" : String(v).trim().slice(0, max || 500); };
   var num = function (v, d) { var n = Number(v); return isFinite(n) ? n : (d === undefined ? 0 : d); };
   var int = function (v, d) { return Math.round(num(v, d)); };
+  // Every category has a number (1, 2, 3…) used in product SKUs. Ones without
+  // a number get the next free one, main categories first, in menu order.
+  function nextCatCode(db, skipId) {
+    var max = 0;
+    (db.categories || []).forEach(function (c) { if (c.id !== skipId) max = Math.max(max, int(c.code, 0)); });
+    return max + 1;
+  }
+  function pad(n, w) { n = String(int(n, 0)); while (n.length < w) n = "0" + n; return n; }
+  // Products get RVL-<category number>-<4 digit serial>, like RVL-08-0001.
+  // The category is the most specific one the product sits in (Jacket, not Men);
+  // the serial counts up across the whole store and never repeats.
+  function rvlSku(db, p, used) {
+    ensureCatCodes(db);
+    var byId = {};
+    db.categories.forEach(function (c) { byId[c.id] = c; });
+    var depth = function (c) { var d = 0; while (c && c.parentId && byId[c.parentId] && d < 20) { c = byId[c.parentId]; d++; } return d; };
+    var cat = null;
+    (p.categoryIds || []).forEach(function (id) { var c = byId[id]; if (c && (!cat || depth(c) > depth(cat))) cat = c; });
+    var cc = pad(cat ? cat.code : 0, 2);
+    if (!used) { used = {}; db.products.forEach(function (o) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); }); }
+    db.counters = db.counters || {};
+    var sku;
+    do { db.counters.sku = int(db.counters.sku, 0) + 1; sku = "RVL-" + cc + "-" + pad(db.counters.sku, 4); } while (used[sku]);
+    return sku;
+  }
+  // Gives every product that doesn't have one yet an RVL SKU (oldest product first),
+  // and its sizes <SKU>-<size>. The old SKU is kept on the product as oldSku.
+  var RVL_RE = /^RVL-\d{2,3}-\d{4,}$/;
+  function renumberSkus(db) {
+    var list = (db.products || []).filter(function (p) { return !RVL_RE.test(p.sku || ""); });
+    if (!list.length) return false;
+    var used = {};
+    db.products.forEach(function (o) { if (RVL_RE.test(o.sku || "")) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); } });
+    list.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0) || String(a.name).localeCompare(String(b.name)); })
+      .forEach(function (p) {
+        if (p.sku && !p.oldSku) p.oldSku = p.sku;
+        p.sku = rvlSku(db, p, used);
+        used[p.sku] = 1;
+        (p.variants || []).forEach(function (v) {
+          if (v.sku && !v.oldSku) v.oldSku = v.sku;
+          v.sku = p.sku + "-" + Object.keys(v.options || {}).map(function (k) { return slugify(v.options[k]).toUpperCase(); }).join("-");
+          used[v.sku] = 1;
+        });
+      });
+    return true;
+  }
+  function ensureCatCodes(db) {
+    var cats = db.categories || [], out = [];
+    var walk = function (pid) {
+      cats.filter(function (c) { return (c.parentId || null) === pid; })
+        .sort(function (a, b) { return int(a.order, 0) - int(b.order, 0) || (a.createdAt || 0) - (b.createdAt || 0); })
+        .forEach(function (c) { if (out.indexOf(c) < 0) { out.push(c); walk(c.id); } });
+    };
+    walk(null);
+    cats.forEach(function (c) { if (out.indexOf(c) < 0) out.push(c); });
+    var seen = {}, changed = false;
+    out.forEach(function (c) {
+      var n = int(c.code, 0);
+      if (n > 0 && !seen[n]) { seen[n] = 1; return; }
+      if (n) delete c.code;
+    });
+    out.forEach(function (c) { if (!int(c.code, 0)) { c.code = nextCatCode(db, c.id); changed = true; } });
+    return changed;
+  }
   var bool = function (v) { return v === true || v === "true" || v === 1 || v === "1"; };
   function slugify(s) {
     return String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -246,7 +310,8 @@
 
     // --- Products --------------------------------------------------------------
     function findProduct(db, idOrSlug) {
-      return db.products.filter(function (p) { return p.id === idOrSlug || p.slug === idOrSlug || p.sku === idOrSlug; })[0];
+      return db.products.filter(function (p) { return p.id === idOrSlug || p.slug === idOrSlug || p.sku === idOrSlug; })[0] ||
+        db.products.filter(function (p) { return p.oldSku && p.oldSku === idOrSlug; })[0];
     }
     function cleanProduct(db, b, existing) {
       var p = existing ? clone(existing) : { id: newId("prd"), createdAt: now(), stats: {} };
@@ -301,7 +366,7 @@
       if (!p.categoryIds) p.categoryIds = [];
       if (!(p.price > 0)) fail(400, "Price must be more than 0.");
       // Every product and variation carries a SKU.
-      if (!p.sku) p.sku = autoSku(p);
+      if (!p.sku) p.sku = autoSku(db, p);
       var skus = {};
       db.products.forEach(function (o) {
         if (o.id === p.id) return;
@@ -317,11 +382,7 @@
       p.updatedAt = now();
       return p;
     }
-    function autoSku(p) {
-      var line = (p.line || p.name || "RV").replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 4) || "RV";
-      var col = (p.color || "").replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 3);
-      return "RV-" + line + (col ? "-" + col : "") + "-" + host.random(2).toUpperCase();
-    }
+    function autoSku(db, p) { return rvlSku(db, p); }
     function lowStockCheck(db, p, v) {
       var limit = int(db.settings.lowStock, 5);
       var stock = v ? v.stock : p.stock;
@@ -1522,7 +1583,7 @@
         if (status && p.status !== status) return false;
         if (cat && (p.categoryIds || []).indexOf(cat) < 0) return false;
         if (q) {
-          var hay = (p.name + " " + p.sku + " " + (p.line || "") + " " + (p.color || "") + " " + (p.variants || []).map(function (v) { return v.sku; }).join(" ")).toLowerCase();
+          var hay = (p.name + " " + p.sku + " " + (p.oldSku || "") + " " + (p.line || "") + " " + (p.color || "") + " " + (p.variants || []).map(function (v) { return v.sku; }).join(" ")).toLowerCase();
           if (hay.indexOf(q) < 0) return false;
         }
         return true;
@@ -1532,7 +1593,7 @@
     route("GET", "/api/products/:id", "products", function (c) {
       var p = findProduct(c.db, c.params.id);
       if (!p) fail(404, "Product not found.");
-      var o = publicProduct(p); o.status = p.status; o.updatedAt = p.updatedAt;
+      var o = publicProduct(p); o.status = p.status; o.updatedAt = p.updatedAt; if (p.oldSku) o.oldSku = p.oldSku;
       return { product: o };
     }, { readonly: true });
     route("POST", "/api/products", "products", function (c) {
@@ -1622,6 +1683,11 @@
           if (p.sku === sku && !(p.variants || []).length) hit = { p: p };
           (p.variants || []).forEach(function (v) { if (v.sku === sku) hit = { p: p, v: v }; });
         });
+        // A SKU from before the RVL renumbering still finds its product
+        if (!hit) db.products.forEach(function (p) {
+          if (p.oldSku === sku && !(p.variants || []).length) hit = { p: p };
+          (p.variants || []).forEach(function (v) { if (v.oldSku === sku) hit = { p: p, v: v }; });
+        });
         if (!hit) { results.push({ sku: sku, ok: false, error: "Unknown SKU" }); return; }
         var cur = hit.v ? hit.v.stock : int(hit.p.stock);
         var next = it.stock !== undefined ? int(it.stock) : cur + int(it.delta);
@@ -1681,6 +1747,15 @@
       if (b.seoText !== undefined) c.seoText = str(b.seoText, 2000);
       if (b.order !== undefined) c.order = int(b.order);
       if (b.showInShop !== undefined) c.showInShop = bool(b.showInShop);
+      // Category number, used in new product SKUs (RVL-<number>-<serial>)
+      if (b.code !== undefined && String(b.code).trim() !== "") {
+        var code = int(b.code, 0);
+        if (code < 1 || code > 999) fail(400, "Category number must be between 1 and 999.");
+        var taken = db.categories.filter(function (x) { return x.id !== c.id && int(x.code, 0) === code; })[0];
+        if (taken) fail(400, "Number " + pad(code, 2) + " is already used by " + taken.name + ".");
+        c.code = code;
+      }
+      if (!int(c.code, 0)) { ensureCatCodes(db); c.code = nextCatCode(db, c.id); }
       return c;
     }, { publicRead: true, beforeDelete: function (db, cat) {
       db.categories.forEach(function (x) { if (x.parentId === cat.id) x.parentId = cat.parentId || null; });
@@ -2813,7 +2888,9 @@
     ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog", "subscribers"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
-    db.upgrades = ["stores-franchise", "popup", "seo-text"];
+    db.upgrades = ["stores-franchise", "popup", "seo-text", "winter-jackets", "rvl-skus"];
+    ensureCatCodes(db);
+    renumberSkus(db);
     return db;
   }
   // Brings an older saved database up to date: new pages and lists, once
@@ -2875,6 +2952,37 @@
       done.push("seo-text");
       changed = true;
     }
+    // Jacket and Sweat shirt categories with their 17 products (Nov 2026), added
+    // to stores that started before them. Anything already there by slug is left alone.
+    if (done.indexOf("winter-jackets") < 0) {
+      var winterCats = ["jacket", "sweat-shirt"];
+      var catIds = {};
+      winterCats.forEach(function (slug) {
+        var have = (db.categories || []).filter(function (c) { return c.slug === slug; })[0];
+        var s = (seed.categories || []).filter(function (c) { return c.slug === slug; })[0];
+        if (!have && s) { have = clone(s); db.categories.push(have); }
+        if (have && s) catIds[s.id] = have.id;
+      });
+      var slugs = {};
+      (db.products || []).forEach(function (p) { slugs[p.slug] = 1; });
+      (seed.products || []).forEach(function (p) {
+        var mine = p.categoryIds.some(function (id) { return catIds[id]; });
+        if (!mine || slugs[p.slug]) return;
+        var np = clone(p);
+        np.categoryIds = np.categoryIds.map(function (id) { return catIds[id] || id; });
+        db.products.push(np);
+      });
+      var men = ((db.menus || {}).header || []).filter(function (m) { return m.id === "mi_men"; })[0];
+      if (men) {
+        men.children = men.children || [];
+        [["jacket", "Jacket"], ["sweat-shirt", "Sweat shirt"]].forEach(function (c) {
+          var url = "#category/" + c[0];
+          if (!men.children.some(function (i) { return i.url === url; })) men.children.push({ id: "mi_" + c[0], label: c[1], url: url, children: [] });
+        });
+      }
+      done.push("winter-jackets");
+      changed = true;
+    }
     // Dhaka Sub Area delivery (Savar, Gazipur, Narayanganj, Keraniganj), ৳100, between Inside and Outside Dhaka
     if (done.indexOf("dhaka-sub-zone") < 0) {
       var zs = (db.settings.shipping = db.settings.shipping || {}).zones = db.settings.shipping.zones || [];
@@ -2885,9 +2993,17 @@
       done.push("dhaka-sub-zone");
       changed = true;
     }
+    // Category numbers for SKUs (Nov 2026); existing product SKUs stay as they are
+    if (ensureCatCodes(db)) changed = true;
     if (done.indexOf("popup") < 0) {
       if (!db.pages.popup && seed.pages.popup) { db.pages.popup = clone(seed.pages.popup); db.pages.popup.enabled = false; }
       done.push("popup");
+      changed = true;
+    }
+    // All products move to RVL-<category no.>-<serial> SKUs (Rafat, Nov 2026)
+    if (done.indexOf("rvl-skus") < 0) {
+      renumberSkus(db);
+      done.push("rvl-skus");
       changed = true;
     }
     return changed;
