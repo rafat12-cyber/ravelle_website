@@ -21,6 +21,31 @@
   var str = function (v, max) { return v == null ? "" : String(v).trim().slice(0, max || 500); };
   var num = function (v, d) { var n = Number(v); return isFinite(n) ? n : (d === undefined ? 0 : d); };
   var int = function (v, d) { return Math.round(num(v, d)); };
+  // Every category has a number (1, 2, 3…) used in product SKUs. Ones without
+  // a number get the next free one, main categories first, in menu order.
+  function nextCatCode(db, skipId) {
+    var max = 0;
+    (db.categories || []).forEach(function (c) { if (c.id !== skipId) max = Math.max(max, int(c.code, 0)); });
+    return max + 1;
+  }
+  function ensureCatCodes(db) {
+    var cats = db.categories || [], out = [];
+    var walk = function (pid) {
+      cats.filter(function (c) { return (c.parentId || null) === pid; })
+        .sort(function (a, b) { return int(a.order, 0) - int(b.order, 0) || (a.createdAt || 0) - (b.createdAt || 0); })
+        .forEach(function (c) { if (out.indexOf(c) < 0) { out.push(c); walk(c.id); } });
+    };
+    walk(null);
+    cats.forEach(function (c) { if (out.indexOf(c) < 0) out.push(c); });
+    var seen = {}, changed = false;
+    out.forEach(function (c) {
+      var n = int(c.code, 0);
+      if (n > 0 && !seen[n]) { seen[n] = 1; return; }
+      if (n) delete c.code;
+    });
+    out.forEach(function (c) { if (!int(c.code, 0)) { c.code = nextCatCode(db, c.id); changed = true; } });
+    return changed;
+  }
   var bool = function (v) { return v === true || v === "true" || v === 1 || v === "1"; };
   function slugify(s) {
     return String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -301,7 +326,7 @@
       if (!p.categoryIds) p.categoryIds = [];
       if (!(p.price > 0)) fail(400, "Price must be more than 0.");
       // Every product and variation carries a SKU.
-      if (!p.sku) p.sku = autoSku(p);
+      if (!p.sku) p.sku = autoSku(db, p);
       var skus = {};
       db.products.forEach(function (o) {
         if (o.id === p.id) return;
@@ -317,11 +342,24 @@
       p.updatedAt = now();
       return p;
     }
-    function autoSku(p) {
-      var line = (p.line || p.name || "RV").replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 4) || "RV";
-      var col = (p.color || "").replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 3);
-      return "RV-" + line + (col ? "-" + col : "") + "-" + host.random(2).toUpperCase();
+    // New products get RVL-<category number>-<4 digit serial>, like RVL-08-0001.
+    // The category is the most specific one the product sits in (Jacket, not Men);
+    // the serial counts up across the whole store and never repeats.
+    function autoSku(db, p) {
+      ensureCatCodes(db);
+      var byId = {};
+      db.categories.forEach(function (c) { byId[c.id] = c; });
+      var depth = function (c) { var d = 0; while (c && c.parentId && byId[c.parentId] && d < 20) { c = byId[c.parentId]; d++; } return d; };
+      var cat = null;
+      (p.categoryIds || []).forEach(function (id) { var c = byId[id]; if (c && (!cat || depth(c) > depth(cat))) cat = c; });
+      var cc = pad(cat ? cat.code : 0, 2), used = {};
+      db.products.forEach(function (o) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); });
+      db.counters = db.counters || {};
+      var sku;
+      do { db.counters.sku = int(db.counters.sku, 0) + 1; sku = "RVL-" + cc + "-" + pad(db.counters.sku, 4); } while (used[sku]);
+      return sku;
     }
+    function pad(n, w) { n = String(int(n, 0)); while (n.length < w) n = "0" + n; return n; }
     function lowStockCheck(db, p, v) {
       var limit = int(db.settings.lowStock, 5);
       var stock = v ? v.stock : p.stock;
@@ -1681,6 +1719,15 @@
       if (b.seoText !== undefined) c.seoText = str(b.seoText, 2000);
       if (b.order !== undefined) c.order = int(b.order);
       if (b.showInShop !== undefined) c.showInShop = bool(b.showInShop);
+      // Category number, used in new product SKUs (RVL-<number>-<serial>)
+      if (b.code !== undefined && String(b.code).trim() !== "") {
+        var code = int(b.code, 0);
+        if (code < 1 || code > 999) fail(400, "Category number must be between 1 and 999.");
+        var taken = db.categories.filter(function (x) { return x.id !== c.id && int(x.code, 0) === code; })[0];
+        if (taken) fail(400, "Number " + pad(code, 2) + " is already used by " + taken.name + ".");
+        c.code = code;
+      }
+      if (!int(c.code, 0)) { ensureCatCodes(db); c.code = nextCatCode(db, c.id); }
       return c;
     }, { publicRead: true, beforeDelete: function (db, cat) {
       db.categories.forEach(function (x) { if (x.parentId === cat.id) x.parentId = cat.parentId || null; });
@@ -2814,6 +2861,7 @@
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
     db.upgrades = ["stores-franchise", "popup", "seo-text", "winter-jackets"];
+    ensureCatCodes(db);
     return db;
   }
   // Brings an older saved database up to date: new pages and lists, once
@@ -2916,6 +2964,8 @@
       done.push("dhaka-sub-zone");
       changed = true;
     }
+    // Category numbers for SKUs (Nov 2026); existing product SKUs stay as they are
+    if (ensureCatCodes(db)) changed = true;
     if (done.indexOf("popup") < 0) {
       if (!db.pages.popup && seed.pages.popup) { db.pages.popup = clone(seed.pages.popup); db.pages.popup.enabled = false; }
       done.push("popup");
