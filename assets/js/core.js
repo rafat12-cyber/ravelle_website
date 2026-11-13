@@ -28,6 +28,45 @@
     (db.categories || []).forEach(function (c) { if (c.id !== skipId) max = Math.max(max, int(c.code, 0)); });
     return max + 1;
   }
+  function pad(n, w) { n = String(int(n, 0)); while (n.length < w) n = "0" + n; return n; }
+  // Products get RVL-<category number>-<4 digit serial>, like RVL-08-0001.
+  // The category is the most specific one the product sits in (Jacket, not Men);
+  // the serial counts up across the whole store and never repeats.
+  function rvlSku(db, p, used) {
+    ensureCatCodes(db);
+    var byId = {};
+    db.categories.forEach(function (c) { byId[c.id] = c; });
+    var depth = function (c) { var d = 0; while (c && c.parentId && byId[c.parentId] && d < 20) { c = byId[c.parentId]; d++; } return d; };
+    var cat = null;
+    (p.categoryIds || []).forEach(function (id) { var c = byId[id]; if (c && (!cat || depth(c) > depth(cat))) cat = c; });
+    var cc = pad(cat ? cat.code : 0, 2);
+    if (!used) { used = {}; db.products.forEach(function (o) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); }); }
+    db.counters = db.counters || {};
+    var sku;
+    do { db.counters.sku = int(db.counters.sku, 0) + 1; sku = "RVL-" + cc + "-" + pad(db.counters.sku, 4); } while (used[sku]);
+    return sku;
+  }
+  // Gives every product that doesn't have one yet an RVL SKU (oldest product first),
+  // and its sizes <SKU>-<size>. The old SKU is kept on the product as oldSku.
+  var RVL_RE = /^RVL-\d{2,3}-\d{4,}$/;
+  function renumberSkus(db) {
+    var list = (db.products || []).filter(function (p) { return !RVL_RE.test(p.sku || ""); });
+    if (!list.length) return false;
+    var used = {};
+    db.products.forEach(function (o) { if (RVL_RE.test(o.sku || "")) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); } });
+    list.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0) || String(a.name).localeCompare(String(b.name)); })
+      .forEach(function (p) {
+        if (p.sku && !p.oldSku) p.oldSku = p.sku;
+        p.sku = rvlSku(db, p, used);
+        used[p.sku] = 1;
+        (p.variants || []).forEach(function (v) {
+          if (v.sku && !v.oldSku) v.oldSku = v.sku;
+          v.sku = p.sku + "-" + Object.keys(v.options || {}).map(function (k) { return slugify(v.options[k]).toUpperCase(); }).join("-");
+          used[v.sku] = 1;
+        });
+      });
+    return true;
+  }
   function ensureCatCodes(db) {
     var cats = db.categories || [], out = [];
     var walk = function (pid) {
@@ -271,7 +310,8 @@
 
     // --- Products --------------------------------------------------------------
     function findProduct(db, idOrSlug) {
-      return db.products.filter(function (p) { return p.id === idOrSlug || p.slug === idOrSlug || p.sku === idOrSlug; })[0];
+      return db.products.filter(function (p) { return p.id === idOrSlug || p.slug === idOrSlug || p.sku === idOrSlug; })[0] ||
+        db.products.filter(function (p) { return p.oldSku && p.oldSku === idOrSlug; })[0];
     }
     function cleanProduct(db, b, existing) {
       var p = existing ? clone(existing) : { id: newId("prd"), createdAt: now(), stats: {} };
@@ -342,24 +382,7 @@
       p.updatedAt = now();
       return p;
     }
-    // New products get RVL-<category number>-<4 digit serial>, like RVL-08-0001.
-    // The category is the most specific one the product sits in (Jacket, not Men);
-    // the serial counts up across the whole store and never repeats.
-    function autoSku(db, p) {
-      ensureCatCodes(db);
-      var byId = {};
-      db.categories.forEach(function (c) { byId[c.id] = c; });
-      var depth = function (c) { var d = 0; while (c && c.parentId && byId[c.parentId] && d < 20) { c = byId[c.parentId]; d++; } return d; };
-      var cat = null;
-      (p.categoryIds || []).forEach(function (id) { var c = byId[id]; if (c && (!cat || depth(c) > depth(cat))) cat = c; });
-      var cc = pad(cat ? cat.code : 0, 2), used = {};
-      db.products.forEach(function (o) { used[o.sku] = 1; (o.variants || []).forEach(function (v) { used[v.sku] = 1; }); });
-      db.counters = db.counters || {};
-      var sku;
-      do { db.counters.sku = int(db.counters.sku, 0) + 1; sku = "RVL-" + cc + "-" + pad(db.counters.sku, 4); } while (used[sku]);
-      return sku;
-    }
-    function pad(n, w) { n = String(int(n, 0)); while (n.length < w) n = "0" + n; return n; }
+    function autoSku(db, p) { return rvlSku(db, p); }
     function lowStockCheck(db, p, v) {
       var limit = int(db.settings.lowStock, 5);
       var stock = v ? v.stock : p.stock;
@@ -1560,7 +1583,7 @@
         if (status && p.status !== status) return false;
         if (cat && (p.categoryIds || []).indexOf(cat) < 0) return false;
         if (q) {
-          var hay = (p.name + " " + p.sku + " " + (p.line || "") + " " + (p.color || "") + " " + (p.variants || []).map(function (v) { return v.sku; }).join(" ")).toLowerCase();
+          var hay = (p.name + " " + p.sku + " " + (p.oldSku || "") + " " + (p.line || "") + " " + (p.color || "") + " " + (p.variants || []).map(function (v) { return v.sku; }).join(" ")).toLowerCase();
           if (hay.indexOf(q) < 0) return false;
         }
         return true;
@@ -1570,7 +1593,7 @@
     route("GET", "/api/products/:id", "products", function (c) {
       var p = findProduct(c.db, c.params.id);
       if (!p) fail(404, "Product not found.");
-      var o = publicProduct(p); o.status = p.status; o.updatedAt = p.updatedAt;
+      var o = publicProduct(p); o.status = p.status; o.updatedAt = p.updatedAt; if (p.oldSku) o.oldSku = p.oldSku;
       return { product: o };
     }, { readonly: true });
     route("POST", "/api/products", "products", function (c) {
@@ -1659,6 +1682,11 @@
         db.products.forEach(function (p) {
           if (p.sku === sku && !(p.variants || []).length) hit = { p: p };
           (p.variants || []).forEach(function (v) { if (v.sku === sku) hit = { p: p, v: v }; });
+        });
+        // A SKU from before the RVL renumbering still finds its product
+        if (!hit) db.products.forEach(function (p) {
+          if (p.oldSku === sku && !(p.variants || []).length) hit = { p: p };
+          (p.variants || []).forEach(function (v) { if (v.oldSku === sku) hit = { p: p, v: v }; });
         });
         if (!hit) { results.push({ sku: sku, ok: false, error: "Unknown SKU" }); return; }
         var cur = hit.v ? hit.v.stock : int(hit.p.stock);
@@ -2860,8 +2888,9 @@
     ["users", "sessions", "apiKeys", "webhooks", "webhookLog", "orders", "customers", "chats", "messages", "media", "coupons", "franchise", "carts", "emailLog", "subscribers"].forEach(function (k) { if (!db[k]) db[k] = []; });
     db.counters = db.counters || { order: 1000 };
     db.stats = db.stats || { days: {} };
-    db.upgrades = ["stores-franchise", "popup", "seo-text", "winter-jackets"];
+    db.upgrades = ["stores-franchise", "popup", "seo-text", "winter-jackets", "rvl-skus"];
     ensureCatCodes(db);
+    renumberSkus(db);
     return db;
   }
   // Brings an older saved database up to date: new pages and lists, once
@@ -2969,6 +2998,12 @@
     if (done.indexOf("popup") < 0) {
       if (!db.pages.popup && seed.pages.popup) { db.pages.popup = clone(seed.pages.popup); db.pages.popup.enabled = false; }
       done.push("popup");
+      changed = true;
+    }
+    // All products move to RVL-<category no.>-<serial> SKUs (Rafat, Nov 2026)
+    if (done.indexOf("rvl-skus") < 0) {
+      renumberSkus(db);
+      done.push("rvl-skus");
       changed = true;
     }
     return changed;

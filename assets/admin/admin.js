@@ -1121,7 +1121,7 @@
     let draft = clone(p);
     draft.details = (draft.details || []).join("\n");
     view.innerHTML = `<div class="head"><div><a class="btn btn--link" href="#/products">← Products</a><h1 class="h1" style="margin-top:8px">${isNew ? "Add product" : esc(p.name)}</h1>
-      ${isNew ? "" : `<p class="muted">SKU ${esc(p.sku)} · ${pill(p.status)} · <a href="./#product/${esc(p.slug)}" target="_blank" rel="noopener">View on store ↗</a> · <a href="#/labels?product=${esc(p.id)}">Print price tags</a></p>`}</div></div>
+      ${isNew ? "" : `<p class="muted">SKU ${esc(p.sku)}${p.oldSku ? ` (was ${esc(p.oldSku)})` : ""} · ${pill(p.status)} · <a href="./#product/${esc(p.slug)}" target="_blank" rel="noopener">View on store ↗</a> · <a href="#/labels?product=${esc(p.id)}">Print price tags</a></p>`}</div></div>
       <form class="cols" id="pForm" novalidate>
         <div class="stack">
           <div class="card"><label class="field"><span>Product name</span><input class="input" name="name" required value="${esc(draft.name)}" placeholder="Fearless Oversized T-shirt – Black"></label>
