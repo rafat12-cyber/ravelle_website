@@ -109,10 +109,15 @@ async function main() {
   assert.equal(r.status, 201, JSON.stringify(r.body));
   var np = r.body.product;
   assert.ok(np.sku && np.variants[0].sku.indexOf(np.sku) === 0);
-  assert.equal(np.sku, "RVL-01-0001", "SKU from category number + serial");
-  assert.equal(np.variants[0].sku, "RVL-01-0001-M");
+  // the 58 starting products are numbered RVL-..-0001 to 0058, so the next one is 0059
+  assert.equal(np.sku, "RVL-01-0059", "SKU from category number + serial");
+  assert.equal(np.variants[0].sku, "RVL-01-0059-M");
   r = await call("POST", "/api/products", { name: "Test Jacket", price: 900, categoryIds: ["cat_men", "cat_jacket"] }, token);
-  assert.equal(r.body.product.sku, "RVL-08-0002", "most specific category, next serial");
+  assert.equal(r.body.product.sku, "RVL-08-0060", "most specific category, next serial");
+  r = await call("GET", "/api/products/fearless-oversized-t-shirt-yellow", null, token);
+  assert.ok(/^RVL-02-\d{4}$/.test(r.body.product.sku) && r.body.product.oldSku === "RV-FRL-YLW", "starting products renumbered, old SKU kept");
+  r = await call("PATCH", "/api/stock", { items: [{ sku: "RV-FRL-YLW-M", stock: 7 }] }, token);
+  assert.equal(r.body.results[0].ok, true, "old size SKU still updates stock");
   r = await call("POST", "/api/categories", { name: "Hoodie", parentId: "cat_men" }, token);
   assert.equal(r.body.item.code, 17, "new category gets the next number");
   r = await call("PUT", "/api/categories/" + r.body.item.id, { code: 8 }, token);
