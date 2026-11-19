@@ -109,7 +109,9 @@ server {
 }
 ```
 
-Back up the `DATA_DIR` folder. It holds everything: `db.json`, `backups/` (one copy a day, 14 days) and `uploads/`.
+Back up the `DATA_DIR` folder. It holds everything: `db.json`, `backups/` (one copy a day, 30 days), `orders-log.jsonl` (every new or changed order, never rewritten) and `uploads/`.
+
+If the host runs more than one copy of the app (cPanel/LiteSpeed can under heavy traffic), the copies share a lock file (`db.json.lock`) and reload each other's changes, so no copy can write over another's orders. If orders ever go missing, the owner opens **Admin › Orders › Recover lost orders**: it lists orders found in the backups and the order log that aren't in the store and puts back the ticked ones (a clashing order number gets a new one). An old `db.json` copied into `DATA_DIR/recover/` is searched too.
 
 ### SSLCOMMERZ
 

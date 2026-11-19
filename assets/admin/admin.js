@@ -524,7 +524,7 @@
     const q = new URLSearchParams(query || "");
     const state = { status: q.get("status") || "", q: q.get("q") || "", from: "", to: "" };
     view.innerHTML = `<div class="head"><div><h1 class="h1">Orders</h1><p class="muted">Confirm, pack and ship orders. Cancelling or returning an order puts the stock back.</p></div>
-      <button class="btn btn--ghost" id="ordCsv">Export CSV</button></div>
+      <div class="flex">${me.role === "owner" && window.Ravelle.mode !== "demo" ? `<button class="btn btn--ghost" id="ordRecover">Recover lost orders</button>` : ""}<button class="btn btn--ghost" id="ordCsv">Export CSV</button></div></div>
       <div class="tabs" id="ordTabs"></div>
       <div class="toolbar"><div class="flex ord-act"><select class="input" id="ordAct" aria-label="Action for ticked orders"><option value="">Action…</option>
           <option value="confirmed">Confirm</option><option value="hold">Hold</option><option value="cancelled">Cancel</option><option value="pathao">Send to Pathao</option>
@@ -659,6 +659,30 @@
     $("#ordQ").oninput = debounce((e) => { state.q = e.target.value.trim(); load(); }, 250);
     $("#ordFrom").onchange = (e) => { state.from = e.target.value; load(); };
     $("#ordTo").onchange = (e) => { state.to = e.target.value; load(); };
+    // Recover lost orders: finds orders in the daily backups and the order log that aren't in the store any more
+    if ($("#ordRecover")) $("#ordRecover").onclick = async () => {
+      let found;
+      try { found = (await api("GET", "/api/orders-recovery")).orders; } catch (err) { return fail(err); }
+      if (!found.length) return modal("Recover lost orders", `<p class="muted">No lost orders found. Every order in the backups and the order log is already in the store (or was deleted on purpose).</p><div class="modal__foot"><button class="btn btn--dark" data-modal-close>OK</button></div>`);
+      const body = modal("Recover lost orders", `<p class="muted">Found <b>${found.length}</b> order${found.length === 1 ? "" : "s"} in the backups that aren't in the store now. Untick any you don't want back.</p>
+        <div class="table-wrap" style="max-height:50vh;overflow:auto"><table class="t t--tight"><thead><tr><th><input type="checkbox" data-rall checked aria-label="Select all"></th><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th class="right">Total</th></tr></thead><tbody>
+        ${found.map((o) => `<tr><td><input type="checkbox" data-rid="${esc(o.id)}" checked></td><td><b>${esc(o.number)}</b>${o.numberTaken ? `<br><small class="muted">Number now used by another order: gets a new number</small>` : ""}</td><td class="nowrap">${dateTime(o.createdAt)}</td><td>${esc(o.name)}<br><small class="muted">${esc(o.phone)}</small></td><td>${pill(o.status)}</td><td class="right num">${taka(o.total)}</td></tr>`).join("")}
+        </tbody></table></div>
+        <label class="switch" style="margin-top:12px"><input type="checkbox" data-rstock checked> Take these orders' items off stock again</label>
+        <div class="modal__foot"><button class="btn btn--ghost" data-modal-close>Cancel</button><button class="btn btn--dark" data-rgo>Recover ticked orders</button></div>`, { wide: true, noFocus: true });
+      const boxes = () => Array.from(body.querySelectorAll("[data-rid]"));
+      body.querySelector("[data-rall]").onchange = (e) => boxes().forEach((x) => { x.checked = e.target.checked; });
+      body.querySelector("[data-rgo]").onclick = async (e) => {
+        const ids = boxes().filter((x) => x.checked).map((x) => x.dataset.rid);
+        if (!ids.length) return toast("Tick at least one order");
+        busy(e.target, true);
+        try {
+          const out = await api("POST", "/api/orders-recovery", { ids, stock: body.querySelector("[data-rstock]").checked });
+          closeModal(); toast(out.recovered.length + " order" + (out.recovered.length === 1 ? "" : "s") + " recovered");
+          load(); refreshCounts();
+        } catch (err) { busy(e.target, false); fail(err); }
+      };
+    };
     $("#ordCsv").onclick = async () => {
       const params = new URLSearchParams({ full: "1" });
       if (state.from) params.set("from", new Date(state.from + "T00:00:00").getTime());

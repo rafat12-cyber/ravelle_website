@@ -50,44 +50,126 @@ fs.mkdirSync(path.join(DATA_DIR, "backups"), { recursive: true });
 // Database: one JSON file, written atomically, with a daily backup
 // ---------------------------------------------------------------------------
 var db;
-if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-else {
+var LOCK_DIR = DB_FILE + ".lock";
+var diskStamp = "";
+var sleeper = new Int32Array(new SharedArrayBuffer(4));
+var BACKUP_DIR = path.join(DATA_DIR, "backups");
+function backupFiles() { try { return fs.readdirSync(BACKUP_DIR).filter(function (f) { return /^db-.*\.json$/.test(f); }).sort(); } catch (e) { return []; } }
+if (fs.existsSync(DB_FILE)) db = readDbFile();
+else if (backupFiles().length) {
+  // db.json is missing but backups exist: never start an empty store over real data, start from the newest backup
+  var newest = backupFiles().pop();
+  fs.copyFileSync(path.join(BACKUP_DIR, newest), DB_FILE);
+  db = readDbFile();
+  console.error("db.json was missing, so the store started from the backup " + newest + ". Check Admin › Orders › Recover lost orders.");
+} else {
   db = Core.freshDb(SEED);
   console.log("Created a new store database at " + DB_FILE);
 }
-var upgraded = Core.upgradeDb(db, SEED);
-if (!db.users.length) {
-  var email = (process.env.ADMIN_EMAIL || "admin@ravellebd.com").toLowerCase();
-  var pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString("base64url");
-  var salt = random(8);
-  db.users.push({ id: "usr_" + random(6), name: "Owner", email: email, role: "owner", salt: salt, passwordHash: hashPassword(pw, salt), createdAt: Date.now() });
-  console.log("\n  Admin login: " + email + " / " + pw + "\n  Change this password after you sign in.\n");
-  saveNow();
-} else if (upgraded) saveNow();
-
-var saveTimer = null;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveNow, 250);
+// Everywhere a lost order could still be: the daily backups, copies left by an interrupted save,
+// the order log, and any old db.json you put in DATA_DIR/recover/
+function orderSources() {
+  var out = [];
+  function add(name, file) {
+    try { var d = JSON.parse(fs.readFileSync(file, "utf8")); if (d && Array.isArray(d.orders)) out.push({ name: name, orders: d.orders }); }
+    catch (e) { console.warn("Recovery: couldn't read " + name + ": " + e.message); }
+  }
+  backupFiles().forEach(function (f) { add("backup " + f, path.join(BACKUP_DIR, f)); });
+  try { fs.readdirSync(DATA_DIR).filter(function (f) { return /^db\.json\..*tmp$/.test(f); }).forEach(function (f) { add(f, path.join(DATA_DIR, f)); }); } catch (e) {}
+  var rec = path.join(DATA_DIR, "recover");
+  try { fs.readdirSync(rec).filter(function (f) { return /\.json$/.test(f); }).forEach(function (f) { add("recover/" + f, path.join(rec, f)); }); } catch (e) {}
+  try {
+    var logged = fs.readFileSync(path.join(DATA_DIR, "orders-log.jsonl"), "utf8").split("\n").map(function (line) {
+      try { return JSON.parse(line).order; } catch (e) { return null; }
+    }).filter(Boolean);
+    out.push({ name: "order log", orders: logged });
+  } catch (e) {}
+  return out;
 }
+// First start or new version: upgrade the database and make the owner account, under the shared lock
+mutate(function (db) {
+  var upgraded = Core.upgradeDb(db, SEED);
+  if (!db.users.length) {
+    var email = (process.env.ADMIN_EMAIL || "admin@ravellebd.com").toLowerCase();
+    var pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString("base64url");
+    var salt = random(8);
+    db.users.push({ id: "usr_" + random(6), name: "Owner", email: email, role: "owner", salt: salt, passwordHash: hashPassword(pw, salt), createdAt: Date.now() });
+    console.log("\n  Admin login: " + email + " / " + pw + "\n  Change this password after you sign in.\n");
+    return true;
+  }
+  return !!upgraded || !fs.existsSync(DB_FILE);
+});
+
+// Hosting such as cPanel (LiteSpeed / Passenger) may start more than one copy of the app when traffic is high.
+// Each copy holds the database in memory, so a copy that wrote its own older list over db.json would wipe
+// orders the other copy had taken. To stop that, every change happens under a lock file shared by all copies:
+// take the lock, reload db.json if another copy changed it, make the change, write it straight away.
+function stampOf() { try { var st = fs.statSync(DB_FILE); return st.mtimeMs + ":" + st.size + ":" + st.ino; } catch (e) { return ""; } }
+function readDbFile() {
+  var text = fs.readFileSync(DB_FILE, "utf8");
+  diskStamp = stampOf();
+  return JSON.parse(text);
+}
+function withLock(fn) {
+  var start = Date.now();
+  for (;;) {
+    try { fs.mkdirSync(LOCK_DIR); break; } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      // A copy that crashed while holding the lock leaves it behind: after 15 seconds it's taken over
+      try { if (Date.now() - fs.statSync(LOCK_DIR).mtimeMs > 15e3) { fs.rmdirSync(LOCK_DIR); continue; } } catch (_) { continue; }
+      if (Date.now() - start > 10e3) throw new Error("The database is busy. Try again in a moment.");
+      Atomics.wait(sleeper, 0, 0, 15);
+    }
+  }
+  try { return fn(); } finally { try { fs.rmdirSync(LOCK_DIR); } catch (e) {} }
+}
+// Another copy of the app saved since we last read or wrote db.json: load its version
+function refreshDb() {
+  var now = stampOf();
+  if (!now || now === diskStamp) return;
+  try {
+    var fresh = readDbFile();
+    Core.upgradeDb(fresh, SEED);
+    db = fresh;
+  } catch (e) { console.error("Couldn't reload the database another app copy saved:", e.message); }
+}
+// Change the database safely: fn changes `db`; return true from fn (or nothing) to save
+function mutate(fn) {
+  return withLock(function () {
+    refreshDb();
+    var out = fn(db);
+    if (out !== false) writeDb();
+    return out;
+  });
+}
+// Every new or changed order is also added to orders-log.jsonl (one line per change, never rewritten),
+// so orders can always be rebuilt from it if db.json is ever lost or overwritten.
+var JOURNAL = path.join(DATA_DIR, "orders-log.jsonl");
+function journal(list) {
+  if (!list.length) return;
+  try { fs.appendFileSync(JOURNAL, list.map(function (o) { return JSON.stringify({ at: Date.now(), order: o }); }).join("\n") + "\n"); }
+  catch (e) { console.error("Couldn't write the order log:", e.message); }
+}
+function save() { saveNow(); }
 function saveNow() {
-  clearTimeout(saveTimer);
-  try { writeDb(); } catch (e) { console.error("Couldn't save the database:", e.message); }
+  try { withLock(writeDb); } catch (e) { console.error("Couldn't save the database:", e.message); }
 }
 function writeDb() {
-  var tmp = DB_FILE + ".tmp";
+  var tmp = DB_FILE + "." + process.pid + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(db));
   fs.renameSync(tmp, DB_FILE);
+  diskStamp = stampOf();
   var day = new Date().toISOString().slice(0, 10);
-  var backup = path.join(DATA_DIR, "backups", "db-" + day + ".json");
+  var backup = path.join(BACKUP_DIR, "db-" + day + ".json");
   if (!fs.existsSync(backup)) {
     fs.copyFileSync(DB_FILE, backup);
-    var old = fs.readdirSync(path.join(DATA_DIR, "backups")).filter(function (f) { return /^db-/.test(f); }).sort();
-    old.slice(0, Math.max(0, old.length - 14)).forEach(function (f) { fs.unlinkSync(path.join(DATA_DIR, "backups", f)); });
+    var old = backupFiles();
+    old.slice(0, Math.max(0, old.length - 30)).forEach(function (f) { fs.unlinkSync(path.join(BACKUP_DIR, f)); });
   }
 }
-process.on("SIGINT", function () { saveNow(); process.exit(0); });
-process.on("SIGTERM", function () { saveNow(); process.exit(0); });
+// Every change is already on disk, so stopping needs no last save (a last save could write an old copy over a newer one)
+process.on("SIGINT", function () { process.exit(0); });
+process.on("SIGTERM", function () { process.exit(0); });
 
 function random(bytes) { return crypto.randomBytes(bytes).toString("hex"); }
 function hashPassword(pw, salt) { return "scrypt$" + crypto.scryptSync(String(pw), String(salt), 32).toString("hex"); }
@@ -114,11 +196,12 @@ function deliver(job, attempt) {
     "X-Ravelle-Event": job.event, "X-Ravelle-Delivery": job.id, "X-Ravelle-Signature": "sha256=" + sig
   }, function (err, status) {
     var ok = !err && status >= 200 && status < 300;
+    mutate(function (db) {
     db.webhookLog = (db.webhookLog || []).concat({ id: job.id + "_" + attempt, hookId: job.hook.id, url: job.hook.url, event: job.event, at: Date.now(),
       attempt: attempt, ok: ok, status: err ? String(err.message || err).slice(0, 120) : status }).slice(-300);
     var live = db.webhooks.filter(function (w) { return w.id === job.hook.id; })[0];
     if (live) live.lastStatus = { ok: ok, status: err ? "error" : status, at: Date.now() };
-    save();
+    });
     if (!ok && attempt < 3) setTimeout(function () { deliver(job, attempt + 1); }, attempt === 1 ? 5000 : 30000);
   });
 }
@@ -339,7 +422,7 @@ function acoreDone(job, ok, acoreId, error) {
   try { run({ method: "POST", path: "/api/internal/acore-sent", internal: true, body: { orderId: job.orderId, ok: ok, acoreId: acoreId, error: error } }); } catch (e) { console.error(e); }
 }
 setInterval(function () {
-  var out = core.handle({ method: "GET", path: "/api/internal/acore-due", internal: true }, db);
+  var out = run({ method: "GET", path: "/api/internal/acore-due", internal: true, headers: {}, body: {}, query: {} });
   ((out.body || {}).orders || []).forEach(acoreSend);
 }, 2 * 60e3).unref();
 function acoreWebhook(req, raw, body, res) {
@@ -559,13 +642,13 @@ function nextEmail() {
   if (!job) { emailBusy = false; return; }
   emailBusy = true;
   smtpSend(job, function (err) {
-    var e = (db.emailLog || []).filter(function (x) { return x.id === job.id; })[0];
-    if (e) {
+    mutate(function (db) {
+      var e = (db.emailLog || []).filter(function (x) { return x.id === job.id; })[0];
+      if (!e) return false;
       e.ok = !err;
-      e.status = err ? "Failed: " + (/535|534|Username and Password/i.test(err.message) ? "Gmail refused the login. Check the address and the 16-letter app password." : err.message) : "Sent";
+      e.status = err ? "Failed: " + (/535|534|Username and Password/i.test(err.message) ? "Gmail refused the login. Check the address and the 16-letter app password. Gmail said: " + err.message.replace(/^SMTP /, "").replace(/\s*https?:\S+/g, "").slice(0, 200) : err.message) : "Sent";
       e.sentAt = Date.now();
-      save();
-    }
+    });
     if (err) console.error("Email to " + job.to + " failed:", err.message);
     setTimeout(nextEmail, 300);
   });
@@ -575,7 +658,7 @@ setInterval(function () { run({ method: "POST", path: "/api/internal/cart-remind
 var core = Core.create({
   now: Date.now, random: random, hashPassword: hashPassword, emit: emit, saveMedia: saveMedia, saveSmall: saveSmall, deleteMedia: deleteMedia, trashMedia: trashMedia, restoreMedia: restoreMedia,
   describeSettings: function (s) { s.payments.sslcommerz.serverReady = !!((SSLC_PASS || s.payments.sslcommerz.storePasswordSet) && (SSLC_ID || s.payments.sslcommerz.storeId)); s.payments.sslcommerz.envPassword = !!SSLC_PASS; s.payments.bkash.callbackUrl = PUBLIC_URL + "/api/payments/bkash/callback"; if (s.code) { s.code.capiStatus = capiStatus; s.code.gaStatus = gaStatus; s.code.catalogStatus = catalogStatus; } if (s.pathao) { s.pathao.lastSend = pathaoLast.send; s.pathao.lastWebhook = pathaoLast.webhook; s.pathao.webhookUrl = PUBLIC_URL + "/api/pathao/webhook"; } if (s.acore) { s.acore.lastSend = acoreLast.send; s.acore.lastWebhook = acoreLast.webhook; s.acore.webhookUrl = PUBLIC_URL + "/api/acore/webhook"; } },
-  metaEvent: metaEvent, gaEvent: gaEvent, catalogSync: catalogSyncAll, acoreSend: acoreSend, pathao: true, sendEmail: sendEmail, publicUrl: PUBLIC_URL
+  orderSources: orderSources, metaEvent: metaEvent, gaEvent: gaEvent, catalogSync: catalogSyncAll, acoreSend: acoreSend, pathao: true, sendEmail: sendEmail, publicUrl: PUBLIC_URL
 });
 
 // ---------------------------------------------------------------------------
@@ -745,8 +828,18 @@ function fromAdminPage(req) {
   return from.origin === SITE.origin && onSite(req);
 }
 function run(req) {
-  var out = core.handle(req, db);
-  if (out.changed && out.status < 400) { save(); chatChanged(req, out); }
+  var out = withLock(function () {
+    refreshDb();
+    var before = {};
+    if (req.method !== "GET") db.orders.forEach(function (x) { before[x.id] = x.updatedAt; });
+    var o = core.handle(req, db);
+    if (o.changed && o.status < 400) {
+      writeDb();
+      journal(db.orders.filter(function (x) { return before[x.id] !== x.updatedAt; }));
+    }
+    return o;
+  });
+  if (out.changed && out.status < 400) chatChanged(req, out);
   setImmediate(flushOutbox);
   return out;
 }
