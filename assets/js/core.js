@@ -2430,10 +2430,15 @@
     }
     function purgeTrash(db) {
       var t = now(), keep = [];
-      (db.trash || []).forEach(function (x) { if (x.expiresAt > t) keep.push(x); else if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); });
+      (db.trash || []).forEach(function (x) { if (x.expiresAt > t) keep.push(x); else { forget(db, x); if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); } });
       var changed = keep.length !== (db.trash || []).length;
       db.trash = keep;
       return changed;
+    }
+    // Orders deleted for good are remembered by id, so "Recover lost orders" never brings them back
+    function forget(db, x) {
+      if (x.kind !== "order" || !x.item || !x.item.id) return;
+      db.goneOrders = (db.goneOrders || []).concat(x.item.id).slice(-5000);
     }
     function trashAllowed(c, x) { return x.kind === "order" ? canTrashOrders(c.auth) : canSee(c.auth, TRASH_AREA[x.kind]); }
     function trashItem(c) {
@@ -2476,14 +2481,65 @@
     route("DELETE", "/api/trash/:id", "*", function (c) {
       var x = trashItem(c);
       if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true);
+      forget(c.db, x);
       c.db.trash = c.db.trash.filter(function (t) { return t !== x; });
       return { ok: true };
     });
     route("DELETE", "/api/trash", "*", function (c) {
       var mine = (c.db.trash || []).filter(function (x) { return trashAllowed(c, x); });
-      mine.forEach(function (x) { if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); });
+      mine.forEach(function (x) { forget(c.db, x); if (x.kind === "media" && host.deleteMedia) host.deleteMedia(x.item.url, true); });
       c.db.trash = (c.db.trash || []).filter(function (x) { return mine.indexOf(x) < 0; });
       return { ok: true, removed: mine.length };
+    });
+
+    // --- Recover lost orders ----------------------------------------------------------------------------
+    // The live server keeps a daily copy of the database and a log of every order change. Orders found
+    // there that are no longer in the store (and weren't deleted on purpose) can be put back by the owner.
+    function lostOrders(c) {
+      needOwner(c, "recover lost orders");
+      if (!host.orderSources) fail(400, "Lost orders can only be recovered on the live server.");
+      var skip = {};
+      c.db.orders.forEach(function (o) { skip[o.id] = true; });
+      (c.db.trash || []).forEach(function (t) { if (t.kind === "order" && t.item) skip[t.item.id] = true; });
+      (c.db.goneOrders || []).forEach(function (id) { skip[id] = true; });
+      var found = {};
+      host.orderSources().forEach(function (src) {
+        (src.orders || []).forEach(function (o) {
+          if (!o || typeof o !== "object" || !/^ord_/.test(String(o.id)) || skip[o.id] || !Array.isArray(o.items) || !o.customer) return;
+          var had = found[o.id];
+          if (!had || int(o.updatedAt) >= int(had.order.updatedAt)) found[o.id] = { order: o, from: src.name };
+        });
+      });
+      return Object.keys(found).map(function (k) { return found[k]; }).sort(function (a, b) { return int(a.order.createdAt) - int(b.order.createdAt); });
+    }
+    route("GET", "/api/orders-recovery", "orders", function (c) {
+      var list = lostOrders(c), taken = {};
+      c.db.orders.forEach(function (o) { taken[o.number] = true; });
+      return { orders: list.map(function (x) {
+        var o = x.order;
+        return { id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, total: o.total, name: o.customer.name, phone: o.customer.phone,
+          from: x.from, numberTaken: !!taken[o.number] };
+      }) };
+    }, { readonly: true });
+    route("POST", "/api/orders-recovery", "orders", function (c) {
+      var db = c.db, list = lostOrders(c), want = Array.isArray(c.body.ids) ? c.body.ids : null, takeStock = c.body.stock !== false;
+      var taken = {}, top = int(db.counters.order, 1000), out = [];
+      db.orders.concat(list.map(function (x) { return x.order; })).forEach(function (o) { var n = parseInt(String(o.number).replace(/\D/g, ""), 10); if (n > top) top = n; });
+      db.orders.forEach(function (o) { taken[o.number] = true; });
+      list.forEach(function (x) {
+        var o = clone(x.order);
+        if (want && want.indexOf(o.id) < 0) return;
+        // Two app copies can hand out the same order number: the recovered order gets a new one and keeps the old
+        if (taken[o.number]) { o.formerNumber = o.number; o.number = "RV" + (++top); }
+        taken[o.number] = true;
+        o.recoveredAt = now(); o.recoveredFrom = x.from;
+        if (takeStock && !o.restocked) o.items.forEach(function (it) { moveStock(db, it, -(it.qty - returnedQty(o, it))); });
+        db.orders.push(o);
+        if (o.customer && o.customer.phone) upsertCustomer(db, o.customer);
+        out.push({ id: o.id, number: o.number, formerNumber: o.formerNumber || "" });
+      });
+      db.counters.order = Math.max(int(db.counters.order, 1000), top);
+      return { ok: true, recovered: out };
     });
 
     route("GET", "/api/settings", "settings", function (c) {
